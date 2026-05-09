@@ -130,9 +130,10 @@
             <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             </div>
-            <h3 class="text-xl font-bold text-gray-900 mb-2">이전 입력 기록이 있습니다</h3>
-            <p class="text-sm text-gray-600 mb-1">최근 제출일: <span id="lastSubmitDate" class="font-semibold text-blue-600"></span></p>
-            <p class="text-sm text-gray-500 mb-6">기존 정보를 불러와서 수정하거나<br>오늘 날짜로 재전송하시겠습니까?</p>
+            <h3 class="text-xl font-bold text-gray-900 mb-2">이전 입력기록이 있습니다</h3>
+            <!-- 🌟 요청하신 안내 문구로 수정 -->
+            <p class="text-sm text-pink-600 font-bold mb-1">새로운 방송마다 1회만 주소지 입력해주시면 됩니다.</p>
+            <p class="text-xs text-gray-400 mb-6 italic">최근 제출일: <span id="lastSubmitDate" class="font-semibold"></span></p>
             
             <div class="flex gap-3">
                 <button onclick="ignoreHistory()" class="w-1/2 bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition-colors">
@@ -152,7 +153,6 @@
                 <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
             </div>
             <h3 class="text-xl font-bold text-gray-900 mb-2">전송 완료!</h3>
-            <!-- 🌟 요청하신 대로 수정된 안내 문구 -->
             <div class="space-y-2 mb-6">
                 <p class="text-gray-700 font-semibold">배송지 정보가 성공적으로 등록되었습니다.</p>
                 <p class="text-gray-500 text-sm break-keep">새로운 방송마다 1회 등록하시면 됩니다.<br>주문 감사합니다!</p>
