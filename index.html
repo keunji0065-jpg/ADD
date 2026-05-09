@@ -151,24 +151,18 @@
             <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
             </div>
-            <h3 class="text-xl font-bold text-gray-900 mb-2">제출 완료!</h3>
-            <p class="text-gray-600 mb-6">배송지 정보가 성공적으로<br>등록되었습니다.</p>
-            <!-- 🌟 수정된 창 닫기 버튼: 누르면 모달을 닫고 페이지를 새로고침 합니다 -->
-            <button onclick="closeSuccessModal()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-medium hover:bg-gray-700 transition-colors">
-                확인
+            <h3 class="text-xl font-bold text-gray-900 mb-2">전송 완료!</h3>
+            <p class="text-gray-600 mb-4">배송지 정보가 성공적으로 등록되었습니다.</p>
+            <p class="text-pink-600 font-bold mb-6 break-keep">이제 우측 상단의 [X] 또는 뒤로가기를 눌러<br>이 창을 닫아주세요.</p>
+            <button onclick="window.close()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-medium hover:bg-gray-700 transition-colors">
+                창 닫기
             </button>
         </div>
     </div>
 
     <script>
         // ★ 사장님의 새 구글 앱 스크립트 웹앱 URL ★
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvJiixrYz6gHgBDGW2Mi0bxc8UXPTKuCH4ug_4PeOdVqkm6vCdgCrIjRi0iANnsPSHEQ/exec';
-
-        // 🌟 완료 모달 창 닫기 및 초기화 함수 (추가됨)
-        function closeSuccessModal() {
-            document.getElementById('successModal').classList.add('hidden');
-            window.location.reload(); // 페이지 새로고침으로 폼 초기화
-        }
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxyQiJ3N0iuCbi4UuMLthVCLO7fabe41QZWAmhVcoPVtrbhF-XHEn9ZYjdQOHNE7Nk_uA/exec';
 
         // 페이지 로드 시 이전 기록 확인
         document.addEventListener('DOMContentLoaded', () => {
