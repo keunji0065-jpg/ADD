@@ -153,17 +153,24 @@
             </div>
             <h3 class="text-xl font-bold text-gray-900 mb-2">제출 완료!</h3>
             <p class="text-gray-600 mb-6">배송지 정보가 성공적으로<br>등록되었습니다.</p>
-            <button onclick="window.close()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-medium hover:bg-gray-700 transition-colors">
-                창 닫기
+            <!-- 🌟 수정된 창 닫기 버튼: 누르면 모달을 닫고 페이지를 새로고침 합니다 -->
+            <button onclick="closeSuccessModal()" class="w-full bg-gray-800 text-white py-3 rounded-xl font-medium hover:bg-gray-700 transition-colors">
+                확인
             </button>
         </div>
     </div>
 
     <script>
-        // ★ 사장님의 새 구글 앱 스크립트 웹앱 URL이 성공적으로 입력되었습니다! ★
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxzn5smAmSVAsHqYPQTkj1qFiXGbRNP08yx-EWrDrfbkB_J5cPnP7qhDvyYJSDX6nWPnA/exec';
+        // ★ 사장님의 새 구글 앱 스크립트 웹앱 URL ★
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvJiixrYz6gHgBDGW2Mi0bxc8UXPTKuCH4ug_4PeOdVqkm6vCdgCrIjRi0iANnsPSHEQ/exec';
 
-        // 🌟 페이지 로드 시 이전 기록 확인
+        // 🌟 완료 모달 창 닫기 및 초기화 함수 (추가됨)
+        function closeSuccessModal() {
+            document.getElementById('successModal').classList.add('hidden');
+            window.location.reload(); // 페이지 새로고침으로 폼 초기화
+        }
+
+        // 페이지 로드 시 이전 기록 확인
         document.addEventListener('DOMContentLoaded', () => {
             const savedDataStr = localStorage.getItem('deliveryInfo');
             if (savedDataStr) {
@@ -177,7 +184,7 @@
             }
         });
 
-        // 🌟 이전 기록 불러오기 버튼 동작
+        // 이전 기록 불러오기 버튼 동작
         function loadHistory() {
             const savedDataStr = localStorage.getItem('deliveryInfo');
             if (savedDataStr) {
@@ -193,7 +200,7 @@
             document.getElementById('historyModal').classList.add('hidden');
         }
 
-        // 🌟 새로 입력 (기록 무시) 버튼 동작
+        // 새로 입력 (기록 무시) 버튼 동작
         function ignoreHistory() {
             document.getElementById('historyModal').classList.add('hidden');
         }
