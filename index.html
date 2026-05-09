@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>엠버언니 방송 배송지 입력</title>
+    <title>엠버언니 배송지 입력</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 다음 우편번호 API -->
     <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
@@ -124,7 +124,7 @@
         </div>
     </div>
 
-    <!-- 🌟 [추가됨] 이전 입력 기록 확인 모달 -->
+    <!-- 🌟 이전 입력 기록 확인 모달 -->
     <div id="historyModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden px-4">
         <div class="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
             <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -145,7 +145,7 @@
         </div>
     </div>
 
-    <!-- 제출 완료 후 보여질 모달 (숨김 상태) -->
+    <!-- 제출 완료 후 보여질 모달 -->
     <div id="successModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden px-4">
         <div class="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl">
             <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -160,10 +160,10 @@
     </div>
 
     <script>
-        // ★ 여기에 본인의 구글 앱 스크립트 웹앱 URL을 입력하세요! ★
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/여기에_본인_URL_입력/exec';
+        // ★ 사장님의 새 구글 앱 스크립트 웹앱 URL이 성공적으로 입력되었습니다! ★
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvJiixrYz6gHgBDGW2Mi0bxc8UXPTKuCH4ug_4PeOdVqkm6vCdgCrIjRi0iANnsPSHEQ/exec';
 
-        // 🌟 [추가됨] 페이지 로드 시 이전 기록 확인
+        // 🌟 페이지 로드 시 이전 기록 확인
         document.addEventListener('DOMContentLoaded', () => {
             const savedDataStr = localStorage.getItem('deliveryInfo');
             if (savedDataStr) {
@@ -177,7 +177,7 @@
             }
         });
 
-        // 🌟 [추가됨] 이전 기록 불러오기 버튼 동작
+        // 🌟 이전 기록 불러오기 버튼 동작
         function loadHistory() {
             const savedDataStr = localStorage.getItem('deliveryInfo');
             if (savedDataStr) {
@@ -193,30 +193,26 @@
             document.getElementById('historyModal').classList.add('hidden');
         }
 
-        // 🌟 [추가됨] 새로 입력 (기록 무시) 버튼 동작
+        // 🌟 새로 입력 (기록 무시) 버튼 동작
         function ignoreHistory() {
             document.getElementById('historyModal').classList.add('hidden');
         }
 
-        // 1. 다음 우편번호 API 호출 함수
+        // 다음 우편번호 API 호출 함수
         function execDaumPostcode() {
             new daum.Postcode({
                 oncomplete: function(data) {
-                    // 검색 결과에서 우편번호와 기본주소를 가져와서 폼에 넣습니다.
                     document.getElementById('zipcode').value = data.zonecode;
                     document.getElementById('address_base').value = data.address;
-                    
-                    // 상세주소 칸으로 커서 자동 이동
                     document.getElementById('address_detail').focus();
                 }
             }).open();
         }
 
-        // 3. 폼 제출 로직 (구글 시트로 데이터 전송)
+        // 폼 제출 로직 (구글 시트로 데이터 전송)
         document.getElementById('addressForm').addEventListener('submit', async function(e) {
             e.preventDefault(); // 기본 새로고침 방지
 
-            // 아직 URL을 입력하지 않았다면 경고
             if(GOOGLE_SCRIPT_URL.includes('여기에_본인_URL_입력')) {
                 alert('코드에 구글 스크립트 URL을 먼저 입력해주세요!');
                 return;
@@ -228,7 +224,7 @@
 
             // 전송 데이터 만들기
             const payload = {
-                action: 'add_address', // 구글 스크립트에서 받을 액션 이름
+                action: 'add_address', 
                 nickname: document.getElementById('nickname').value,
                 name: document.getElementById('name').value,
                 phone: document.getElementById('phone').value,
@@ -239,7 +235,7 @@
                 memo: document.getElementById('memo').value
             };
 
-            // 🌟 [추가됨] 성공 시 로컬 스토리지에 저장할 데이터 준비
+            // 성공 시 로컬 스토리지에 저장할 데이터 준비
             const dataToSave = {
                 ...payload,
                 timestamp: new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -255,7 +251,7 @@
                 const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'text/plain;charset=utf-8', // CORS 회피를 위해 text/plain 사용
+                        'Content-Type': 'text/plain;charset=utf-8', 
                     },
                     body: JSON.stringify(payload)
                 });
@@ -263,7 +259,7 @@
                 const result = await response.json();
 
                 if(result.success) {
-                    // 🌟 [추가됨] 성공적으로 보내졌으면 스마트폰에 기록 저장
+                    // 성공적으로 보내졌으면 스마트폰에 기록 저장
                     localStorage.setItem('deliveryInfo', JSON.stringify(dataToSave));
                     
                     // 성공 모달 표시
