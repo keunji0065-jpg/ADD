@@ -10,7 +10,8 @@
         /* 현대적이고 시크한 폰트 (본문용 Pretendard, 제목용 Playfair) */
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap');
         
-        body { font-family: 'Pretendard', sans-serif; background-color: #ffffff; color: #111827; }
+        /* PC에서 모바일 앱처럼 보이게 배경은 부드러운 회색으로 변경 */
+        body { font-family: 'Pretendard', sans-serif; background-color: #f3f4f6; color: #111827; }
         .font-serif { font-family: 'Playfair Display', serif; }
         
         input, textarea { font-size: 16px !important; }
@@ -49,16 +50,17 @@
         }
     </style>
 </head>
-<body class="antialiased min-h-screen">
+<body class="antialiased min-h-screen flex flex-col">
 
     <!-- ==========================================
          [PAGE 1] 대문 (Intro / Landing Page)
          ========================================== -->
-    <div id="intro-page" class="fixed inset-0 z-40 bg-black flex flex-col justify-end">
+    <!-- 🌟 수정됨: fixed inset-0을 제거하고 max-w-md mx-auto를 적용하여 PC에서도 모바일 크기로 고정 -->
+    <div id="intro-page" class="relative max-w-md w-full mx-auto min-h-screen bg-black flex flex-col justify-end z-40 shadow-2xl overflow-hidden sm:my-10 sm:min-h-[800px] sm:rounded-2xl">
         
         <!-- 모델 배경 이미지 -->
         <div class="absolute inset-0 z-0 bg-black">
-            <!-- 🌟 수정됨: object-cover(빈공간 없이 꽉 채움) + object-top(얼굴이 잘리지 않게 사진의 위쪽을 화면 위쪽에 고정) -->
+            <!-- object-cover + object-top 조합 유지 -->
             <img src="https://i.postimg.cc/j2jq2pMn/Gemini-Generated-Image-3y30zc3y30zc3y30.png" 
                  alt="Ember Model" 
                  class="w-full h-full object-cover opacity-100 object-top">
@@ -98,7 +100,7 @@
     <!-- ==========================================
          [PAGE 2] 입력 폼 (Form Page) - 초기엔 숨김
          ========================================== -->
-    <div id="form-page" class="hidden max-w-md w-full mx-auto min-h-screen bg-white shadow-xl flex flex-col fade-enter relative z-10">
+    <div id="form-page" class="hidden max-w-md w-full mx-auto min-h-screen bg-white shadow-2xl flex flex-col fade-enter relative z-10 overflow-hidden sm:my-10 sm:min-h-[800px] sm:rounded-2xl">
         
         <!-- 심플한 헤더 -->
         <header class="py-6 text-center border-b border-gray-100 flex-shrink-0 bg-white sticky top-0 z-20">
@@ -165,7 +167,7 @@
             </form>
         </div>
 
-        <footer class="py-6 text-center text-gray-400 text-[10px] border-t border-gray-100 bg-white uppercase tracking-widest">
+        <footer class="py-6 text-center text-gray-400 text-[10px] border-t border-gray-100 bg-white uppercase tracking-widest mt-auto">
             <p class="mb-1">Ember Sister Official</p>
             <p>System by. 깔로</p>
         </footer>
@@ -178,7 +180,7 @@
 
     <!-- 기록 불러오기 모달 -->
     <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
-        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl">
+        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
             <p class="text-[13px] text-gray-500 mb-6 break-keep">이전에 입력하신 배송지 정보가 있습니다.<br>불러오시겠습니까? <br><span class="text-black font-bold mt-1 inline-block">(※ 방송마다 1회 제출 필수)</span></p>
             <div class="flex gap-2">
@@ -190,7 +192,7 @@
 
     <!-- 성공 모달 -->
     <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
-        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl">
+        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <div class="w-12 h-12 border-2 border-black rounded-full flex items-center justify-center mx-auto mb-5">
                 <svg class="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
             </div>
