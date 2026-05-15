@@ -58,10 +58,10 @@
         
         <!-- 모델 배경 이미지 -->
         <div class="absolute inset-0 z-0 bg-black">
-            <!-- 사장님 이미지 적용 -->
+            <!-- 🌟 수정됨: object-cover(빈공간 없이 꽉 채움) + object-top(얼굴이 잘리지 않게 사진의 위쪽을 화면 위쪽에 고정) -->
             <img src="https://i.postimg.cc/j2jq2pMn/Gemini-Generated-Image-3y30zc3y30zc3y30.png" 
                  alt="Ember Model" 
-                 class="w-full h-full object-contain opacity-100 object-center">
+                 class="w-full h-full object-cover opacity-100 object-top">
             
             <!-- 텍스트 가독성을 위한 다크 그라데이션 오버레이 -->
             <div class="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/40"></div>
