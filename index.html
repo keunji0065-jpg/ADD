@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>EMBER OFFICIAL ORDER</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- URL에 https: 를 명시하여 blob/iframe 환경에서도 정상 로드되도록 수정 -->
     <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <style>
         /* 현대적이고 시크한 폰트 (본문용 Pretendard, 제목용 Playfair) */
@@ -59,18 +58,17 @@
         
         <!-- 모델 배경 이미지 -->
         <div class="absolute inset-0 z-0 bg-black">
-            <!-- 🌟 여기에 호스팅 사이트에 올린 새로운 이미지의 직접 링크(.jpg/.png)를 넣어주세요! 🌟 -->
+            <!-- 사장님 이미지 적용 -->
             <img src="https://i.postimg.cc/j2jq2pMn/Gemini-Generated-Image-3y30zc3y30zc3y30.png" 
                  alt="Ember Model" 
                  class="w-full h-full object-contain opacity-100 object-center">
             
-            <!-- 텍스트 가독성을 위한 다크 그라데이션 오버레이 (사진이 잘 보이도록 어두운 정도를 낮춤) -->
+            <!-- 텍스트 가독성을 위한 다크 그라데이션 오버레이 -->
             <div class="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/40"></div>
         </div>
 
         <!-- 하단 공지사항 및 동의 영역 -->
         <div class="relative z-10 w-full px-4 pb-6 max-w-md mx-auto">
-            <!-- 🌟 여백 축소: p-7 -> p-5 로 줄여서 박스 전체 높이를 낮춤 -->
             <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl">
                 <h2 class="text-[16px] font-extrabold text-black mb-3 border-b-2 border-black pb-2">엠버언니 안내사항</h2>
                 
@@ -215,8 +213,8 @@
 
 
     <script>
-        // ★ 사장님의 구글 앱 스크립트 웹앱 URL ★
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxfco_GnYkvQ_C-21RSWL_lJNn5Trr9AXfqAxKVJ7S6-UG7DCJNzb6OXlsYNgjz07dNow/exec';
+        // ★ 새로 배포하신 구글 앱 스크립트 웹앱 URL 로 업데이트 되었습니다 ★
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykeNregrBIcRcS7Xy_26RcnzDzmnBSGgLQgP3TUIzMlRjB5w0QknZHARY6WlAg44wPdg/exec';
 
         // 🌟 대문에서 [동의] 버튼 누를 때 실행되는 함수
         function startForm() {
@@ -268,7 +266,7 @@
             }).open();
         }
 
-        // 폼 제출 로직 (기존과 동일)
+        // 폼 제출 로직
         document.getElementById('addressForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
