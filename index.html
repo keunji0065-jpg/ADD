@@ -58,22 +58,23 @@
     <div id="intro-page" class="fixed inset-0 z-40 bg-black flex flex-col justify-end">
         
         <!-- 모델 배경 이미지 -->
-        <div class="absolute inset-0 z-0">
-            <!-- 사장님이 제공해주신 이미지 링크 적용 (흑백 필터 제거 및 원본 색상 강조) -->
-            <img src="https://postfiles.pstatic.net/MjAyNjA1MTVfMjcw/MDAxNzc4ODE2MDYwMzIx.UP033epv0SCfjPzu_pquuonwEE_I_qnIfdbwiSx44hYg.waFCxoF_Oays7enK4l_-RFhPpRk1jQV6XrMd4bq_-Wwg.PNG/Gemini_Generated_Image_3y30zc3y30zc3y30.png?type=w773" 
+        <div class="absolute inset-0 z-0 bg-black">
+            <!-- 🌟 여기에 호스팅 사이트에 올린 새로운 이미지의 직접 링크(.jpg/.png)를 넣어주세요! 🌟 -->
+            <img src="https://i.postimg.cc/j2jq2pMn/Gemini-Generated-Image-3y30zc3y30zc3y30.png" 
                  alt="Ember Model" 
-                 class="w-full h-full object-contain opacity-90 object-center">
-            <!-- 텍스트 가독성을 위한 다크 그라데이션 오버레이 -->
-            <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/90"></div>
+                 class="w-full h-full object-contain opacity-100 object-center">
+            
+            <!-- 텍스트 가독성을 위한 다크 그라데이션 오버레이 (사진이 잘 보이도록 어두운 정도를 낮춤) -->
+            <div class="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/40"></div>
         </div>
 
         <!-- 하단 공지사항 및 동의 영역 -->
-        <div class="relative z-10 w-full px-5 pb-8 max-w-md mx-auto">
-            <!-- 투명도(60%)와 강한 블러 효과(xl), 얇은 테두리로 유리 질감(Glassmorphism) 연출 -->
-            <div class="bg-white/60 backdrop-blur-xl border border-white/20 p-6 shadow-2xl">
-                <h2 class="text-lg font-bold text-black mb-4 border-b border-black/20 pb-3">엠버언니 안내사항</h2>
+        <div class="relative z-10 w-full px-4 pb-6 max-w-md mx-auto">
+            <!-- 🌟 여백 축소: p-7 -> p-5 로 줄여서 박스 전체 높이를 낮춤 -->
+            <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl">
+                <h2 class="text-[16px] font-extrabold text-black mb-3 border-b-2 border-black pb-2">엠버언니 안내사항</h2>
                 
-                <ul class="space-y-4 text-[13px] text-gray-900 break-keep font-medium">
+                <ul class="space-y-3 text-[13px] text-gray-900 break-keep font-medium leading-relaxed">
                     <li class="flex items-start gap-2">
                         <span class="font-bold text-black shrink-0 mt-0.5">[교환/반품]</span>
                         <span>공장 직거래 및 원도매 창고 방송 특성상 <strong>교환 및 반품이 절대 불가</strong>합니다. 신중한 구매 부탁드립니다.</span>
@@ -88,7 +89,7 @@
                     </li>
                 </ul>
 
-                <button type="button" onclick="startForm()" class="w-full mt-6 bg-black text-white py-4 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">
+                <button type="button" onclick="startForm()" class="w-full mt-5 bg-black text-white py-3.5 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">
                     확인 및 동의
                 </button>
             </div>
