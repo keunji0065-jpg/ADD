@@ -3,158 +3,233 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>엠버언니 배송지 입력</title>
+    <title>EMBER OFFICIAL ORDER</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <!-- URL에 https: 를 명시하여 blob/iframe 환경에서도 정상 로드되도록 수정 -->
+    <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
+        /* 현대적이고 시크한 폰트 (본문용 Pretendard, 제목용 Playfair) */
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap');
         
-        body { font-family: 'Pretendard', sans-serif; }
+        body { font-family: 'Pretendard', sans-serif; background-color: #ffffff; color: #111827; }
+        .font-serif { font-family: 'Playfair Display', serif; }
+        
         input, textarea { font-size: 16px !important; }
+        .break-keep { word-break: keep-all; }
         
+        /* 모노톤 인풋 스타일 (날카롭고 미니멀하게) */
+        .input-chic {
+            border-radius: 0;
+            border: 1px solid #d1d5db;
+            background-color: #fafafa;
+            transition: all 0.3s ease;
+        }
+        .input-chic:focus {
+            border-color: #000000;
+            background-color: #ffffff;
+            box-shadow: none;
+            outline: none;
+        }
+
+        /* 로딩 애니메이션 */
         .spinner {
-            border: 3px solid rgba(255, 255, 255, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
-            border-top: 3px solid #ffffff;
-            width: 24px;
-            height: 24px;
+            border-top: 2px solid #ffffff;
+            width: 20px;
+            height: 20px;
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        .bg-gradient-ember {
-            background: linear-gradient(135deg, #f9a8d4 0%, #f472b6 50%, #db2777 100%);
+
+        /* 페이지 전환 애니메이션 */
+        .fade-enter { animation: fadeIn 0.6s ease-out forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-800 antialiased min-h-screen">
+<body class="antialiased min-h-screen">
 
-    <div class="max-w-md mx-auto bg-white min-h-screen shadow-sm sm:min-h-0 sm:my-10 sm:rounded-2xl sm:overflow-hidden sm:shadow-xl">
-        <!-- 헤더 영역 -->
-        <div class="relative h-44 flex flex-col items-center justify-center overflow-hidden bg-gradient-ember">
-            <div class="absolute w-full h-full pointer-events-none opacity-30">
-                <div class="absolute top-4 left-6 text-5xl transform -rotate-12">🛍️</div>
-                <div class="absolute top-20 right-8 text-6xl transform rotate-12">💖</div>
-                <div class="absolute bottom-6 left-12 text-4xl transform rotate-6">✨</div>
-            </div>
-
-            <div class="relative z-10 text-center px-4 w-full">
-                <h1 class="text-4xl font-black text-white drop-shadow-md tracking-tight mb-2">엠버언니</h1>
-                <div class="inline-block bg-white/20 backdrop-blur-md px-6 py-1.5 rounded-full border border-white/30 shadow-inner">
-                    <span class="text-white text-xl font-bold tracking-tight">배송지 입력 시스템</span>
-                </div>
-            </div>
+    <!-- ==========================================
+         [PAGE 1] 대문 (Intro / Landing Page)
+         ========================================== -->
+    <div id="intro-page" class="fixed inset-0 z-40 bg-black flex flex-col justify-end">
+        
+        <!-- 모델 배경 이미지 -->
+        <div class="absolute inset-0 z-0">
+            <!-- 사장님이 제공해주신 이미지 링크 적용 (흑백 필터 제거 및 원본 색상 강조) -->
+            <img src="https://postfiles.pstatic.net/MjAyNjA1MTVfMjcw/MDAxNzc4ODE2MDYwMzIx.UP033epv0SCfjPzu_pquuonwEE_I_qnIfdbwiSx44hYg.waFCxoF_Oays7enK4l_-RFhPpRk1jQV6XrMd4bq_-Wwg.PNG/Gemini_Generated_Image_3y30zc3y30zc3y30.png?type=w773" 
+                 alt="Ember Model" 
+                 class="w-full h-full object-contain opacity-90 object-center">
+            <!-- 텍스트 가독성을 위한 다크 그라데이션 오버레이 -->
+            <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/90"></div>
         </div>
 
-        <div class="p-6 space-y-6">
-            <!-- 안내사항 -->
-            <div class="bg-pink-50 border border-pink-100 rounded-xl p-4 text-sm text-pink-800">
-                <p class="font-bold mb-1">📢 필독 안내</p>
-                <p class="leading-relaxed opacity-90">
-                    원활한 배송을 위해 정보를 정확히 입력해주세요.<br>
-                    입력하신 정보는 배송 목적으로만 사용되며 30일 후 안전하게 파기됩니다.
-                </p>
-            </div>
+        <!-- 하단 공지사항 및 동의 영역 -->
+        <div class="relative z-10 w-full px-5 pb-8 max-w-md mx-auto">
+            <!-- 투명도(60%)와 강한 블러 효과(xl), 얇은 테두리로 유리 질감(Glassmorphism) 연출 -->
+            <div class="bg-white/60 backdrop-blur-xl border border-white/20 p-6 shadow-2xl">
+                <h2 class="text-lg font-bold text-black mb-4 border-b border-black/20 pb-3">엠버언니 안내사항</h2>
+                
+                <ul class="space-y-4 text-[13px] text-gray-900 break-keep font-medium">
+                    <li class="flex items-start gap-2">
+                        <span class="font-bold text-black shrink-0 mt-0.5">[교환/반품]</span>
+                        <span>공장 직거래 및 원도매 창고 방송 특성상 <strong>교환 및 반품이 절대 불가</strong>합니다. 신중한 구매 부탁드립니다.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="font-bold text-black shrink-0 mt-0.5">[주문확정]</span>
+                        <span>주문서 제출 후 반드시 <strong>카카오톡 채널에 '닉네임'</strong>을 남겨주셔야 주문확정됩니다.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="font-bold text-black shrink-0 mt-0.5">[개인정보]</span>
+                        <span>입력하신 정보는 상품 배송 목적으로만 사용되며, 마지막입력 30일 후 자동 삭제 됩니다.</span>
+                    </li>
+                </ul>
 
-            <form id="addressForm" class="space-y-5">
+                <button type="button" onclick="startForm()" class="w-full mt-6 bg-black text-white py-4 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">
+                    확인 및 동의
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ==========================================
+         [PAGE 2] 입력 폼 (Form Page) - 초기엔 숨김
+         ========================================== -->
+    <div id="form-page" class="hidden max-w-md w-full mx-auto min-h-screen bg-white shadow-xl flex flex-col fade-enter relative z-10">
+        
+        <!-- 심플한 헤더 -->
+        <header class="py-6 text-center border-b border-gray-100 flex-shrink-0 bg-white sticky top-0 z-20">
+            <h1 class="text-2xl font-serif text-black tracking-widest">EMBER</h1>
+            <p class="text-[10px] text-gray-500 tracking-[0.2em] uppercase mt-1">Order Form</p>
+        </header>
+
+        <!-- 폼 영역 -->
+        <div class="p-6 space-y-8 flex-grow bg-white">
+            <form id="addressForm" class="space-y-6">
+                
                 <!-- 닉네임 -->
-                <div>
-                    <label for="nickname" class="block text-sm font-bold text-gray-700 mb-1.5">닉네임 <span class="text-pink-500">*</span></label>
-                    <input type="text" id="nickname" required placeholder="예: 엠버사랑-d1f" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-pink-500 focus:border-pink-500 outline-none transition-all bg-gray-50 focus:bg-white">
+                <div class="space-y-2">
+                    <label for="nickname" class="block text-xs font-bold text-black uppercase tracking-wider">Nickname <span class="text-red-500">*</span></label>
+                    <input type="text" id="nickname" required placeholder="유투브 닉네임 예) 엠버-9e1" class="w-full px-4 py-3.5 input-chic text-black">
                 </div>
 
                 <!-- 수령인 -->
-                <div>
-                    <label for="name" class="block text-sm font-bold text-gray-700 mb-1.5">수령인 성함 <span class="text-pink-500">*</span></label>
-                    <input type="text" id="name" required placeholder="받으시는 분 성함" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-pink-500 focus:border-pink-500 outline-none transition-all bg-gray-50 focus:bg-white">
+                <div class="space-y-2">
+                    <label for="name" class="block text-xs font-bold text-black uppercase tracking-wider">Name <span class="text-red-500">*</span></label>
+                    <input type="text" id="name" required placeholder="수령인 성함" class="w-full px-4 py-3.5 input-chic text-black">
                 </div>
 
                 <!-- 연락처 -->
-                <div>
-                    <label for="phone" class="block text-sm font-bold text-gray-700 mb-1.5">연락처 <span class="text-pink-500">*</span></label>
-                    <input type="tel" id="phone" required placeholder="숫자만 입력 (01012345678)" inputmode="numeric" pattern="[0-9]*" maxlength="11" oninput="this.value = this.value.replace(/[^0-9]/g, '')" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-pink-500 focus:border-pink-500 outline-none transition-all bg-gray-50 focus:bg-white">
+                <div class="space-y-2">
+                    <label for="phone" class="block text-xs font-bold text-black uppercase tracking-wider">Phone <span class="text-red-500">*</span></label>
+                    <input type="tel" id="phone" required placeholder="숫자만 입력 (01012345678)" inputmode="numeric" pattern="[0-9]*" maxlength="11" oninput="this.value = this.value.replace(/[^0-9]/g, '')" class="w-full px-4 py-3.5 input-chic text-black">
                 </div>
 
                 <!-- 주소 -->
-                <div class="space-y-2">
-                    <label class="block text-sm font-bold text-gray-700 mb-1.5">배송지 주소 <span class="text-pink-500">*</span></label>
+                <div class="space-y-2 pt-2">
+                    <label class="block text-xs font-bold text-black uppercase tracking-wider">Address <span class="text-red-500">*</span></label>
                     <div class="flex gap-2">
-                        <input type="text" id="zipcode" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3 rounded-xl border border-gray-200 bg-gray-100 focus:outline-none text-center">
-                        <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-gray-800 text-white rounded-xl font-bold hover:bg-gray-700 active:scale-95 transition-all">주소 검색</button>
+                        <input type="text" id="zipcode" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500">
+                        <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
                     </div>
-                    <input type="text" id="address_base" readonly required placeholder="기본 주소" class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-100 focus:outline-none">
-                    <input type="text" id="address_detail" required placeholder="상세 주소 (호수, 공동현관 비번 등)" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-pink-500 focus:border-pink-500 outline-none transition-all bg-gray-50 focus:bg-white">
+                    <input type="text" id="address_base" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2">
+                    <input type="text" id="address_detail" required placeholder="상세 주소 (동, 호수)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
                 </div>
 
-                <!-- 배송 메모 (6열 저장용) -->
-                <div>
-                    <label for="memo" class="block text-sm font-bold text-gray-700 mb-1.5">배송 메모 <span class="text-gray-400 font-normal">(선택)</span></label>
-                    <textarea id="memo" rows="2" placeholder="예: 문 앞에 놓아주세요, 벨 누르지 마세요" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-pink-500 focus:border-pink-500 outline-none transition-all resize-none bg-gray-50 focus:bg-white"></textarea>
+                <!-- 배송 메모 -->
+                <div class="space-y-2 pt-2">
+                    <label for="memo" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center justify-between">
+                        <span>Delivery Memo</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(선택)</span>
+                    </label>
+                    <textarea id="memo" rows="2" placeholder="배송 기사님께 남길 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
-                <!-- 구매내역 (7열 저장용) -->
-                <div>
-                    <label for="order_list" class="block text-sm font-bold text-gray-700 mb-1.5">구매내역 셀프입력 <span class="text-gray-400 font-normal">(선택)</span></label>
-                    <textarea id="order_list" rows="3" placeholder="예: 핑크 원피스 1개&#10;화이트 블라우스 1개" class="w-full px-4 py-3 rounded-xl border border-blue-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all resize-none bg-blue-50/30 focus:bg-white"></textarea>
-                    <p class="text-[11px] text-gray-400 mt-1.5 pl-1"></p>
+                <!-- 구매내역 -->
+                <div class="space-y-2 pt-2">
+                    <label for="order_list" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center justify-between">
+                        <span>Order List</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(사장님 확인용)</span>
+                    </label>
+                    <textarea id="order_list" rows="3" placeholder="예: 블랙 자켓 1개&#10;화이트 슬랙스 1개" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
                 <!-- 제출 버튼 -->
-                <div class="pt-4">
-                    <button type="submit" id="submitBtn" class="w-full bg-pink-600 text-white rounded-2xl py-4 font-extrabold text-xl hover:bg-pink-700 active:scale-[0.98] transition-all flex justify-center items-center gap-3 shadow-lg shadow-pink-200">
-                        <span>배송지 전송하기</span>
+                <div class="pt-8 pb-4">
+                    <button type="submit" id="submitBtn" class="w-full bg-black text-white py-4 font-bold text-base tracking-widest hover:bg-gray-900 transition-all flex justify-center items-center gap-3">
+                        <span>주문서 전송하기</span>
                         <div id="loadingSpinner" class="spinner hidden"></div>
                     </button>
-                    <p class="text-center text-red-500 font-bold text-sm mt-4">⚠️ 카톡 채널에 닉네임 꼭 알려주셔야 송장번호 남겨드려요!</p>
                 </div>
             </form>
         </div>
-        
-        <footer class="p-6 text-center text-gray-400 text-xs border-t border-gray-50">
-            &copy; 엠버언니 All Rights Reserved.
+
+        <footer class="py-6 text-center text-gray-400 text-[10px] border-t border-gray-100 bg-white uppercase tracking-widest">
+            <p class="mb-1">Ember Sister Official</p>
+            <p>System by. 깔로</p>
         </footer>
     </div>
 
-    <!-- 모달: 기록 불러오기 -->
-    <div id="historyModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4">
-        <div class="bg-white rounded-3xl p-7 max-w-sm w-full text-center shadow-2xl animate-in fade-in zoom-in duration-300">
-            <div class="w-16 h-16 bg-pink-100 text-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">📝</div>
-            <h3 class="text-xl font-bold text-gray-900 mb-2">이전 입력 기록이 있어요</h3>
-            <p class="text-sm text-gray-500 mb-6 leading-relaxed">저장된 주소 정보를 가져오시겠습니까?<br><span class="text-pink-600 font-bold">(방송마다 1회 제출 필수)</span></p>
-            <div class="flex gap-3">
-                <button onclick="ignoreHistory()" class="w-1/2 bg-gray-100 text-gray-600 py-3.5 rounded-xl font-bold">새로 입력</button>
-                <button onclick="loadHistory()" class="w-1/2 bg-pink-600 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-pink-100">불러오기</button>
+
+    <!-- ==========================================
+         모달 영역 (기록 불러오기 & 성공)
+         ========================================== -->
+
+    <!-- 기록 불러오기 모달 -->
+    <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
+        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl">
+            <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
+            <p class="text-[13px] text-gray-500 mb-6 break-keep">이전에 입력하신 배송지 정보가 있습니다.<br>불러오시겠습니까? <br><span class="text-black font-bold mt-1 inline-block">(※ 방송마다 1회 제출 필수)</span></p>
+            <div class="flex gap-2">
+                <button type="button" onclick="ignoreHistory()" class="w-1/2 border border-gray-300 text-gray-600 py-3 text-sm font-bold tracking-wider hover:bg-gray-50 transition-colors">새로 입력</button>
+                <button type="button" onclick="loadHistory()" class="w-1/2 bg-black text-white py-3 text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">불러오기</button>
             </div>
         </div>
     </div>
 
-    <!-- 모달: 성공 -->
-    <div id="successModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4">
-        <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl">
-            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">✅</div>
-            <h3 class="text-2xl font-bold text-gray-900 mb-2">전송 성공!</h3>
-            <p class="text-gray-600 mb-6">주소지가 정상적으로 등록되었습니다.</p>
-            <div class="bg-red-50 border border-red-100 rounded-2xl p-4 mb-6">
-                <p class="text-red-600 font-bold text-sm">
-                    잠시만요! 카톡 채널 채팅창에<br>
-                    <span class="text-base">[닉네임]</span>을<br>
-                    꼭! 남겨주세요! 🙏
+    <!-- 성공 모달 -->
+    <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
+        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl">
+            <div class="w-12 h-12 border-2 border-black rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg class="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            
+            <h3 class="text-xl font-bold text-black mb-2 tracking-wide">ORDER COMPLETE</h3>
+            <p class="text-gray-500 text-sm mb-6">주문서가 정상적으로 접수되었습니다.</p>
+            
+            <div class="bg-gray-50 border border-gray-200 py-4 px-5 mb-6 text-center">
+                <p class="text-black font-bold text-[15px] break-keep">
+                    카톡 채널에 <span class="font-black border-b-2 border-black pb-0.5">닉네임</span>을 남겨주세요.
                 </p>
             </div>
-            <button onclick="window.close()" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-gray-200">확인 완료</button>
+            
+            <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-4 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">
+                확인
+            </button>
+            <p class="text-[11px] text-gray-400 mt-4 break-keep">화면이 닫히지 않으면 직접 뒤로가기를 해주세요.</p>
         </div>
     </div>
+
 
     <script>
         // ★ 사장님의 구글 앱 스크립트 웹앱 URL ★
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbznr1LdK5kd39J1_0oQnftz6Ye8AYb5hO-catsbNvyaine5YBtwGvmSwop3-JpE0k2t4A/exec';
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxfco_GnYkvQ_C-21RSWL_lJNn5Trr9AXfqAxKVJ7S6-UG7DCJNzb6OXlsYNgjz07dNow/exec';
 
-        document.addEventListener('DOMContentLoaded', () => {
+        // 🌟 대문에서 [동의] 버튼 누를 때 실행되는 함수
+        function startForm() {
+            // 1. 대문 숨기기, 폼 보이기
+            document.getElementById('intro-page').classList.add('hidden');
+            document.getElementById('form-page').classList.remove('hidden');
+            
+            // 2. 폼이 보일 때 과거 입력 기록이 있는지 체크 후 모달 띄우기
             if (localStorage.getItem('deliveryInfo')) {
                 document.getElementById('historyModal').classList.remove('hidden');
             }
-        });
+        }
 
+        // 기존 정보 불러오기
         function loadHistory() {
             const data = JSON.parse(localStorage.getItem('deliveryInfo'));
             if (data) {
@@ -170,9 +245,19 @@
             ignoreHistory();
         }
 
+        // 모달 닫기 로직들
         function ignoreHistory() { document.getElementById('historyModal').classList.add('hidden'); }
+        function closeSuccessModal() {
+            document.getElementById('successModal').classList.add('hidden');
+            try { window.close(); } catch(e) {} 
+        }
 
+        // 카카오 우편번호 API
         function execDaumPostcode() {
+            if (typeof daum === 'undefined' || !daum.Postcode) {
+                alert('우편번호 서비스를 불러오는 중 오류가 발생했습니다. 브라우저 설정을 확인하거나 잠시 후 다시 시도해주세요.');
+                return;
+            }
             new daum.Postcode({
                 oncomplete: function(data) {
                     document.getElementById('zipcode').value = data.zonecode;
@@ -182,6 +267,7 @@
             }).open();
         }
 
+        // 폼 제출 로직 (기존과 동일)
         document.getElementById('addressForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
@@ -222,7 +308,7 @@
                 alert('네트워크 연결이 불안정합니다. 다시 시도해주세요.');
             } finally {
                 btn.disabled = false;
-                btnText.textContent = '배송지 전송하기';
+                btnText.textContent = '주문서 전송하기';
                 spinner.classList.add('hidden');
             }
         });
