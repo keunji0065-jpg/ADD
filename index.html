@@ -160,7 +160,7 @@
                 <!-- 제출 버튼 -->
                 <div class="pt-8 pb-4">
                     <button type="submit" id="submitBtn" class="w-full bg-black text-white py-4 font-bold text-base tracking-widest hover:bg-gray-900 transition-all flex justify-center items-center gap-3">
-                        <span>주문서 전송하기</span>
+                        <span>배송지 전송 (3~5초 소요) </span>
                         <div id="loadingSpinner" class="spinner hidden"></div>
                     </button>
                 </div>
@@ -309,7 +309,7 @@
                 alert('네트워크 연결이 불안정합니다. 다시 시도해주세요.');
             } finally {
                 btn.disabled = false;
-                btnText.textContent = '배송지 전송하기 (전송시간 3~5초)';
+                btnText.textContent = '주문서 전송하기';
                 spinner.classList.add('hidden');
             }
         });
