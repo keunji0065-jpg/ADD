@@ -111,52 +111,70 @@
         <div class="p-6 space-y-8 flex-grow bg-white">
             <form id="addressForm" class="space-y-6">
                 
-                <!-- 닉네임 -->
+                <!-- 유튜브 닉네임 + 실시간 채팅창 고유번호 매칭 강력 강조 -->
                 <div class="space-y-2">
-                    <label for="nickname" class="block text-xs font-bold text-black uppercase tracking-wider">Nickname <span class="text-red-500">*</span></label>
-                    <input type="text" id="nickname" required placeholder="유투브 닉네임 예) 엠버-9e1" class="w-full px-4 py-3.5 input-chic text-black">
+                    <label for="nickname" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center gap-1">
+                        <span class="text-[#FF0000] flex items-center gap-1">
+                            <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                        </span>
+                        <span>유튜브 채팅창 닉네임</span> 
+                        <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text" id="nickname" required placeholder="예시) 깔로-n1d" class="w-full px-4 py-3.5 input-chic text-black font-semibold border-red-500">
+                    
+                    <!-- 🌟 붉은색 알림 박스로 문구 극대화 강조 적용 -->
+                    <div class="bg-red-50 border border-red-200 p-3.5 mt-2 rounded-sm">
+                        <p class="text-[12px] text-red-700 break-keep leading-relaxed font-black flex items-center gap-1">
+                            ⚠️ 동일한 닉네임이 너무 많아 고유번호까지 적어주셔야 매칭됩니다!
+                        </p>
+                        <div class="text-[11px] text-gray-700 break-keep leading-relaxed font-semibold mt-1.5 pl-3 border-l-2 border-red-400">
+                            • 입력 형식: <strong class="text-red-600 bg-red-100 px-1 py-0.5 rounded-sm">닉네임-영어숫자</strong><br>
+                            • 입력 예시: <span class="text-black bg-gray-100 px-1 font-bold">깔로-n1d</span> 또는 <span class="text-black bg-gray-100 px-1 font-bold">엠버언니-s9f1l</span><br>
+                            <span class="text-[10px] text-gray-500 font-normal mt-1 block">(※ 라이브 방송 시 채팅창에 이름 옆에 뜨는 고유 번호 코드입니다.)</span>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- 수령인 -->
+                <!-- 수령인 성함 -->
                 <div class="space-y-2">
-                    <label for="name" class="block text-xs font-bold text-black uppercase tracking-wider">Name <span class="text-red-500">*</span></label>
-                    <input type="text" id="name" required placeholder="수령인 성함" class="w-full px-4 py-3.5 input-chic text-black">
+                    <label for="name" class="block text-xs font-bold text-black uppercase tracking-wider">수령인 성함 <span class="text-red-500">*</span></label>
+                    <input type="text" id="name" required placeholder="배송 받으실 분의 실명 성함" class="w-full px-4 py-3.5 input-chic text-black">
                 </div>
 
                 <!-- 연락처 (숫자 외 문자 실시간 필터링) -->
                 <div class="space-y-2">
-                    <label for="phone" class="block text-xs font-bold text-black uppercase tracking-wider">Phone <span class="text-red-500">*</span></label>
+                    <label for="phone" class="block text-xs font-bold text-black uppercase tracking-wider">휴대폰 번호 <span class="text-red-500">*</span></label>
                     <input type="tel" id="phone" required placeholder="숫자만 입력 (01012345678)" 
                            inputmode="numeric" 
                            pattern="[0-9]*" 
                            class="w-full px-4 py-3.5 input-chic text-black">
-                    <!-- 🌟 실시간 / 전송 시 노출될 에러 메시지 영역 -->
+                    <!-- 실시간 / 전송 시 노출될 에러 메시지 영역 -->
                     <p id="phoneError" class="text-xs text-red-500 font-semibold hidden mt-1">전화번호 11자리를 정확히 입력해 주세요.</p>
                 </div>
 
-                <!-- 주소 (아파트 이름 누락 원천 방지) -->
+                <!-- 배송지 주소 (아파트 이름 누락 원천 방지) -->
                 <div class="space-y-2 pt-2">
-                    <label class="block text-xs font-bold text-black uppercase tracking-wider">Address <span class="text-red-500">*</span></label>
+                    <label class="block text-xs font-bold text-black uppercase tracking-wider">배송지 주소 <span class="text-red-500">*</span></label>
                     <div class="flex gap-2">
                         <input type="text" id="zipcode" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500">
                         <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
                     </div>
                     <input type="text" id="address_base" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2">
-                    <input type="text" id="address_detail" required placeholder="상세 주소 (동, 호수)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
+                    <input type="text" id="address_detail" required placeholder="상세 주소 (동, 호수, 건물명)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
                 </div>
 
                 <!-- 배송 메모 -->
                 <div class="space-y-2 pt-2">
                     <label for="memo" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center justify-between">
-                        <span>Delivery Memo</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(선택)</span>
+                        <span>배송 메모</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(선택)</span>
                     </label>
-                    <textarea id="memo" rows="2" placeholder="배송 기사님께 남길 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
+                    <textarea id="memo" rows="2" placeholder="배송 기사님께 전달할 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
                 <!-- 구매내역 -->
                 <div class="space-y-2 pt-2">
                     <label for="order_list" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center justify-between">
-                        <span>Order List</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(사장님 확인용)</span>
+                        <span>구매 내역</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(사장님 확인용)</span>
                     </label>
                     <textarea id="order_list" rows="3" placeholder="예: 블랙 자켓 1개&#10;화이트 슬랙스 1개" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
@@ -179,7 +197,7 @@
 
 
     <!-- ==========================================
-         모달 영역 (기록 불러오기 & 성공 & 🌟커스텀 알림 추가)
+         모달 영역 (기록 불러오기 & 성공 & 커스텀 알림 추가)
          ========================================== -->
 
     <!-- 기록 불러오기 모달 -->
@@ -217,7 +235,7 @@
         </div>
     </div>
 
-    <!-- 🌟 일체형 커스텀 알림 모달 -->
+    <!-- 일체형 커스텀 알림 모달 -->
     <div id="customAlertModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] hidden px-5">
         <div class="bg-white p-7 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <div class="w-10 h-10 border-2 border-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -236,7 +254,7 @@
         // ★ 새로 배포하신 구글 앱 스크립트 웹앱 URL ★
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykeNregrBIcRcS7Xy_26RcnzDzmnBSGgLQgP3TUIzMlRjB5w0QknZHARY6WlAg44wPdg/exec';
 
-        // 🌟 브라우저 alert 대용 커스텀 모달 노출 함수
+        // 브라우저 alert 대용 커스텀 모달 노출 함수
         function showCustomAlert(msg) {
             document.getElementById('customAlertMessage').innerText = msg;
             document.getElementById('customAlertModal').classList.remove('hidden');
@@ -245,7 +263,7 @@
             document.getElementById('customAlertModal').classList.add('hidden');
         }
 
-        // --- 🌟 쿠키(Cookie) 저장 및 불러오기 함수 추가 (저장 안전장치) ---
+        // --- 쿠키(Cookie) 저장 및 불러오기 함수 추가 (저장 안전장치) ---
         function setCookie(name, value, days) {
             const d = new Date();
             d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
@@ -269,7 +287,7 @@
             return "";
         }
 
-        // 🌟 대문에서 [동의] 버튼 누를 때 실행되는 함수
+        // 대문에서 [동의] 버튼 누를 때 실행되는 함수
         function startForm() {
             // 1. 대문 숨기기, 폼 보이기
             document.getElementById('intro-page').classList.add('hidden');
@@ -307,7 +325,14 @@
             try { window.close(); } catch(e) {} 
         }
 
-        // 🌟 실시간 숫자 전처리 체인 및 에러 상태 해제 기능
+        // 🌟 닉네임 입력 시 공백 및 @ 기호 원천 차단 필터
+        const nicknameInput = document.getElementById('nickname');
+        nicknameInput.addEventListener('input', function() {
+            // @ 기호를 실시간으로 완전히 지워버림
+            this.value = this.value.replace(/@/g, '');
+        });
+
+        // 실시간 숫자 전처리 체인 및 에러 상태 해제 기능
         const phoneInput = document.getElementById('phone');
         
         function cleanPhoneInput(element) {
@@ -349,7 +374,7 @@
                         if(data.bname !== '' && /[동|로|가]$/g.test(data.bname)){
                             extraAddr += data.bname;
                         }
-                        // 🌟 공동주택('Y') 조건 필터 제거: 아파트 여부 상관없이 건물명(buildingName)이 있으면 무조건 100% 붙여넣음! (금곡GS아파트 누락 방지 핵심 패치)
+                        // 공동주택 여부 상관없이 건물명(buildingName)이 있으면 무조건 100% 붙여넣음! (금곡GS아파트 누락 방지 핵심 패치)
                         if(data.buildingName !== ''){
                             extraAddr += (extraAddr !== '' ? ', ' + data.buildingName : data.buildingName);
                         }
@@ -380,7 +405,7 @@
             const rawPhone = document.getElementById('phone').value;
             const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
 
-            // 🌟 [수정]: 팝업 경고 대신 인풋 필드 아래에 직접 빨간색 경고 표시 및 전송 차단!
+            // 팝업 경고 대신 인풋 필드 아래에 직접 빨간색 경고 표시 및 전송 차단!
             if (cleanPhone.length !== 11) {
                 document.getElementById('phoneError').classList.remove('hidden');
                 document.getElementById('phone').classList.add('border-red-500');
