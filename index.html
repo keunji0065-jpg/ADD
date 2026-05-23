@@ -106,7 +106,7 @@
                     </li>
                     <li class="flex items-start gap-2">
                         <span class="font-bold text-black shrink-0 mt-0.5">[주문확정]</span>
-                        <span>주문서 제출 후 반드시 <strong>카카오톡 채널에 '닉네임'</strong>을 남겨주셔야 주문확정됩니다.</span>
+                        <span class="text-red-600 font-bold">주문서 제출 후 반드시 <strong class="font-extrabold underline underline-offset-2">카카오톡 채널에 '닉네임'</strong>을 남겨주셔야 주문확정됩니다.</span>
                     </li>
                     <li class="flex items-start gap-2">
                         <span class="font-bold text-black shrink-0 mt-0.5">[개인정보]</span>
@@ -264,43 +264,52 @@
                 <div class="mx-4 mb-4 border border-gray-300 rounded-lg overflow-hidden shadow-sm">
                     <!-- 블랙 다크 헤더 -->
                     <div class="bg-[#1a1a1a] py-3 text-center">
-                        <h4 class="text-[15px] font-extrabold text-white tracking-widest">교환 및 반품 불가</h4>
+                        <h4 class="text-[15px] font-extrabold text-white tracking-widest">교환 및 반품 안내</h4>
                     </div>
                     
-                    <!-- 핵심 규정 내용 (고객 과실 제외, 2가지 포인트만) -->
+                    <!-- 핵심 규정 내용 (요청하신 3가지 포인트로 분할) -->
                     <div class="bg-white p-5 space-y-5">
-                        <!-- 포인트 1: 7일 이내 -->
+                        <!-- 포인트 1: 제품 확인 -->
                         <div class="flex items-start gap-3">
-                            <svg class="w-6 h-6 text-gray-500 shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                            </svg>
-                            <p class="text-[15px] text-black font-extrabold break-keep leading-snug mt-0.5 tracking-tight">
-                                하자 발생 시, <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[16px]">수령 후 7일 이내</span> 고객센터로 연락 필수
+                            <div class="shrink-0 mt-0.5">
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                </svg>
+                            </div>
+                            <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
+                                택배 수령 후 꼭 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1 mb-1">제품 확인</span>해주세요.
+                            </p>
+                        </div>
+
+                        <!-- 포인트 2: 7일 이내 연락 -->
+                        <div class="flex items-start gap-3">
+                            <div class="shrink-0 mt-0.5">
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11h2M16 15h2M8 15h2"></path>
+                                </svg>
+                            </div>
+                            <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
+                                중대한 하자 발생 시, 도착일로부터 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1 mb-1">7일 이내 카카오채널</span>로 연락주세요.
                             </p>
                         </div>
                         
-                        <!-- 포인트 2: 미세오염 -->
+                        <!-- 포인트 3: 미세오염 불가 -->
                         <div class="flex items-start gap-3">
-                            <div class="relative shrink-0 mt-1">
-                                <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21h18M5 21V7l7-4 7 4v14M9 11v6m6-6v6"></path>
-                                    <circle cx="16" cy="16" r="3.5" stroke-width="1.5" fill="white"></circle>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.5 18.5L21 21"></path>
+                            <div class="shrink-0 mt-0.5">
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
                                 </svg>
                             </div>
-                            <p class="text-[15px] text-black font-extrabold break-keep leading-snug mt-0.5 tracking-tight">
-                                도매 창고 특성상 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[16px]">미세 오염 및 잡사</span>는 교환/반품 대상이 아닙니다.
+                            <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
+                                도매 창고 특성상 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1">미세 스크레치, 오염, 잡사</span>의 이유로는 교환/반품 불가합니다.
                             </p>
                         </div>
                     </div>
 
-                    <!-- 3. 하단 닉네임 안내 & 버튼 (가로 정렬 레이아웃) -->
-                    <div class="bg-white border-t border-gray-200 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-                        <div class="text-center sm:text-left w-full sm:w-auto">
-                            <p class="text-[11px] text-gray-600 mb-0.5 tracking-tight">최종 확인 및 배송 안내를 위해</p>
-                            <p class="text-[13px] text-black font-medium tracking-tight">카톡 채널에 꼭 <strong class="font-extrabold border-b border-black pb-0.5 text-[14px]">'닉네임'</strong>을 남겨주세요!</p>
-                        </div>
-                        <button type="button" onclick="closeSuccessModal()" class="w-full sm:w-auto bg-black text-white px-8 py-3 text-[13px] font-bold rounded-sm hover:bg-gray-800 transition-colors shrink-0 tracking-wide">
+                    <!-- 3. 하단 버튼 -->
+                    <div class="bg-white border-t border-gray-200 p-4">
+                        <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest">
                             확인 완료
                         </button>
                     </div>
