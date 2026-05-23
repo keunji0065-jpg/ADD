@@ -48,6 +48,28 @@
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* 🌟 추가된 역동적인 로딩 애니메이션 (말줄임표 & 배경 스트라이프) */
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+        
+        .bg-stripes {
+            background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
+            background-size: 40px 40px;
+            animation: stripes-move 1s linear infinite;
+        }
+        @keyframes stripes-move {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 0; }
+        }
     </style>
 </head>
 <body class="antialiased min-h-screen flex flex-col">
@@ -94,7 +116,6 @@
             </div>
         </div>
     </div>
-
 
     <!-- ==========================================
          [PAGE 2] 입력 폼 (Form Page) - 초기엔 숨김
@@ -201,7 +222,6 @@
         </footer>
     </div>
 
-
     <!-- ==========================================
          모달 영역 (기록 불러오기 & 성공 & 커스텀 알림 추가)
          ========================================== -->
@@ -225,17 +245,19 @@
                 <svg class="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
             </div>
             
-            <h3 class="text-xl font-bold text-black mb-2 tracking-wide">ORDER COMPLETE</h3>
-            <p class="text-gray-500 text-sm mb-6">주문서가 정상적으로 접수되었습니다.</p>
+            <h3 class="text-xl font-extrabold text-black mb-2 tracking-wide">주문서 전송 완료</h3>
+            <p class="text-gray-500 text-[13px] mb-6 break-keep">고객님의 배송지 정보가 안전하게 접수되었습니다.</p>
             
-            <div class="bg-gray-50 border border-gray-200 py-4 px-5 mb-6 text-center">
-                <p class="text-black font-bold text-[15px] break-keep">
-                    카톡 채널에 <span class="font-black border-b-2 border-black pb-0.5">닉네임</span>을 남겨주세요.
+            <div class="bg-[#fafafa] border border-gray-200 py-6 px-4 mb-6 text-center rounded-lg shadow-sm">
+                <p class="text-gray-800 font-medium text-[14px] break-keep leading-relaxed">
+                    최종 주문 확정 및 정확한 배송 안내를 위해<br>
+                    카카오톡 채널에 <strong class="text-red-600 font-extrabold text-[16px]">'닉네임'</strong>을<br>
+                    남겨주시기 바랍니다.
                 </p>
             </div>
             
             <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-4 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">
-                확인
+                확인 완료
             </button>
             <p class="text-[11px] text-gray-400 mt-4 break-keep">화면이 닫히지 않으면 직접 뒤로가기를 해주세요.</p>
         </div>
@@ -255,6 +277,19 @@
         </div>
     </div>
 
+    <!-- 주소 검색 iframe 레이어 모달 (팝업 차단 방지용) -->
+    <div id="addressSearchLayer" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] hidden flex-col justify-center items-center px-3 sm:px-5">
+        <div class="w-full max-w-md bg-white overflow-hidden relative shadow-2xl flex flex-col rounded-xl" style="height: 80vh; max-height: 600px;">
+            <div class="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                <h3 class="font-bold text-black text-[15px] tracking-wide">우편번호 검색</h3>
+                <button type="button" onclick="closeAddressLayer()" class="text-gray-400 hover:text-black transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <!-- iframe이 들어갈 영역 -->
+            <div id="addressIframeWrapper" class="w-full h-full flex-grow relative" style="-webkit-overflow-scrolling: touch;"></div>
+        </div>
+    </div>
 
     <script>
         // ★ 새로 배포하신 구글 앱 스크립트 웹앱 URL ★
@@ -355,13 +390,27 @@
         phoneInput.addEventListener('keyup', function() { cleanPhoneInput(this); });
         phoneInput.addEventListener('change', function() { cleanPhoneInput(this); });
 
+        // 팝업 레이어 닫기 함수
+        function closeAddressLayer() {
+            const layer = document.getElementById('addressSearchLayer');
+            layer.classList.add('hidden');
+            layer.classList.remove('flex');
+        }
 
-        // 카카오 우편번호 API (아파트/빌딩명 누락 방지 결합 로직)
+        // 카카오 우편번호 API (아파트/빌딩명 누락 방지 및 모달 임베드 방식)
         function execDaumPostcode() {
             if (typeof daum === 'undefined' || !daum.Postcode) {
                 showCustomAlert('우편번호 서비스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
                 return;
             }
+
+            const layer = document.getElementById('addressSearchLayer');
+            const wrapper = document.getElementById('addressIframeWrapper');
+            
+            // 모달 띄우기
+            layer.classList.remove('hidden');
+            layer.classList.add('flex');
+
             new daum.Postcode({
                 oncomplete: function(data) {
                     let addr = ''; // 기본 주소 변수
@@ -395,9 +444,14 @@
                     // 중요: 기본 주소 뒤에 아파트명이 포함된 참고항목을 합쳐서 누락을 완벽 방지합니다!
                     document.getElementById('address_base').value = addr + extraAddr;
                     
+                    // 주소 선택 완료 후 모달 닫기
+                    closeAddressLayer();
+                    
                     document.getElementById('address_detail').focus();
-                }
-            }).open();
+                },
+                width: '100%',
+                height: '100%'
+            }).embed(wrapper); // 팝업 창이 아닌 레이어에 임베드!
         }
 
         // 폼 제출 로직
@@ -435,8 +489,11 @@
                 order_list: document.getElementById('order_list').value
             };
 
+            // 버튼을 빨간색으로 변경하고 역동적인 애니메이션 효과(스트라이프, 점) 부여
             btn.disabled = true;
-            btnText.textContent = '전송 중...';
+            btnText.innerHTML = '중복데이터 확인중입니다<span class="loading-dots"></span>';
+            btn.classList.remove('bg-black', 'hover:bg-gray-900');
+            btn.classList.add('bg-red-600', 'hover:bg-red-700', 'cursor-wait', 'bg-stripes');
             spinner.classList.remove('hidden');
 
             try {
@@ -458,8 +515,11 @@
             } catch (error) {
                 showCustomAlert('네트워크 연결이 불안정합니다. 다시 시도해주세요.');
             } finally {
+                // 원래 상태(검은색)로 복구하고 애니메이션 클래스 제거
                 btn.disabled = false;
                 btnText.textContent = '주문서 전송하기';
+                btn.classList.remove('bg-red-600', 'hover:bg-red-700', 'cursor-wait', 'bg-stripes');
+                btn.classList.add('bg-black', 'hover:bg-gray-900');
                 spinner.classList.add('hidden');
             }
         });
