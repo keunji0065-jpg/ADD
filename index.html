@@ -151,6 +151,7 @@
                     <p id="phoneError" class="text-xs text-red-500 font-semibold hidden mt-1">전화번호 11자리를 정확히 입력해 주세요.</p>
                 </div>
 
+                <!-- 배송지 주소 영역 (레이어 포함 복구) -->
                 <div class="space-y-2 pt-2 relative">
                     <label class="block text-xs font-bold text-black uppercase tracking-wider">배송지 주소 <span class="text-red-500">*</span></label>
                     <div class="flex gap-2 relative">
@@ -158,7 +159,8 @@
                         <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
                     </div>
                     
-                    <div id="layer" style="display:none;position:absolute;overflow:hidden;z-index:50;-webkit-overflow-scrolling:touch;" class="w-full border-2 border-black shadow-lg bg-white top-[70px]">
+                    <!-- 🌟 인앱 브라우저 호환용 주소 검색 레이어 (이 부분이 빠져있었습니다!) -->
+                    <div id="layer" style="display:none;position:absolute;overflow:hidden;z-index:50;-webkit-overflow-scrolling:touch;min-height:450px;" class="w-full border-2 border-black shadow-2xl bg-white top-[70px] left-0">
                         <img src="//t1.daumcdn.net/postcode/resource/images/close.png" id="btnCloseLayer" style="cursor:pointer;position:absolute;right:-3px;top:-3px;z-index:1" onclick="closeDaumPostcode()" alt="닫기 버튼">
                     </div>
 
@@ -360,11 +362,13 @@
         }
         phoneInput.addEventListener('input', function() { cleanPhoneInput(this); });
 
-        // 주소 API (인앱 브라우저 호환을 위한 iframe embed 방식)
+        // 카카오 우편번호 API (인앱 브라우저 완벽 호환을 위한 iframe embed 방식 복구)
         var element_layer = document.getElementById('layer');
+        
         function closeDaumPostcode() {
             element_layer.style.display = 'none';
         }
+        
         function execDaumPostcode() {
             if (typeof daum === 'undefined' || !daum.Postcode) {
                 showCustomAlert('우편번호 서비스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
@@ -384,16 +388,21 @@
                     document.getElementById('zipcode').value = data.zonecode;
                     document.getElementById('address_base').value = addr + extraAddr;
                     
-                    element_layer.style.display = 'none';
-                    document.getElementById('address_detail').focus();
+                    element_layer.style.display = 'none'; // 주소 선택 시 레이어 닫기
+                    document.getElementById('address_detail').focus(); // 상세주소로 포커스 이동
                 },
                 width : '100%',
                 height : '100%',
                 maxSuggestItems : 5
             }).embed(element_layer);
+            
+            // 레이어를 화면에 보이게 함
             element_layer.style.display = 'block';
-            let currentScroll = Math.max(document.body.scrollTop, document.documentElement.scrollTop);
-            new daum.Postcode.Popup().onresize = function(size) { element_layer.style.height = size.height+'px'; };
+            
+            // iframe 높이 자동 조절
+            new daum.Postcode.Popup().onresize = function(size) {
+                element_layer.style.height = size.height+'px';
+            };
         }
 
         // 폼 전송 로직 (강력한 통신 에러 방어)
