@@ -317,48 +317,102 @@
             document.getElementById('customAlertModal').classList.add('hidden');
         }
 
-        function setCookie(name, value, days) {
-            const d = new Date();
-            d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
-            document.cookie = name + "=" + encodeURIComponent(value) + ";expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
+        // --- 강력한 저장소 접근 함수 (보안 에러 원천 차단) ---
+        function safeSetStorage(payload) {
+            const dataStr = JSON.stringify(payload);
+            try { localStorage.setItem('deliveryInfo', dataStr); } catch(e) {}
+            try { 
+                const d = new Date();
+                d.setTime(d.getTime() + (365 * 24 * 60 * 60 * 1000));
+                document.cookie = "deliveryInfo=" + encodeURIComponent(dataStr) + ";expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
+            } catch(e) {}
         }
-        function getCookie(name) {
-            const nm = name + "=";
-            const ca = decodeURIComponent(document.cookie).split(';');
-            for(let i = 0; i < ca.length; i++) {
-                let c = ca[i].trim();
-                if (c.indexOf(nm) === 0) return c.substring(nm.length, c.length);
-            }
-            return "";
+
+        function safeGetStorage() {
+            let rawData = null;
+            try { rawData = localStorage.getItem('deliveryInfo'); } catch(e) {}
+            if (rawData) return rawData;
+            
+            try {
+                const name = "deliveryInfo=";
+                const ca = decodeURIComponent(document.cookie).split(';');
+                for(let i = 0; i < ca.length; i++) {
+                    let c = ca[i].trim();
+                    if (c.indexOf(name) === 0) return c.substring(name.length, c.length);
+                }
+            } catch(e) {}
+            return null;
         }
 
         function startForm() {
             document.getElementById('intro-page').classList.add('hidden');
             document.getElementById('form-page').classList.remove('hidden');
             
-            if (localStorage.getItem('deliveryInfo') || getCookie('deliveryInfo')) {
+            const savedData = safeGetStorage();
+            if (savedData) {
                 document.getElementById('historyModal').classList.remove('hidden');
             }
         }
 
         function loadHistory() {
-            const rawData = localStorage.getItem('deliveryInfo') || getCookie('deliveryInfo');
+            const rawData = safeGetStorage();
             if (rawData) {
-                const data = JSON.parse(rawData);
-                document.getElementById('nickname').value = data.nickname || '';
-                document.getElementById('name').value = data.name || '';
-                document.getElementById('phone').value = (data.phone || '').replace(/[^0-9]/g, '');
-                document.getElementById('zipcode').value = data.zipcode || '';
-                document.getElementById('address_base').value = data.address_base || '';
-                document.getElementById('address_detail').value = data.address_detail || '';
-                document.getElementById('memo').value = data.memo || '';
-                document.getElementById('order_list').value = data.order_list || '';
+                try {
+                    const data = JSON.parse(rawData);
+                    document.getElementById('nickname').value = data.nickname || '';
+                    document.getElementById('name').value = data.name || '';
+                    document.getElementById('phone').value = (data.phone || '').replace(/[^0-9]/g, '');
+                    document.getElementById('zipcode').value = data.zipcode || '';
+                    document.getElementById('address_base').value = data.address_base || '';
+                    document.getElementById('address_detail').value = data.address_detail || '';
+                    document.getElementById('memo').value = data.memo || '';
+                    document.getElementById('order_list').value = data.order_list || '';
+                    
+                    // 연락처 에러 상태 해제
+                    const phoneEl = document.getElementById('phone');
+                    if(phoneEl.value.length === 11) {
+                        document.getElementById('phoneError').classList.add('hidden');
+                        phoneEl.classList.remove('border-red-500');
+                    }
+                } catch(e) {
+                    console.error("데이터 파싱 오류", e);
+                }
             }
             ignoreHistory();
         }
 
         function ignoreHistory() { document.getElementById('historyModal').classList.add('hidden'); }
-        function closeSuccessModal() { document.getElementById('successModal').classList.add('hidden'); }
+        
+        function closeSuccessModal() { 
+            // 1. 팝업 모달 숨기기
+            document.getElementById('successModal').classList.add('hidden'); 
+            
+            // 2. 모바일 인앱 브라우저 창 닫기 시도
+            try {
+                window.open('', '_self').close();
+                window.close();
+            } catch(e) {}
+            
+            // 3. 브라우저 보안상 강제 종료가 안 될 경우, 화면 자체를 '최종 완료' 상태로 덮어버림
+            document.body.innerHTML = `
+                <div class="min-h-screen bg-[#f3f4f6] flex flex-col items-center justify-center p-5 text-center fade-enter">
+                    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm border border-gray-200">
+                        <div class="w-14 h-14 bg-black rounded-full flex items-center justify-center mx-auto mb-5">
+                            <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                        </div>
+                        <h2 class="text-[18px] font-extrabold text-black mb-2 tracking-wide">주문서 접수 완료</h2>
+                        <p class="text-[13px] text-gray-600 mb-6 break-keep leading-relaxed">
+                            성공적으로 전송되었습니다.<br><br>
+                            화면 우측 상단이나 하단의 <strong class="text-black bg-gray-100 px-1 py-0.5 rounded">닫기(X)</strong> 버튼을 눌러<br>
+                            카카오톡으로 돌아간 뒤 <strong class="text-red-600 font-bold border-b border-red-200">닉네임</strong>을 꼭 남겨주세요.
+                        </p>
+                        <button onclick="location.reload()" class="text-[11px] text-gray-400 underline decoration-gray-300 underline-offset-4 hover:text-black">
+                            새 주문서 작성하기 (초기화)
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
 
         const nicknameInput = document.getElementById('nickname');
         nicknameInput.addEventListener('input', function() { this.value = this.value.replace(/@/g, ''); });
@@ -464,8 +518,7 @@
                 const result = await response.json();
                 
                 if(result.success) {
-                    localStorage.setItem('deliveryInfo', JSON.stringify(payload));
-                    setCookie('deliveryInfo', JSON.stringify(payload), 365);
+                    safeSetStorage(payload); // 에러 안 나는 안전한 저장 함수 호출
                     document.getElementById('successModal').classList.remove('hidden');
                 } else {
                     showCustomAlert('전송 실패: ' + (result.error || '알 수 없는 오류'));
