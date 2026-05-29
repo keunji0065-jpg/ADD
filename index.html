@@ -151,17 +151,12 @@
                     <p id="phoneError" class="text-xs text-red-500 font-semibold hidden mt-1">전화번호 11자리를 정확히 입력해 주세요.</p>
                 </div>
 
-                <!-- 배송지 주소 영역 (레이어 포함 복구) -->
+                <!-- 배송지 주소 영역 (오류를 일으키던 인라인 레이어 삭제) -->
                 <div class="space-y-2 pt-2 relative">
                     <label class="block text-xs font-bold text-black uppercase tracking-wider">배송지 주소 <span class="text-red-500">*</span></label>
-                    <div class="flex gap-2 relative">
+                    <div class="flex gap-2">
                         <input type="text" id="zipcode" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500 bg-gray-50">
                         <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
-                    </div>
-                    
-                    <!-- 🌟 인앱 브라우저 호환용 주소 검색 레이어 (이 부분이 빠져있었습니다!) -->
-                    <div id="layer" style="display:none;position:absolute;overflow:hidden;z-index:50;-webkit-overflow-scrolling:touch;min-height:450px;" class="w-full border-2 border-black shadow-2xl bg-white top-[70px] left-0">
-                        <img src="//t1.daumcdn.net/postcode/resource/images/close.png" id="btnCloseLayer" style="cursor:pointer;position:absolute;right:-3px;top:-3px;z-index:1" onclick="closeDaumPostcode()" alt="닫기 버튼">
                     </div>
 
                     <input type="text" id="address_base" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2 bg-gray-50">
@@ -187,34 +182,14 @@
                         <span id="btnText">주문서 전송하기</span>
                         <div id="loadingSpinner" class="spinner hidden"></div>
                     </button>
-                </div>
-            </form>
-        </div>
-
-        <footer class="py-6 text-center text-gray-400 text-[10px] border-t border-gray-100 bg-white uppercase tracking-widest mt-auto">
-            <p class="mb-1">Ember Sister Official</p>
-            <p>System by. 깔로</p>
-        </footer>
-    </div>
-
-    <!-- 기록 불러오기 모달 -->
-    <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
-        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
-            <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
-            <p class="text-[13px] text-gray-500 mb-6 break-keep">이전에 입력하신 배송지 정보가 있습니다.<br>불러오시겠습니까? <br><span class="text-black font-bold mt-1 inline-block">(※ 방송마다 1회 제출 필수)</span></p>
-            <div class="flex gap-2">
-                <button type="button" onclick="ignoreHistory()" class="w-1/2 border border-gray-300 text-gray-600 py-3 text-sm font-bold tracking-wider hover:bg-gray-50 transition-colors">새로 입력</button>
-                <button type="button" onclick="loadHistory()" class="w-1/2 bg-black text-white py-3 text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">불러오기</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 성공 모달 (하이엔드 카드 UI & 시크한 픽토그램 강조) -->
+    <!-- 성공 모달 (이미지 기반 깔끔한 카드형 UI로 전면 개편) -->
     <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-10">
         <div class="w-full max-w-[460px] flex flex-col items-center">
             
+            <!-- 메인 화이트 카드 -->
             <div class="bg-white w-full rounded-xl shadow-2xl overflow-hidden pt-8 pb-1">
                 
+                <!-- 1. 헤더 (얇은 체크 아이콘, 타이틀) -->
                 <div class="text-center mb-6">
                     <div class="w-10 h-10 border border-gray-400 rounded-full flex items-center justify-center mx-auto mb-3">
                         <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -225,13 +200,16 @@
                     <p class="text-gray-800 text-[13px]">배송지 정보가 정상 접수되었습니다.</p>
                 </div>
 
+                <!-- 2. 교환 및 반품 불가 안내 박스 -->
                 <div class="mx-4 mb-4 border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+                    <!-- 블랙 다크 헤더 -->
                     <div class="bg-[#1a1a1a] py-3 text-center">
                         <h4 class="text-[15px] font-extrabold text-white tracking-widest">교환 및 반품 안내</h4>
                     </div>
                     
+                    <!-- 핵심 규정 내용 (요청하신 3가지 포인트로 분할) -->
                     <div class="bg-white p-5 space-y-5">
-                        <!-- 포인트 1: 제품 확인 (박스 픽토그램) -->
+                        <!-- 포인트 1: 제품 확인 -->
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
                                 <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -243,7 +221,7 @@
                             </p>
                         </div>
 
-                        <!-- 포인트 2: 7일 이내 연락 (달력 픽토그램) -->
+                        <!-- 포인트 2: 7일 이내 연락 -->
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
                                 <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -256,7 +234,7 @@
                             </p>
                         </div>
                         
-                        <!-- 포인트 3: 미세오염 불가 (돋보기 픽토그램) -->
+                        <!-- 포인트 3: 미세오염 불가 -->
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
                                 <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -269,6 +247,7 @@
                         </div>
                     </div>
 
+                    <!-- 3. 하단 버튼 -->
                     <div class="bg-white border-t border-gray-200 p-4">
                         <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest">
                             확인 완료
@@ -277,7 +256,23 @@
                 </div>
             </div>
             
+            <!-- 모달 외부 하단 안내 문구 -->
             <p class="text-[11px] text-gray-400 mt-4 break-keep tracking-tight">화면이 닫히지 않으면 직접 뒤로가기를 해주세요.</p>
+        </div>
+    </div>
+
+    <!-- 🌟 새롭게 추가된 완벽한 주소 검색 모달 (오류 원천 차단) -->
+    <div id="addressModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] hidden px-4 py-6">
+        <div class="bg-white w-full max-w-[460px] h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
+            <!-- 모달 헤더 -->
+            <div class="bg-black px-4 py-3.5 flex justify-between items-center shrink-0">
+                <h4 class="text-white font-bold text-[14px] tracking-widest">우편번호 검색</h4>
+                <button type="button" onclick="closeDaumPostcode()" class="text-white hover:text-gray-300 p-1">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <!-- API 렌더링 영역 -->
+            <div id="layer" class="w-full flex-grow relative overflow-hidden -webkit-overflow-scrolling:touch;"></div>
         </div>
     </div>
 
@@ -362,11 +357,12 @@
         }
         phoneInput.addEventListener('input', function() { cleanPhoneInput(this); });
 
-        // 카카오 우편번호 API (인앱 브라우저 완벽 호환을 위한 iframe embed 방식 복구)
+        // 카카오 우편번호 API (스크립트 오류 해결 및 모달 방식 적용)
+        var addressModal = document.getElementById('addressModal');
         var element_layer = document.getElementById('layer');
         
         function closeDaumPostcode() {
-            element_layer.style.display = 'none';
+            addressModal.classList.add('hidden');
         }
         
         function execDaumPostcode() {
@@ -374,6 +370,10 @@
                 showCustomAlert('우편번호 서비스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
                 return;
             }
+            
+            // iframe이 생성될 때 높이를 정상적으로 갖도록 모달을 먼저 보여줍니다.
+            addressModal.classList.remove('hidden');
+
             new daum.Postcode({
                 oncomplete: function(data) {
                     let addr = data.userSelectedType === 'R' ? data.roadAddress : data.jibunAddress;
@@ -388,21 +388,13 @@
                     document.getElementById('zipcode').value = data.zonecode;
                     document.getElementById('address_base').value = addr + extraAddr;
                     
-                    element_layer.style.display = 'none'; // 주소 선택 시 레이어 닫기
+                    closeDaumPostcode(); // 주소 선택 시 모달 닫기
                     document.getElementById('address_detail').focus(); // 상세주소로 포커스 이동
                 },
                 width : '100%',
                 height : '100%',
                 maxSuggestItems : 5
             }).embed(element_layer);
-            
-            // 레이어를 화면에 보이게 함
-            element_layer.style.display = 'block';
-            
-            // iframe 높이 자동 조절
-            new daum.Postcode.Popup().onresize = function(size) {
-                element_layer.style.height = size.height+'px';
-            };
         }
 
         // 폼 전송 로직 (강력한 통신 에러 방어)
