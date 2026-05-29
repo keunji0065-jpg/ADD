@@ -122,7 +122,7 @@
                         <span>유튜브 채팅창 닉네임</span> 
                         <span class="text-red-500">*</span>
                     </label>
-                    <input type="text" id="nickname" required placeholder="예시) 깔로-n1d" class="w-full px-4 py-3.5 input-chic text-black font-semibold border-red-500">
+                    <input type="text" id="nickname" autocomplete="nickname" required placeholder="예시) 깔로-n1d" class="w-full px-4 py-3.5 input-chic text-black font-semibold border-red-500">
                     
                     <div class="bg-red-50 border border-red-200 p-3.5 mt-2 rounded-sm">
                         <p class="text-[12px] text-red-700 break-keep leading-relaxed font-black flex items-center gap-1">
@@ -142,25 +142,24 @@
 
                 <div class="space-y-2">
                     <label for="name" class="block text-xs font-bold text-black uppercase tracking-wider">수령인 성함 <span class="text-red-500">*</span></label>
-                    <input type="text" id="name" required placeholder="배송 받으실 분의 실명 성함" class="w-full px-4 py-3.5 input-chic text-black">
+                    <input type="text" id="name" autocomplete="name" required placeholder="배송 받으실 분의 실명 성함" class="w-full px-4 py-3.5 input-chic text-black">
                 </div>
 
                 <div class="space-y-2">
                     <label for="phone" class="block text-xs font-bold text-black uppercase tracking-wider">휴대폰 번호 <span class="text-red-500">*</span></label>
-                    <input type="tel" id="phone" required placeholder="숫자만 입력 (01012345678)" inputmode="numeric" pattern="[0-9]*" class="w-full px-4 py-3.5 input-chic text-black">
+                    <input type="tel" id="phone" autocomplete="tel" required placeholder="숫자만 입력 (01012345678)" inputmode="numeric" pattern="[0-9]*" class="w-full px-4 py-3.5 input-chic text-black">
                     <p id="phoneError" class="text-xs text-red-500 font-semibold hidden mt-1">전화번호 11자리를 정확히 입력해 주세요.</p>
                 </div>
 
-                <!-- 배송지 주소 영역 (오류를 일으키던 인라인 레이어 삭제) -->
                 <div class="space-y-2 pt-2 relative">
                     <label class="block text-xs font-bold text-black uppercase tracking-wider">배송지 주소 <span class="text-red-500">*</span></label>
                     <div class="flex gap-2">
-                        <input type="text" id="zipcode" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500 bg-gray-50">
+                        <input type="text" id="zipcode" autocomplete="postal-code" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500 bg-gray-50">
                         <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
                     </div>
 
-                    <input type="text" id="address_base" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2 bg-gray-50">
-                    <input type="text" id="address_detail" required placeholder="상세 주소 (동, 호수, 건물명)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
+                    <input type="text" id="address_base" autocomplete="address-line1" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2 bg-gray-50">
+                    <input type="text" id="address_detail" autocomplete="address-line2" required placeholder="상세 주소 (동, 호수, 건물명)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
                 </div>
 
                 <div class="space-y-2 pt-2">
@@ -182,6 +181,23 @@
                         <span id="btnText">주문서 전송하기</span>
                         <div id="loadingSpinner" class="spinner hidden"></div>
                     </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 🌟 복구된 기록 불러오기 모달 -->
+    <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
+        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
+            <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
+            <p class="text-[13px] text-gray-500 mb-6 break-keep">이전에 입력하신 배송지 정보가 있습니다.<br>불러오시겠습니까? <br><span class="text-black font-bold mt-1 inline-block">(※ 방송마다 1회 제출 필수)</span></p>
+            <div class="flex gap-2">
+                <button type="button" onclick="ignoreHistory()" class="w-1/2 border border-gray-300 text-gray-600 py-3 text-sm font-bold tracking-wider hover:bg-gray-50 transition-colors">새로 입력</button>
+                <button type="button" onclick="loadHistory()" class="w-1/2 bg-black text-white py-3 text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">불러오기</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 성공 모달 (이미지 기반 깔끔한 카드형 UI로 전면 개편) -->
     <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-10">
         <div class="w-full max-w-[460px] flex flex-col items-center">
