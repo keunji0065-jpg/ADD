@@ -177,10 +177,17 @@
                         <label for="order_list" class="block text-xs font-bold text-black uppercase tracking-wider">
                             구매 내역 <span class="text-gray-400 font-normal normal-case text-[11px] ml-1">(직접입력 또는 선택)</span>
                         </label>
-                        <button type="button" onclick="openProductModal()" class="px-3 py-1.5 bg-black text-white text-[11px] font-bold tracking-wider rounded-sm hover:bg-gray-800 flex items-center gap-1 transition-colors">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path></svg>
-                            상품 선택
-                        </button>
+                        <!-- 🌟 추가된 초기화 버튼 영역 🌟 -->
+                        <div class="flex items-center gap-1.5">
+                            <button type="button" onclick="clearOrderList()" class="px-2.5 py-1.5 border border-gray-300 text-gray-500 hover:text-black hover:border-black text-[11px] font-bold tracking-wider rounded-sm flex items-center gap-1 transition-colors" title="내역 비우기">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                내역 비우기
+                            </button>
+                            <button type="button" onclick="openProductModal()" class="px-3 py-1.5 bg-black text-white text-[11px] font-bold tracking-wider rounded-sm hover:bg-gray-800 flex items-center gap-1 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path></svg>
+                                상품 선택
+                            </button>
+                        </div>
                     </div>
                     <textarea id="order_list" rows="4" placeholder="직접 입력하시거나 상단의 '+ 상품 선택' 버튼을 눌러 추가해주세요.&#10;예: 블랙 자켓 1개" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
@@ -362,13 +369,6 @@
         // --- 🌟 구글 시트 상품 연동 및 장바구니 로직 ---
         let productData = [];
         let productCart = {}; // { "상품명": 수량 }
-        
-        // 1. 폰에 저장된 장바구니 내역 불러오기
-        try {
-            productCart = JSON.parse(localStorage.getItem('ember_form_cart')) || {};
-        } catch(e) {
-            productCart = {};
-        }
         let isProductsLoaded = false;
 
         async function fetchProductData() {
@@ -422,21 +422,6 @@
                 });
                 
                 productData = data;
-
-                // 🌟 2. [핵심] 방송 변경 인식 및 이전 장바구니 자동 리셋(클렌징)
-                const currentProductNames = productData.map(p => p.name);
-                let isCartChanged = false;
-                Object.keys(productCart).forEach(name => {
-                    // 현재 방송 라인업 리스트에 예전 상품이 없다면? -> 삭제!
-                    if (!currentProductNames.includes(name)) {
-                        delete productCart[name]; 
-                        isCartChanged = true;
-                    }
-                });
-                if (isCartChanged) {
-                    localStorage.setItem('ember_form_cart', JSON.stringify(productCart));
-                }
-
                 isProductsLoaded = true;
                 document.getElementById('productListLoading').classList.add('hidden');
                 document.getElementById('productListView').classList.remove('hidden');
@@ -535,7 +520,6 @@
             } else {
                 productCart[name] = 1;
             }
-            localStorage.setItem('ember_form_cart', JSON.stringify(productCart)); // 🌟 변경 시 자동 저장
             renderProducts(document.getElementById('productSearch').value);
         }
 
@@ -548,7 +532,6 @@
             } else {
                 delete productCart[name];
             }
-            localStorage.setItem('ember_form_cart', JSON.stringify(productCart)); // 🌟 변경 시 자동 저장
             renderProducts(document.getElementById('productSearch').value);
         }
 
@@ -610,10 +593,19 @@
 
             // 추가 후 초기화하고 닫기
             productCart = {};
-            localStorage.removeItem('ember_form_cart'); // 🌟 폼에 적용 완료했으므로 장바구니 깨끗하게 비우기
             document.getElementById('productSearch').value = "";
             if (isProductsLoaded) renderProducts();
             closeProductModal();
+        }
+
+        // 🌟 구매내역 초기화 기능
+        function clearOrderList() {
+            document.getElementById('order_list').value = '';
+            productCart = {};
+            localStorage.removeItem('ember_form_cart');
+            if (isProductsLoaded) {
+                renderProducts(document.getElementById('productSearch').value);
+            }
         }
 
         // --- 기존 로직 ---
