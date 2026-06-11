@@ -86,7 +86,6 @@
                         <span class="font-bold text-black shrink-0 mt-0.5">[교환/반품]</span>
                         <span>공장 직거래 및 원도매 창고 방송 특성상 <strong>교환 및 반품이 절대 불가</strong>합니다. 신중한 구매 부탁드립니다.</span>
                     </li>
-                    <!-- 수정된 붉은색 강조 텍스트 -->
                     <li class="flex items-start gap-2">
                         <span class="font-bold text-black shrink-0 mt-0.5">[주문확정]</span>
                         <span class="text-red-600 font-bold">주문서 제출 후 반드시 <strong class="font-extrabold underline underline-offset-2">카카오톡 채널에 '닉네임'</strong>을 남겨주셔야 주문확정됩니다.</span>
@@ -117,6 +116,7 @@
         <div class="p-6 space-y-8 flex-grow bg-white">
             <form id="addressForm" class="space-y-6">
                 
+                <!-- 🌟 닉네임 검색/입력으로 변경된 영역 -->
                 <div class="space-y-2">
                     <label for="nickname" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center gap-1">
                         <span class="text-[#FF0000] flex items-center gap-1">
@@ -125,7 +125,7 @@
                         <span>유튜브 채팅창 닉네임</span> 
                         <span class="text-red-500">*</span>
                     </label>
-                    <input type="text" id="nickname" autocomplete="nickname" required placeholder="예시) 깔로-n1d" class="w-full px-4 py-3.5 input-chic text-black font-semibold border-red-500">
+                    <input type="text" id="nickname" autocomplete="nickname" required placeholder="터치하여 닉네임 검색 또는 입력" class="w-full px-4 py-3.5 input-chic text-black font-bold border-red-500 cursor-pointer bg-red-50/30" readonly onclick="openNicknameModal()">
                     
                     <div class="bg-red-50 border border-red-200 p-3.5 mt-2 rounded-sm">
                         <p class="text-[12px] text-red-700 break-keep leading-relaxed font-black flex items-center gap-1">
@@ -177,7 +177,6 @@
                         <label for="order_list" class="block text-xs font-bold text-black uppercase tracking-wider">
                             구매 내역 <span class="text-gray-400 font-normal normal-case text-[11px] ml-1">(직접입력 또는 선택)</span>
                         </label>
-                        <!-- 🌟 추가된 초기화 버튼 영역 🌟 -->
                         <div class="flex items-center gap-1.5">
                             <button type="button" onclick="clearOrderList()" class="px-2.5 py-1.5 border border-gray-300 text-gray-500 hover:text-black hover:border-black text-[11px] font-bold tracking-wider rounded-sm flex items-center gap-1 transition-colors" title="내역 비우기">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
@@ -214,14 +213,40 @@
         </div>
     </div>
 
-    <!-- 성공 모달 (이미지 기반 깔끔한 카드형 UI로 전면 개편) -->
+    <!-- 🌟 새롭게 추가된 닉네임 검색/입력 모달 -->
+    <div id="nicknameSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[80] hidden px-4 py-6 animate-fade-in">
+        <div class="bg-white w-full max-w-[460px] h-[70vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
+            
+            <div class="bg-black px-4 py-4 flex justify-between items-center shrink-0">
+                <h4 class="text-white font-bold text-[14px] tracking-widest">닉네임 검색 및 입력</h4>
+                <button type="button" onclick="closeNicknameModal()" class="text-white hover:text-gray-300 p-1">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50 space-y-2">
+                <input type="text" id="nicknameSearch" placeholder="닉네임(또는 고유번호)을 검색하세요" class="w-full px-4 py-2.5 input-chic text-sm font-medium" oninput="filterNicknames()">
+                <button type="button" onclick="applyManualNickname()" class="w-full bg-gray-200 text-gray-800 py-2.5 text-[13px] font-bold rounded-sm hover:bg-gray-300 transition-colors flex items-center justify-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    검색한 단어로 직접 입력하기
+                </button>
+            </div>
+            
+            <div id="nicknameListLoading" class="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm font-medium space-y-3">
+                <div class="spinner !border-gray-300 !border-t-black"></div>
+                <p>닉네임 목록을 불러오는 중입니다...</p>
+            </div>
+            
+            <ul id="nicknameListView" class="flex-1 overflow-y-auto divide-y divide-gray-100 hidden">
+                <!-- JS 로 데이터가 들어갈 자리 -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- 성공 모달 -->
     <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-10">
         <div class="w-full max-w-[460px] flex flex-col items-center">
-            
-            <!-- 메인 화이트 카드 -->
             <div class="bg-white w-full rounded-xl shadow-2xl overflow-hidden pt-8 pb-1">
-                
-                <!-- 1. 헤더 (얇은 체크 아이콘, 타이틀) -->
                 <div class="text-center mb-6">
                     <div class="w-10 h-10 border border-gray-400 rounded-full flex items-center justify-center mx-auto mb-3">
                         <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -232,83 +257,60 @@
                     <p class="text-gray-800 text-[13px]">배송지 정보가 정상 접수되었습니다.</p>
                 </div>
 
-                <!-- 2. 교환 및 반품 불가 안내 박스 -->
                 <div class="mx-4 mb-4 border border-gray-300 rounded-lg overflow-hidden shadow-sm">
-                    <!-- 블랙 다크 헤더 -->
                     <div class="bg-[#1a1a1a] py-3 text-center">
                         <h4 class="text-[15px] font-extrabold text-white tracking-widest">교환 및 반품 안내</h4>
                     </div>
                     
-                    <!-- 핵심 규정 내용 (요청하신 3가지 포인트로 분할) -->
                     <div class="bg-white p-5 space-y-5">
-                        <!-- 포인트 1: 제품 확인 -->
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
-                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
-                                </svg>
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
                             </div>
                             <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
                                 택배 수령 후 꼭 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1 mb-1">제품 확인</span>해주세요.
                             </p>
                         </div>
-
-                        <!-- 포인트 2: 7일 이내 연락 -->
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
-                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11h2M16 15h2M8 15h2"></path>
-                                </svg>
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11h2M16 15h2M8 15h2"></path></svg>
                             </div>
                             <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
                                 중대한 하자 발생 시, 도착일로부터 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1 mb-1">7일 이내 카카오채널</span>로 연락주세요.
                             </p>
                         </div>
-                        
-                        <!-- 포인트 3: 미세오염 불가 -->
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
-                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-                                </svg>
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
                             </div>
                             <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
                                 도매 창고 특성상 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1">미세 스크레치, 오염, 잡사</span>의 이유로는 교환/반품 불가합니다.
                             </p>
                         </div>
                     </div>
-
-                    <!-- 3. 하단 버튼 -->
                     <div class="bg-white border-t border-gray-200 p-4">
-                        <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest">
-                            확인 완료
-                        </button>
+                        <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest">확인 완료</button>
                     </div>
                 </div>
             </div>
-            
-            <!-- 모달 외부 하단 안내 문구 -->
             <p class="text-[11px] text-gray-400 mt-4 break-keep tracking-tight">화면이 닫히지 않으면 직접 뒤로가기를 해주세요.</p>
         </div>
     </div>
 
-    <!-- 🌟 새롭게 추가된 완벽한 주소 검색 모달 (오류 원천 차단) -->
+    <!-- 주소 검색 모달 -->
     <div id="addressModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] hidden px-4 py-6">
         <div class="bg-white w-full max-w-[460px] h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
-            <!-- 모달 헤더 -->
             <div class="bg-black px-4 py-3.5 flex justify-between items-center shrink-0">
                 <h4 class="text-white font-bold text-[14px] tracking-widest">우편번호 검색</h4>
                 <button type="button" onclick="closeDaumPostcode()" class="text-white hover:text-gray-300 p-1">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            <!-- API 렌더링 영역 -->
             <div id="layer" class="w-full flex-grow relative overflow-hidden -webkit-overflow-scrolling:touch;"></div>
         </div>
     </div>
 
-    <!-- 일체형 커스텀 알림 모달 -->
+    <!-- 알림 모달 -->
     <div id="customAlertModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] hidden px-5">
         <div class="bg-white p-7 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <div class="w-10 h-10 border-2 border-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -316,36 +318,27 @@
             </div>
             <h3 class="text-md font-bold text-black mb-2 uppercase tracking-wide">NOTICE</h3>
             <p id="customAlertMessage" class="text-[13px] text-gray-600 mb-6 break-keep leading-relaxed"></p>
-            <button type="button" onclick="closeCustomAlert()" class="w-full bg-black text-white py-3 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">
-                확인
-            </button>
+            <button type="button" onclick="closeCustomAlert()" class="w-full bg-black text-white py-3 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">확인</button>
         </div>
     </div>
 
-    <!-- 🌟 상품 선택 모달 (스프레드시트 연동) -->
+    <!-- 상품 선택 모달 -->
     <div id="productSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[70] hidden px-4 py-6">
         <div class="bg-white w-full max-w-[460px] h-[85vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
-            
             <div class="bg-black px-4 py-4 flex justify-between items-center shrink-0">
                 <h4 class="text-white font-bold text-[14px] tracking-widest">방송 상품 선택</h4>
                 <button type="button" onclick="closeProductModal()" class="text-white hover:text-gray-300 p-1">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            
             <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50">
                 <input type="text" id="productSearch" placeholder="상품명 또는 번호를 검색하세요" class="w-full px-4 py-2.5 input-chic text-sm font-medium" oninput="filterProducts()">
             </div>
-            
             <div id="productListLoading" class="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm font-medium space-y-3">
                 <div class="spinner !border-gray-300 !border-t-black"></div>
                 <p>상품 목록을 불러오는 중입니다...</p>
             </div>
-            
-            <ul id="productListView" class="flex-1 overflow-y-auto divide-y divide-gray-100 hidden pb-20">
-                <!-- JS 로 데이터가 들어갈 자리 -->
-            </ul>
-            
+            <ul id="productListView" class="flex-1 overflow-y-auto divide-y divide-gray-100 hidden pb-20"></ul>
             <div class="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.1)]">
                 <button type="button" onclick="applySelectedProducts()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest flex items-center justify-center gap-2">
                     <span id="selectedCountBadge" class="bg-white text-black font-extrabold px-2 py-0.5 rounded-full text-[11px] hidden">0</span>
@@ -355,7 +348,7 @@
         </div>
     </div>
 
-    <!-- 🌟 추가된 사진 팝업 모달 -->
+    <!-- 사진 팝업 모달 -->
     <div id="imagePopupModal" class="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-5 hidden animate-fade-in" onclick="closeImagePopup()">
         <div class="relative max-w-md w-full flex flex-col items-end">
             <button type="button" class="text-white text-3xl font-light hover:text-gray-300 transition-colors mb-2" onclick="closeImagePopup()">&times;</button>
@@ -366,9 +359,97 @@
     <script>
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykeNregrBIcRcS7Xy_26RcnzDzmnBSGgLQgP3TUIzMlRjB5w0QknZHARY6WlAg44wPdg/exec';
 
-        // --- 🌟 구글 시트 상품 연동 및 장바구니 로직 ---
+        // 🌟 사장님 닉네임 구글 시트 연결 🌟 (CSV 형식으로 안전하게 호출)
+        const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
+        
+        let nicknameData = [];
+        let isNicknamesLoaded = false;
+
+        async function fetchNicknameData() {
+            if (isNicknamesLoaded) return;
+            try {
+                if (NICKNAME_CSV_URL !== "") {
+                    const response = await fetch(NICKNAME_CSV_URL);
+                    const text = await response.text();
+                    const rows = text.replace(/\r/g, '').split('\n');
+                    let data = [];
+                    rows.forEach(row => {
+                        const cols = row.split(',');
+                        if(cols[0] && cols[0].trim() !== '닉네임' && cols[0].trim() !== 'name') {
+                            data.push(cols[0].trim());
+                        }
+                    });
+                    nicknameData = [...new Set(data)]; 
+                } 
+                isNicknamesLoaded = true;
+                document.getElementById('nicknameListLoading').classList.add('hidden');
+                document.getElementById('nicknameListView').classList.remove('hidden');
+                renderNicknames('');
+            } catch (error) {
+                console.error("닉네임 데이터 로드 실패", error);
+                document.getElementById('nicknameListLoading').innerHTML = "<p class='text-red-500'>목록을 불러오지 못했습니다.</p>";
+            }
+        }
+
+        function renderNicknames(searchTerm = "") {
+            const ul = document.getElementById('nicknameListView');
+            ul.innerHTML = '';
+            
+            // 🌟 추가됨: 검색어가 없을 때는 전체 목록을 숨겨서 개인정보 보호
+            if (!searchTerm.trim()) {
+                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">닉네임의 일부를 입력하시면<br>검색 결과가 나타납니다.</li>';
+                return;
+            }
+            
+            const filtered = nicknameData.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase()));
+            
+            if (filtered.length === 0) {
+                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">검색된 닉네임이 없습니다.<br>상단의 <strong>[검색한 단어로 직접 입력하기]</strong> 버튼을 눌러주세요.</li>';
+                return;
+            }
+
+            filtered.forEach((name, index) => {
+                const li = document.createElement('li');
+                li.className = `px-5 py-4 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 active:bg-gray-200`;
+                li.onclick = () => selectNickname(name);
+                li.innerHTML = `<span class="text-[14px] font-bold text-black tracking-wide">${name}</span>`;
+                ul.appendChild(li);
+            });
+        }
+
+        function filterNicknames() {
+            renderNicknames(document.getElementById('nicknameSearch').value);
+        }
+
+        function openNicknameModal() {
+            document.getElementById('nicknameSelectModal').classList.remove('hidden');
+            setTimeout(() => document.getElementById('nicknameSearch').focus(), 100);
+            fetchNicknameData();
+        }
+
+        function closeNicknameModal() {
+            document.getElementById('nicknameSelectModal').classList.add('hidden');
+        }
+
+        function selectNickname(name) {
+            const input = document.getElementById('nickname');
+            input.value = name;
+            input.dispatchEvent(new Event('input')); 
+            closeNicknameModal();
+        }
+
+        function applyManualNickname() {
+            const searchInput = document.getElementById('nicknameSearch').value.trim();
+            if (!searchInput) {
+                showCustomAlert("입력칸에 닉네임을 먼저 적어주세요!");
+                return;
+            }
+            selectNickname(searchInput);
+        }
+
+        // --- 구글 시트 상품 연동 및 장바구니 로직 ---
         let productData = [];
-        let productCart = {}; // { "상품명": 수량 }
+        let productCart = {}; 
         let isProductsLoaded = false;
 
         async function fetchProductData() {
@@ -405,13 +486,12 @@
                             const isMemo = rawPrice === '-' || (!isNaN(priceNum) && priceNum <= 0);
 
                             if (!isMemo) {
-                                data.push({ id: index, name: cols[0], price: cols[1] || '', status: cols[2] ? cols[2].trim() : '' });
+                                data.push({ id: index, name: cols[0], price: cols[1] || '', status: cols[2] ? cols[2].trim() : '', imageUrl: cols[3] ? cols[3].trim() : '' });
                             }
                         }
                     }
                 });
 
-                // 기존 라인업과 동일한 정렬 로직 적용
                 data.sort((a, b) => {
                     const matchA = a.name.match(/^(\d+)/);
                     const numA = matchA ? parseInt(matchA[0]) : 0;
@@ -451,14 +531,12 @@
                 const isSelected = !!productCart[product.name];
                 const qty = productCart[product.name] || 0;
                 
-                // 가격 콤마 포맷팅
                 const onlyNumbers = product.price.replace(/[^0-9]/g, '');
                 const num = parseInt(onlyNumbers, 10);
                 const formattedPrice = isNaN(num) ? product.price : num.toLocaleString();
                 
                 let html = `<div class="flex items-center gap-3 pr-4">`;
                 
-                // 1. 시크한 체크박스
                 html += `
                     <div class="shrink-0 flex items-center justify-center cursor-pointer py-2 pr-1" onclick="toggleSelection('${product.name}')">
                         <div class="w-5 h-5 border flex items-center justify-center transition-colors ${isSelected ? 'bg-black border-black' : 'bg-white border-gray-300'}">
@@ -467,7 +545,6 @@
                     </div>
                 `;
 
-                // 2. 썸네일
                 if (product.imageUrl) {
                     html += `
                         <div class="w-10 h-10 shrink-0 cursor-pointer overflow-hidden rounded-sm border border-gray-200 shadow-sm" onclick="openImagePopup('${product.imageUrl}', event)">
@@ -476,7 +553,6 @@
                     `;
                 }
 
-                // 3. 상품명 & 품절 상태
                 html += `
                     <div class="flex flex-col gap-1">
                         <div class="flex items-center gap-2">
@@ -485,7 +561,6 @@
                         </div>
                 `;
 
-                // 4. 수량 조절 컨트롤러 (체크 시 나타남)
                 if (isSelected && !isSoldOut) {
                     html += `
                         <div class="flex items-center mt-1 w-20 border border-gray-300 overflow-hidden bg-white h-6 rounded-sm animate-fade-in">
@@ -498,7 +573,6 @@
 
                 html += `</div></div>`;
 
-                // 5. 우측 가격 표시
                 html += `
                     <div class="flex items-center gap-4 shrink-0">
                         <div class="text-[15px] font-bold tracking-wider ${isSoldOut ? 'text-gray-500' : 'text-black'}">
@@ -563,7 +637,7 @@
 
         function openProductModal() {
             document.getElementById('productSelectModal').classList.remove('hidden');
-            fetchProductData(); // 열 때 구글 시트 데이터 로드
+            fetchProductData();
         }
 
         function closeProductModal() {
@@ -584,21 +658,18 @@
                 newText += `${name} ${productCart[name]}개\n`;
             });
 
-            // 기존 텍스트가 있으면 뒤에 이어서 추가, 없으면 그냥 텍스트 삽입
             if (textarea.value.trim() !== "") {
                 textarea.value = textarea.value.trim() + "\n" + newText.trim();
             } else {
                 textarea.value = newText.trim();
             }
 
-            // 추가 후 초기화하고 닫기
             productCart = {};
             document.getElementById('productSearch').value = "";
             if (isProductsLoaded) renderProducts();
             closeProductModal();
         }
 
-        // 🌟 구매내역 초기화 기능
         function clearOrderList() {
             document.getElementById('order_list').value = '';
             productCart = {};
@@ -608,7 +679,7 @@
             }
         }
 
-        // --- 기존 로직 ---
+        // --- 유틸 로직 ---
         function showCustomAlert(msg) {
             document.getElementById('customAlertMessage').innerText = msg;
             document.getElementById('customAlertModal').classList.remove('hidden');
@@ -617,7 +688,6 @@
             document.getElementById('customAlertModal').classList.add('hidden');
         }
 
-        // --- 강력한 저장소 접근 함수 (보안 에러 원천 차단) ---
         function safeSetStorage(payload) {
             const dataStr = JSON.stringify(payload);
             try { localStorage.setItem('deliveryInfo', dataStr); } catch(e) {}
@@ -668,7 +738,6 @@
                     document.getElementById('memo').value = data.memo || '';
                     document.getElementById('order_list').value = data.order_list || '';
                     
-                    // 연락처 에러 상태 해제
                     const phoneEl = document.getElementById('phone');
                     if(phoneEl.value.length === 11) {
                         document.getElementById('phoneError').classList.add('hidden');
@@ -684,16 +753,12 @@
         function ignoreHistory() { document.getElementById('historyModal').classList.add('hidden'); }
         
         function closeSuccessModal() { 
-            // 1. 팝업 모달 숨기기
             document.getElementById('successModal').classList.add('hidden'); 
-            
-            // 2. 모바일 인앱 브라우저 창 닫기 시도
             try {
                 window.open('', '_self').close();
                 window.close();
             } catch(e) {}
             
-            // 3. 브라우저 보안상 강제 종료가 안 될 경우, 화면 자체를 '최종 완료' 상태로 덮어버림
             document.body.innerHTML = `
                 <div class="min-h-screen bg-[#f3f4f6] flex flex-col items-center justify-center p-5 text-center fade-enter">
                     <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm border border-gray-200">
@@ -727,39 +792,31 @@
         }
         phoneInput.addEventListener('input', function() { cleanPhoneInput(this); });
 
-        // 카카오 우편번호 API (스크립트 오류 해결 및 모달 방식 적용)
         var addressModal = document.getElementById('addressModal');
         var element_layer = document.getElementById('layer');
         
-        function closeDaumPostcode() {
-            addressModal.classList.add('hidden');
-        }
+        function closeDaumPostcode() { addressModal.classList.add('hidden'); }
         
         function execDaumPostcode() {
             if (typeof daum === 'undefined' || !daum.Postcode) {
                 showCustomAlert('우편번호 서비스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
                 return;
             }
-            
-            // iframe이 생성될 때 높이를 정상적으로 갖도록 모달을 먼저 보여줍니다.
             addressModal.classList.remove('hidden');
 
             new daum.Postcode({
                 oncomplete: function(data) {
                     let addr = data.userSelectedType === 'R' ? data.roadAddress : data.jibunAddress;
                     let extraAddr = '';
-
                     if(data.userSelectedType === 'R'){
                         if(data.bname !== '' && /[동|로|가]$/g.test(data.bname)){ extraAddr += data.bname; }
                         if(data.buildingName !== ''){ extraAddr += (extraAddr !== '' ? ', ' + data.buildingName : data.buildingName); }
                         if(extraAddr !== ''){ extraAddr = ' (' + extraAddr + ')'; }
                     }
-
                     document.getElementById('zipcode').value = data.zonecode;
                     document.getElementById('address_base').value = addr + extraAddr;
-                    
-                    closeDaumPostcode(); // 주소 선택 시 모달 닫기
-                    document.getElementById('address_detail').focus(); // 상세주소로 포커스 이동
+                    closeDaumPostcode();
+                    document.getElementById('address_detail').focus();
                 },
                 width : '100%',
                 height : '100%',
@@ -767,7 +824,6 @@
             }).embed(element_layer);
         }
 
-        // 폼 전송 로직 (강력한 통신 에러 방어)
         document.getElementById('addressForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
@@ -798,7 +854,6 @@
                 order_list: document.getElementById('order_list').value
             };
 
-            // 전송 중 UI (사선 이동 + 점 애니메이션)
             btn.disabled = true;
             btn.classList.add('bg-red-600', 'bg-stripes', 'cursor-wait');
             btn.classList.remove('bg-black', 'hover:bg-gray-900');
@@ -807,7 +862,6 @@
             spinner.classList.remove('hidden');
 
             try {
-                // 리다이렉트 허용 및 타임아웃 방어 옵션
                 const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -818,16 +872,14 @@
                 const result = await response.json();
                 
                 if(result.success) {
-                    safeSetStorage(payload); // 에러 안 나는 안전한 저장 함수 호출
+                    safeSetStorage(payload);
                     document.getElementById('successModal').classList.remove('hidden');
-                    
-                    // 🌟 프리미엄 폭죽 효과 실행 (브랜드 컬러 매칭)
                     if (typeof confetti === 'function') {
                         confetti({
                             particleCount: 150,
                             spread: 80,
                             origin: { y: 0.6 },
-                            colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'], // 블랙, 레드, 화이트, 골드
+                            colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'],
                             zIndex: 9999
                         });
                     }
@@ -836,10 +888,8 @@
                 }
             } catch (error) {
                 console.error('Fetch Error:', error);
-                // 인앱 브라우저 및 통신 에러 발생 시 고객 대응 문구
                 showCustomAlert('데이터 통신 에러가 발생했습니다.\n\n카카오톡/인스타그램 내장 브라우저의 보안 정책 때문일 수 있습니다. 화면 우측 하단의 [⋮] 또는 [⋯] 버튼을 눌러 "다른 브라우저(사파리/크롬)로 열기"를 한 후 다시 시도해 주세요.');
             } finally {
-                // UI 원복
                 btn.disabled = false;
                 btn.classList.remove('bg-red-600', 'bg-stripes', 'cursor-wait');
                 btn.classList.add('bg-black', 'hover:bg-gray-900');
