@@ -232,10 +232,10 @@
             </div>
             
             <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50 space-y-2">
-                <input type="text" id="nicknameSearch" placeholder="닉네임(또는 고유번호)을 검색하세요" class="w-full px-4 py-2.5 input-chic text-sm font-medium" oninput="filterNicknames()">
-                <button type="button" onclick="applyManualNickname()" class="w-full bg-gray-200 text-gray-800 py-2.5 text-[13px] font-bold rounded-sm hover:bg-gray-300 transition-colors flex items-center justify-center gap-1">
+                <input type="text" id="nicknameSearch" placeholder="닉네임(또는 고유번호)을 검색하세요" class="w-full px-4 py-2.5 input-chic text-sm font-medium border-gray-300 focus:border-red-500" oninput="filterNicknames()">
+                <button type="button" onclick="applyManualNickname()" class="w-full bg-gray-800 text-white py-2.5 text-[13px] font-bold rounded-sm hover:bg-black transition-colors flex items-center justify-center gap-1.5 shadow-sm">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                    검색한 단어로 직접 입력하기
+                    목록에 없나요? 👉 방금 적은 닉네임 그대로 사용
                 </button>
             </div>
             
@@ -338,12 +338,16 @@
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50">
-                <input type="text" id="productSearch" placeholder="상품명 또는 번호를 검색하세요" class="w-full px-4 py-2.5 input-chic text-sm font-medium" oninput="filterProducts()">
+            <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50 flex gap-2">
+                <input type="text" id="productSearch" placeholder="상품명 또는 번호를 검색하세요" class="flex-1 w-full px-4 py-2.5 input-chic text-sm font-medium" oninput="filterProducts()">
+                <button type="button" onclick="refreshProducts()" class="shrink-0 px-3 bg-gray-800 text-white rounded-sm text-[12px] font-bold hover:bg-black transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    새로고침
+                </button>
             </div>
             <div id="productListLoading" class="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm font-medium space-y-3">
                 <div class="spinner !border-gray-300 !border-t-black"></div>
-                <p>상품 목록을 불러오는 중입니다...</p>
+                <p id="productListLoadingText">상품 목록을 불러오는 중입니다...</p>
             </div>
             <ul id="productListView" class="flex-1 overflow-y-auto divide-y divide-gray-100 hidden pb-20"></ul>
             <div class="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.1)]">
@@ -410,8 +414,9 @@
             
             const filtered = nicknameData.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase()));
             
+            // 🌟 수정됨: 검색 결과가 없을 때 훨씬 친절하고 구체적인 행동 유도
             if (filtered.length === 0) {
-                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">검색된 닉네임이 없습니다.<br>상단의 <strong>[검색한 단어로 직접 입력하기]</strong> 버튼을 눌러주세요.</li>';
+                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed"><span class="text-red-500 font-bold mb-1.5 block text-[14px]">앗, 검색된 닉네임이 없어요! 😢</span>새로 오셨거나 목록에 닉네임이 없으시다면,<br>입력창에 닉네임을 마저 적으신 후 상단의<br><strong class="text-black bg-gray-100 px-1 py-0.5 rounded inline-block mt-2">[목록에 없나요? 👉 방금 적은 닉네임 그대로 사용]</strong><br><span class="inline-block mt-1">버튼을 눌러 직접 입력해주세요!</span></li>';
                 return;
             }
 
@@ -526,7 +531,7 @@
             const filtered = productData.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
             
             if (filtered.length === 0) {
-                ul.innerHTML = '<li class="p-8 text-center text-gray-400 text-sm">검색 결과가 없습니다.</li>';
+                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed"><span class="text-red-500 font-bold mb-1.5 block text-[14px]">앗, 찾으시는 상품이 없나요? 😢</span>우측 상단의 <strong>[새로고침]</strong>을 한 번 눌러보시거나,<br>그래도 없다면 이 창을 닫으신 후 이전 화면의<br><strong>구매 내역 텍스트 칸에 직접 입력</strong>해주셔도 정상 접수됩니다!</li>';
                 return;
             }
 
@@ -642,8 +647,18 @@
             renderProducts(term);
         }
 
+        function refreshProducts() {
+            isProductsLoaded = false;
+            document.getElementById('productListView').classList.add('hidden');
+            const loadingEl = document.getElementById('productListLoading');
+            loadingEl.classList.remove('hidden');
+            document.getElementById('productListLoadingText').innerText = '최신 실시간 목록을 불러오는 중...';
+            fetchProductData();
+        }
+
         function openProductModal() {
             document.getElementById('productSelectModal').classList.remove('hidden');
+            document.getElementById('productListLoadingText').innerText = '상품 목록을 불러오는 중입니다...';
             fetchProductData();
         }
 
