@@ -60,8 +60,7 @@
         }
         @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60% { content: '...'; } 80%, 100% { content: ''; } }
 
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .fade-fast { animation: fadeIn 0.25s ease-out forwards; }
     </style>
 </head>
 <body class="antialiased min-h-screen flex flex-col">
@@ -209,23 +208,19 @@
                 </div>
             </form>
 
-            <!-- 🌟 하단 카피라이트 및 사업자 정보 -->
-            <div class="mt-48 pb-12 text-center flex flex-col items-center justify-center select-none">
+            <!-- 🌟 하단 카피라이트 (이곳이 폼의 완벽한 바닥이 됩니다) -->
+            <div id="copyright-section" class="mt-32 pb-16 text-center flex flex-col items-center justify-center select-none bg-white relative z-10 cursor-pointer" onclick="revealBizInfo()">
                 <p class="text-[11px] text-black font-extrabold tracking-[0.25em] uppercase mb-1">Ember Sister Official</p>
-                <p class="text-[9.5px] text-gray-500 font-bold tracking-widest uppercase">System by. 깔로</p>
-                
-                <!-- 로고와 간격을 아주 멀리 떨어뜨리고 토글(아코디언) 방식으로 숨김 처리 -->
-                <div class="mt-32 w-full">
-                    <details class="group">
-                        <summary class="text-[9px] text-gray-200 cursor-pointer list-none flex justify-center items-center gap-1 hover:text-gray-300 transition-colors [&::-webkit-details-marker]:hidden">
-                            <span>사업자 정보</span>
-                            <svg class="w-2.5 h-2.5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
-                        </summary>
-                        <div class="mt-3 text-[9px] text-gray-300 tracking-tight leading-relaxed font-light animate-fade-in">
-                            상호: 엠버언니 | 대표자: 김선정 | 사업자번호: 259-20-02160<br>
-                            통신판매업신고: 2026-서울동대문-1240 | 고객센터: 카카오톡 채널 '엠버언니'
-                        </div>
-                    </details>
+                <p class="text-[9.5px] text-gray-400 font-bold tracking-widest uppercase">System by. 깔로</p>
+            </div>
+            
+            <!-- 🌟 억지로 끌어내릴 때만 나타나는 사업자 정보 (Pull to Reveal) -->
+            <div id="bizInfoContent" class="w-full text-center overflow-hidden transition-all duration-[600ms] ease-[cubic-bezier(0.25,1,0.5,1)] flex flex-col items-center justify-start border-t border-transparent" style="height: 0px; opacity: 0;">
+                <div class="py-8 w-full">
+                    <p class="text-[9.5px] text-gray-300 tracking-tight leading-relaxed font-light">
+                        상호: 엠버언니 | 대표자: 김선정 | 사업자번호: 259-20-02160<br>
+                        통신판매업신고: 2026-서울동대문-1240 | 고객센터: 카카오톡 채널 '엠버언니'
+                    </p>
                 </div>
             </div>
 
@@ -245,7 +240,7 @@
     </div>
 
     <!-- 🌟 닉네임 검색/입력 모달 -->
-    <div id="nicknameSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[80] hidden px-4 py-6 animate-fade-in">
+    <div id="nicknameSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[80] hidden px-4 py-6 fade-fast">
         <div class="bg-white w-full max-w-[460px] h-[70vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
             
             <div class="bg-black px-4 py-4 flex justify-between items-center shrink-0">
@@ -289,7 +284,7 @@
 
                 <div class="mx-4 mb-4 border border-gray-300 rounded-lg overflow-hidden shadow-sm">
                     <div class="bg-[#1a1a1a] py-3 text-center">
-                        <h4 class="text-[15px] font-extrabold text-white tracking-widest">교환 및 반품 안내</h4>
+                        <h4 class="text-[15px] font-extrabold text-white tracking-widest">주문 후 필수 안내</h4>
                     </div>
                     
                     <div class="bg-white p-5 space-y-5">
@@ -311,10 +306,10 @@
                         </div>
                         <div class="flex items-start gap-3">
                             <div class="shrink-0 mt-0.5">
-                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
                             </div>
                             <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
-                                도매 창고 특성상 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1">미세 스크레치, 오염, 잡사</span>의 이유로는 교환/반품 불가합니다.
+                                주문서 제출 후 꼭 <span class="inline-block bg-red-50 border border-red-500 text-red-600 px-2 py-0.5 rounded text-[15px] mt-1">카카오톡 채널에 '닉네임'</span>을 남겨주셔야 주문이 확정됩니다.
                             </p>
                         </div>
                     </div>
@@ -336,7 +331,7 @@
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
-            <div id="layer" class="w-full flex-grow relative overflow-hidden -webkit-overflow-scrolling:touch;"></div>
+            <div id="layer" class="w-full flex-grow relative overflow-hidden" style="-webkit-overflow-scrolling:touch;"></div>
         </div>
     </div>
 
@@ -383,7 +378,7 @@
     </div>
 
     <!-- 사진 팝업 모달 -->
-    <div id="imagePopupModal" class="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-5 hidden animate-fade-in" onclick="closeImagePopup()">
+    <div id="imagePopupModal" class="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-5 hidden fade-fast" onclick="closeImagePopup()">
         <div class="relative max-w-md w-full flex flex-col items-end">
             <button type="button" class="text-white text-3xl font-light hover:text-gray-300 transition-colors mb-2" onclick="closeImagePopup()">&times;</button>
             <img id="popupImage" src="" alt="Product Detail" class="w-full h-auto max-h-[80vh] object-contain rounded-sm shadow-2xl" onclick="event.stopPropagation()">
@@ -393,7 +388,7 @@
     <script>
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykeNregrBIcRcS7Xy_26RcnzDzmnBSGgLQgP3TUIzMlRjB5w0QknZHARY6WlAg44wPdg/exec';
 
-        // 🌟 사장님 닉네임 구글 시트 연결 🌟 (CSV 형식으로 안전하게 호출)
+        // 🌟 사장님 닉네임 구글 시트 연결 🌟
         const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
         
         let nicknameData = [];
@@ -429,7 +424,6 @@
             const ul = document.getElementById('nicknameListView');
             ul.innerHTML = '';
             
-            // 검색어가 없을 때는 전체 목록을 숨겨서 개인정보 보호
             if (!searchTerm.trim()) {
                 ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">닉네임의 일부를 입력하시면<br>검색 결과가 나타납니다.</li>';
                 return;
@@ -451,27 +445,19 @@
             });
         }
 
-        function filterNicknames() {
-            renderNicknames(document.getElementById('nicknameSearch').value);
-        }
-
+        function filterNicknames() { renderNicknames(document.getElementById('nicknameSearch').value); }
         function openNicknameModal() {
             document.getElementById('nicknameSelectModal').classList.remove('hidden');
             setTimeout(() => document.getElementById('nicknameSearch').focus(), 100);
             fetchNicknameData();
         }
-
-        function closeNicknameModal() {
-            document.getElementById('nicknameSelectModal').classList.add('hidden');
-        }
-
+        function closeNicknameModal() { document.getElementById('nicknameSelectModal').classList.add('hidden'); }
         function selectNickname(name) {
             const input = document.getElementById('nickname');
             input.value = name;
             input.dispatchEvent(new Event('input')); 
             closeNicknameModal();
         }
-
         function applyManualNickname() {
             const searchInput = document.getElementById('nicknameSearch').value.trim();
             if (!searchInput) {
@@ -597,7 +583,7 @@
 
                 if (isSelected && !isSoldOut) {
                     html += `
-                        <div class="flex items-center mt-1 w-20 border border-gray-300 overflow-hidden bg-white h-6 rounded-sm animate-fade-in">
+                        <div class="flex items-center mt-1 w-20 border border-gray-300 overflow-hidden bg-white h-6 rounded-sm fade-fast">
                             <button type="button" onclick="updateCart('${product.name}', -1, event)" class="w-7 h-full text-gray-500 flex items-center justify-center hover:bg-gray-100 text-lg font-light leading-none active:bg-gray-200">-</button>
                             <div class="flex-1 h-full flex items-center justify-center text-[11px] font-bold border-l border-r border-gray-300 text-black bg-[#fafafa]">${qty}</div>
                             <button type="button" onclick="updateCart('${product.name}', 1, event)" class="w-7 h-full text-gray-500 flex items-center justify-center hover:bg-gray-100 text-lg font-light leading-none active:bg-gray-200">+</button>
@@ -623,11 +609,7 @@
         }
 
         function toggleSelection(name) {
-            if (productCart[name]) {
-                delete productCart[name];
-            } else {
-                productCart[name] = 1;
-            }
+            if (productCart[name]) { delete productCart[name]; } else { productCart[name] = 1; }
             renderProducts(document.getElementById('productSearch').value);
         }
 
@@ -635,11 +617,7 @@
             if(event) event.stopPropagation();
             const currentQty = productCart[name] || 0;
             const nextQty = currentQty + delta;
-            if (nextQty > 0) {
-                productCart[name] = nextQty;
-            } else {
-                delete productCart[name];
-            }
+            if (nextQty > 0) { productCart[name] = nextQty; } else { delete productCart[name]; }
             renderProducts(document.getElementById('productSearch').value);
         }
 
@@ -649,9 +627,7 @@
             document.getElementById('imagePopupModal').classList.remove('hidden');
         }
 
-        function closeImagePopup() {
-            document.getElementById('imagePopupModal').classList.add('hidden');
-        }
+        function closeImagePopup() { document.getElementById('imagePopupModal').classList.add('hidden'); }
 
         function updateCartBadge() {
             const totalItems = Object.values(productCart).reduce((a, b) => a + b, 0);
@@ -664,10 +640,7 @@
             }
         }
 
-        function filterProducts() {
-            const term = document.getElementById('productSearch').value;
-            renderProducts(term);
-        }
+        function filterProducts() { renderProducts(document.getElementById('productSearch').value); }
 
         function refreshProducts() {
             isProductsLoaded = false;
@@ -684,9 +657,7 @@
             fetchProductData();
         }
 
-        function closeProductModal() {
-            document.getElementById('productSelectModal').classList.add('hidden');
-        }
+        function closeProductModal() { document.getElementById('productSelectModal').classList.add('hidden'); }
 
         function applySelectedProducts() {
             const textarea = document.getElementById('order_list');
@@ -732,6 +703,62 @@
             document.getElementById('customAlertModal').classList.add('hidden');
         }
 
+        // 🌟 억지로 끌어내리기 (Pull to Reveal) 로직 🌟
+        let pullStartY = 0;
+        let isPullingAtBottom = false;
+        let isBizInfoRevealed = false;
+
+        function isAtBottom() {
+            // 소수점 오차 및 모바일 브라우저 툴바 보정을 위해 10px 여유
+            return (window.innerHeight + Math.ceil(window.scrollY)) >= document.body.offsetHeight - 10;
+        }
+
+        // 터치 시작 시 바닥인지 체크
+        window.addEventListener('touchstart', function(e) {
+            if (isBizInfoRevealed) return;
+            if (isAtBottom()) {
+                pullStartY = e.touches[0].clientY;
+                isPullingAtBottom = true;
+            } else {
+                isPullingAtBottom = false;
+            }
+        }, { passive: true });
+
+        // 화면을 위로 스와이프 하는지 (억지로 끌어올리는지) 체크
+        window.addEventListener('touchmove', function(e) {
+            if (!isPullingAtBottom || isBizInfoRevealed) return;
+            let currentY = e.touches[0].clientY;
+            
+            // 바닥에 도달한 상태에서 60px 이상 억지로 더 끌어올렸을 때 발동
+            if (pullStartY - currentY > 60) { 
+                revealBizInfo();
+            }
+        }, { passive: true });
+
+        // PC 환경을 위한 마우스 휠 바닥 오버스크롤 감지
+        window.addEventListener('wheel', function(e) {
+            if (isBizInfoRevealed) return;
+            if (e.deltaY > 0 && isAtBottom()) {
+                revealBizInfo();
+            }
+        }, { passive: true });
+
+        function revealBizInfo() {
+            if (isBizInfoRevealed) return;
+            isBizInfoRevealed = true;
+            const bizContent = document.getElementById('bizInfoContent');
+            
+            // 숨겨진 영역 부드럽게 펼치기
+            bizContent.style.height = bizContent.scrollHeight + "px";
+            bizContent.style.opacity = "1";
+            bizContent.classList.replace('border-transparent', 'border-gray-100');
+            
+            // 맨 밑으로 부드럽게 이동
+            setTimeout(() => {
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            }, 100);
+        }
+
         function safeSetStorage(payload) {
             const dataStr = JSON.stringify(payload);
             try { localStorage.setItem('deliveryInfo', dataStr); } catch(e) {}
@@ -758,7 +785,6 @@
             return null;
         }
 
-        // 🌟 수정된 startForm: 필수 동의 체크박스 확인 로직 추가
         function startForm() {
             const agreeCheck = document.getElementById('privacyAgree');
             if (!agreeCheck.checked) {
@@ -843,8 +869,8 @@
         }
         phoneInput.addEventListener('input', function() { cleanPhoneInput(this); });
 
-        var addressModal = document.getElementById('addressModal');
-        var element_layer = document.getElementById('layer');
+        const addressModal = document.getElementById('addressModal');
+        const element_layer = document.getElementById('layer');
         
         function closeDaumPostcode() { addressModal.classList.add('hidden'); }
         
