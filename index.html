@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>엠버언니 배송지 입력 </title>
+    <title>EMBER OFFICIAL ORDER</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
@@ -119,36 +119,25 @@
         <div class="p-6 space-y-8 flex-grow bg-white">
             <form id="addressForm" class="space-y-6">
                 
-                <div class="space-y-2">
+                <div class="space-y-2" id="nickname-container">
                     <div class="flex items-center justify-between">
                         <label for="nickname" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center gap-1">
-                            <span class="text-[#FF0000] flex items-center gap-1">
-                                <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.517 3.545 12 3.545 12 3.545s-7.517 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.871.508 9.388.508 9.388.508s7.517 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-                            </span>
                             <span>유튜브 채팅창 닉네임</span> 
                             <span class="text-red-500">*</span>
                         </label>
-                        <button type="button" onclick="openNicknameModal()" class="px-3 py-1.5 bg-red-600 text-white text-[11px] font-bold tracking-wider rounded-sm hover:bg-red-700 flex items-center gap-1 transition-colors shadow-sm">
+                        <button type="button" onclick="openNicknameModal()" class="px-3 py-1.5 bg-black text-white text-[11px] font-bold tracking-wider rounded-sm hover:bg-gray-800 flex items-center gap-1 transition-colors">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"></path></svg>
-                            닉네임 찾기
+                            검색 및 입력
                         </button>
                     </div>
-                    <input type="text" id="nickname" autocomplete="nickname" required placeholder="우측 [닉네임 찾기] 버튼을 눌러주세요" class="w-full px-4 py-3.5 input-chic text-black font-bold border-red-500 cursor-pointer bg-red-50/30" readonly onclick="openNicknameModal()">
+                    <input type="text" id="nickname" autocomplete="nickname" required placeholder="우측 [검색 및 입력] 버튼을 눌러주세요" class="w-full px-4 py-3.5 input-chic text-black font-bold cursor-pointer bg-gray-50" readonly onclick="openNicknameModal()">
                     
-                    <div class="bg-red-50 border border-red-200 p-3.5 mt-2 rounded-sm">
-                        <p class="text-[12.5px] text-red-700 break-keep leading-relaxed font-black">
-                            ⚠️ 동일한 닉네임이 많아 고유번호까지 적어주셔야 매칭됩니다!
-                            <span class="block mt-1 text-[11.5px] text-red-600 font-bold">우측 상단의 <strong class="bg-red-600 text-white px-1.5 py-0.5 mx-0.5 rounded-sm shadow-sm">닉네임 찾기</strong> 버튼을 누르시면 정확한 닉네임을 검색할 수 있습니다.</span>
+                    <div class="bg-gray-50 border border-gray-200 p-3.5 mt-2 rounded-sm">
+                        <p class="text-[11px] text-gray-700 break-keep leading-relaxed font-semibold">
+                            <span class="text-red-600 font-bold mb-1 block">⚠️ 동일한 닉네임 방지를 위해 고유번호를 확인해주세요!</span>
+                            • 입력 예시: <span class="text-black bg-white border border-gray-200 px-1 font-bold">깔로-n1d</span><br>
+                            • 닉네임 뒤에 붙는 영어/숫자 코드를 함께 적어주시면 정확한 확인이 가능합니다.
                         </p>
-                        <div class="text-[11px] text-gray-700 break-keep leading-relaxed font-semibold mt-2.5 pl-3 border-l-2 border-red-400 space-y-1">
-                            <div>• 입력 형식: <strong class="text-red-600 bg-red-100 px-1 py-0.5 rounded-sm">닉네임-영어숫자</strong></div>
-                            <div>• 입력 예시: <span class="text-black bg-gray-100 px-1 font-bold">깔로-n1d</span> 또는 <span class="text-black bg-gray-100 px-1 font-bold">엠버언니-s9f1l</span></div>
-                            <div class="text-[10px] text-gray-500 font-normal leading-normal pt-1">(※ 라이브 방송 시 채팅창에 이름 옆에 뜨는 고유 번호 코드입니다.)</div>
-                            <div class="border-t border-red-200/60 pt-2 mt-2 text-[10px] text-gray-600 font-normal leading-relaxed">
-                                <span class="text-red-600 font-bold">💡 닉네임 변경 방법:</span><br>
-                                유튜브 앱 우측 하단 <strong>[내페이지] ➔ [채널보기] ➔ [채널수정] ➔ [핸들]</strong> 메뉴에서 직접 변경하실 수 있습니다!
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -250,12 +239,17 @@
                 </button>
             </div>
             
-            <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50 space-y-2">
-                <input type="text" id="nicknameSearch" placeholder="닉네임(또는 고유번호)을 검색하세요" class="w-full px-4 py-2.5 input-chic text-sm font-medium border-gray-300 focus:border-red-500" oninput="filterNicknames()">
-                <button type="button" onclick="applyManualNickname()" class="w-full bg-gray-800 text-white py-2.5 text-[13px] font-bold rounded-sm hover:bg-black transition-colors flex items-center justify-center gap-1.5 shadow-sm">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                    목록에 없나요? 👉 방금 적은 닉네임 그대로 사용
-                </button>
+            <div class="px-4 py-4 border-b border-gray-100 shrink-0 bg-gray-50 flex flex-col gap-2.5">
+                <p class="text-[12px] text-gray-700 font-bold tracking-tight leading-snug">
+                    🔎 목록에서 닉네임을 찾아 터치해주세요.<br>
+                    목록에 없다면 직접 적으신 후 우측 <span class="bg-black text-white px-1.5 py-0.5 rounded-sm text-[10px] shadow-sm">입력 완료</span> 를 눌러주세요.
+                </p>
+                <div class="flex gap-2">
+                    <input type="text" id="nicknameSearch" placeholder="닉네임(또는 고유번호) 입력" class="flex-1 px-4 py-2.5 input-chic text-sm font-medium border-gray-300 focus:border-black" oninput="filterNicknames()">
+                    <button type="button" onclick="applyManualNickname()" class="shrink-0 bg-black text-white px-4 text-[13px] font-bold rounded-sm hover:bg-gray-800 transition-colors shadow-sm">
+                        입력 완료
+                    </button>
+                </div>
             </div>
             
             <div id="nicknameListLoading" class="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm font-medium space-y-3">
@@ -424,15 +418,20 @@
             const ul = document.getElementById('nicknameListView');
             ul.innerHTML = '';
             
-            if (!searchTerm.trim()) {
-                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">닉네임의 일부를 입력하시면<br>검색 결과가 나타납니다.</li>';
+            const term = searchTerm.trim();
+            
+            if (!term) {
+                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">닉네임의 일부를 입력하시면<br>검색 결과가 나타납니다.<br><br><span class="text-gray-700 font-bold mt-2 inline-block">※ 목록에 닉네임이 없다면 검색창에 적고<br>우측의 <strong class="text-white bg-black px-1.5 py-0.5 rounded-sm shadow-sm text-[11px]">입력 완료</strong> 버튼을 눌러주세요.</span></li>';
                 return;
             }
             
-            const filtered = nicknameData.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase()));
+            const filtered = nicknameData.filter(name => name.toLowerCase().includes(term.toLowerCase()));
             
             if (filtered.length === 0) {
-                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed"><span class="text-red-500 font-bold mb-1.5 block text-[14px]">앗, 검색된 닉네임이 없어요! 😢</span>새로 오셨거나 목록에 닉네임이 없으시다면,<br>입력창에 닉네임을 마저 적으신 후 상단의<br><strong class="text-black bg-gray-100 px-1 py-0.5 rounded inline-block mt-2">[목록에 없나요? 👉 방금 적은 닉네임 그대로 사용]</strong><br><span class="inline-block mt-1">버튼을 눌러 직접 입력해주세요!</span></li>';
+                ul.innerHTML = `<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">
+                    <span class="text-red-500 font-bold mb-1.5 block text-[14px]">앗, 검색된 닉네임이 없어요! 😢</span>
+                    입력하신 <strong class="text-black text-[14px]">"${term}"</strong> (을)를 그대로 사용하시려면<br>우측 상단의 <strong class="text-white bg-black px-1.5 py-0.5 rounded-sm shadow-sm text-[11px]">입력 완료</strong> 버튼을 눌러주세요!
+                </li>`;
                 return;
             }
 
@@ -457,6 +456,8 @@
             input.value = name;
             input.dispatchEvent(new Event('input')); 
             closeNicknameModal();
+            // 닉네임이 입력되면 강조 컨테이너의 빨간 배경을 살짝 연하게 바꿔주는 시각적 피드백
+            document.getElementById('nickname-container').classList.replace('bg-red-50', 'bg-white');
         }
         function applyManualNickname() {
             const searchInput = document.getElementById('nicknameSearch').value.trim();
@@ -820,6 +821,11 @@
                         document.getElementById('phoneError').classList.add('hidden');
                         phoneEl.classList.remove('border-red-500');
                     }
+
+                    // 닉네임이 로드되었으면 빨간색 강조 컨테이너를 약간 연하게 처리
+                    if(data.nickname) {
+                        document.getElementById('nickname-container').classList.replace('bg-red-50', 'bg-white');
+                    }
                 } catch(e) {
                     console.error("데이터 파싱 오류", e);
                 }
@@ -856,8 +862,8 @@
             `;
         }
 
-        const nicknameInput = document.getElementById('nickname');
-        nicknameInput.addEventListener('input', function() { this.value = this.value.replace(/@/g, ''); });
+        const nicknameInputEl = document.getElementById('nickname');
+        nicknameInputEl.addEventListener('input', function() { this.value = this.value.replace(/@/g, ''); });
 
         const phoneInput = document.getElementById('phone');
         function cleanPhoneInput(element) {
@@ -906,6 +912,13 @@
             const btn = document.getElementById('submitBtn');
             const spinner = document.getElementById('loadingSpinner');
             const btnText = document.getElementById('btnText');
+
+            const currentNickname = document.getElementById('nickname').value;
+            if (!currentNickname || currentNickname.trim() === "") {
+                showCustomAlert("🚨 필수 정보 누락!\n\n가장 중요한 [유튜브 닉네임]이 비어있습니다. 우측 검색 버튼을 눌러 닉네임을 꼭 입력해주세요.");
+                document.getElementById('nickname-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
 
             const cleanPhone = document.getElementById('phone').value.replace(/[^0-9]/g, '');
             if (cleanPhone.length !== 11) {
