@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>EMBER OFFICIAL ORDER</title>
+    <title>엠버언니 배송지 입력</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,600;1,600&display=swap');
         
@@ -87,7 +88,6 @@
             <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl rounded-sm">
                 <h2 class="text-[16px] font-extrabold text-black mb-3 border-b-2 border-black pb-2">엠버언니 개인정보 수집 및 이용 동의</h2>
                 
-                <!-- 줄 간격을 좁힌 디자인 적용 -->
                 <div class="bg-gray-50 border border-gray-200 p-3.5 rounded-sm">
                     <div class="grid grid-cols-[max-content_auto_1fr] gap-x-2 gap-y-1.5 text-[12px] text-gray-700 leading-snug">
                         <strong class="text-gray-900 tracking-tight">수집·이용 목적</strong>
@@ -100,12 +100,11 @@
                         
                         <strong class="text-gray-900 tracking-tight">보유 및 이용 기간</strong>
                         <strong class="text-gray-900">:</strong>
-                        <span class="break-keep">상품 배송 및 정산 완료 후 30일간 보유.</span>
+                        <span class="break-keep">상품 배송 완료 후 30일간 보유.</span>
                     </div>
                     <p class="text-red-600 font-bold text-[11.5px] pt-2.5 tracking-tight border-t border-gray-200/60 mt-2.5">※ 동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
                 </div>
                 
-                <!-- 필수 체크박스 (버튼 역할 통합) -->
                 <label class="flex items-center justify-center gap-2 mt-4 py-3.5 bg-black border border-black rounded-sm cursor-pointer hover:bg-gray-800 transition-colors group">
                     <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-4 h-4 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 150); }">
                     <span class="text-[13px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
@@ -121,7 +120,7 @@
         
         <header class="py-6 text-center border-b border-gray-100 flex-shrink-0 bg-white sticky top-0 z-20">
             <h1 class="text-2xl font-serif text-black tracking-widest">EMBER</h1>
-            <p class="text-[10px] text-gray-500 tracking-[0.2em] uppercase mt-1">Order Form</p>
+            <p class="text-[10px] text-gray-500 tracking-[0.2em] uppercase mt-1">Address Form</p>
         </header>
 
         <div class="p-6 space-y-8 flex-grow bg-white">
@@ -178,40 +177,29 @@
                     <textarea id="memo" rows="2" placeholder="배송 기사님께 전달할 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
-                <div class="space-y-2 pt-2">
-                    <div class="flex items-center justify-between">
-                        <label for="order_list" class="block text-xs font-bold text-black uppercase tracking-wider">
-                            구매 내역 <span class="text-gray-400 font-normal normal-case text-[11px] ml-1">(직접입력 또는 선택)</span>
-                        </label>
-                        <div class="flex items-center gap-1.5">
-                            <button type="button" onclick="clearOrderList()" class="px-2.5 py-1.5 border border-gray-300 text-gray-500 hover:text-black hover:border-black text-[11px] font-bold tracking-wider rounded-sm flex items-center gap-1 transition-colors" title="내역 비우기">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                내역 비우기
-                            </button>
-                            <button type="button" onclick="openProductModal()" class="px-3 py-1.5 bg-black text-white text-[11px] font-bold tracking-wider rounded-sm hover:bg-gray-800 flex items-center gap-1 transition-colors">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path></svg>
-                                상품 선택
-                            </button>
-                        </div>
+                <!-- 🌟 안내 문구 (구매내역 대체) -->
+                <div class="bg-red-50 border border-red-200 p-4 rounded-sm mt-6 mb-2 text-center shadow-sm">
+                    <div class="text-[13px] text-gray-800 leading-relaxed break-keep font-medium space-y-2.5">
+                        <p>주문은 <strong class="text-red-600 font-extrabold">'방송 중 채팅'</strong>으로만 가능합니다.</p>
+                        <p>임의로 입금하셔도 보내드릴 수 있는 제품이 없습니다.</p>
+                        <p>카카오톡 채널 채팅에 꼭 <strong class="text-red-600 font-extrabold alert-flash inline-block border border-red-300 px-1.5 py-0.5 mt-0.5 mb-0.5 rounded-sm">'닉네임'</strong>을 남겨주세요.</p>
+                        <p><strong class="text-red-600 font-extrabold">'순차적으로 주문서 전달'</strong> 드립니다.</p>
                     </div>
-                    <textarea id="order_list" rows="4" placeholder="직접 입력하시거나 상단의 '+ 상품 선택' 버튼을 눌러 추가해주세요.&#10;예: 블랙 자켓 1개" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
-                <div class="pt-8 pb-4">
+                <div class="pt-6 pb-4">
                     <button type="submit" id="submitBtn" class="w-full bg-black text-white py-4 font-bold text-base tracking-widest hover:bg-gray-900 transition-all flex justify-center items-center gap-3 rounded-sm">
-                        <span id="btnText">주문서 전송하기</span>
+                        <span id="btnText">배송지 전송하기</span>
                         <div id="loadingSpinner" class="spinner hidden"></div>
                     </button>
                 </div>
             </form>
 
-            <!-- 🌟 하단 카피라이트 (이곳이 폼의 완벽한 바닥이 됩니다) -->
             <div id="copyright-section" class="mt-32 pb-16 text-center flex flex-col items-center justify-center select-none bg-white relative z-10 cursor-pointer" onclick="revealBizInfo()">
                 <p class="text-[11px] text-black font-extrabold tracking-[0.25em] uppercase mb-1">Ember Sister Official</p>
                 <p class="text-[9.5px] text-gray-400 font-bold tracking-widest uppercase">System by. 깔로</p>
             </div>
             
-            <!-- 🌟 억지로 끌어내릴 때만 나타나는 사업자 정보 (Pull to Reveal) -->
             <div id="bizInfoContent" class="w-full text-center overflow-hidden transition-all duration-[600ms] ease-[cubic-bezier(0.25,1,0.5,1)] flex flex-col items-center justify-start border-t border-transparent" style="height: 0px; opacity: 0;">
                 <div class="py-8 w-full">
                     <p class="text-[9.5px] text-gray-300 tracking-tight leading-relaxed font-light">
@@ -224,7 +212,6 @@
         </div>
     </div>
 
-    <!-- 🌟 복구된 기록 불러오기 모달 -->
     <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
         <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
@@ -236,10 +223,8 @@
         </div>
     </div>
 
-    <!-- 🌟 닉네임 검색/입력 모달 -->
     <div id="nicknameSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[80] hidden px-4 py-6 fade-fast">
         <div class="bg-white w-full max-w-[460px] h-[70vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
-            
             <div class="bg-black px-4 py-4 flex justify-between items-center shrink-0">
                 <h4 class="text-white font-bold text-[14px] tracking-widest">닉네임 검색 및 입력</h4>
                 <button type="button" onclick="closeNicknameModal()" class="text-white hover:text-gray-300 p-1">
@@ -270,7 +255,6 @@
         </div>
     </div>
 
-    <!-- 성공 모달 -->
     <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-10">
         <div class="w-full max-w-[460px] flex flex-col items-center">
             <div class="bg-white w-full rounded-xl shadow-2xl overflow-hidden pt-8 pb-1">
@@ -280,7 +264,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path>
                         </svg>
                     </div>
-                    <h3 class="text-[18px] font-extrabold text-black mb-1.5 tracking-wide">주문서 전송 완료</h3>
+                    <h3 class="text-[18px] font-extrabold text-black mb-1.5 tracking-wide">배송지 전송 완료</h3>
                     <p class="text-gray-800 text-[13px]">배송지 정보가 정상 접수되었습니다.</p>
                 </div>
 
@@ -308,7 +292,6 @@
         </div>
     </div>
 
-    <!-- 주소 검색 모달 -->
     <div id="addressModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] hidden px-4 py-6">
         <div class="bg-white w-full max-w-[460px] h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
             <div class="bg-black px-4 py-3.5 flex justify-between items-center shrink-0">
@@ -321,7 +304,6 @@
         </div>
     </div>
 
-    <!-- 알림 모달 -->
     <div id="customAlertModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] hidden px-5">
         <div class="bg-white p-7 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <div class="w-10 h-10 border-2 border-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -333,48 +315,9 @@
         </div>
     </div>
 
-    <!-- 상품 선택 모달 -->
-    <div id="productSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[70] hidden px-4 py-6">
-        <div class="bg-white w-full max-w-[460px] h-[85vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
-            <div class="bg-black px-4 py-4 flex justify-between items-center shrink-0">
-                <h4 class="text-white font-bold text-[14px] tracking-widest">방송 상품 선택</h4>
-                <button type="button" onclick="closeProductModal()" class="text-white hover:text-gray-300 p-1">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-            </div>
-            <div class="px-4 py-3 border-b border-gray-100 shrink-0 bg-gray-50 flex gap-2">
-                <input type="text" id="productSearch" placeholder="상품명 또는 번호를 검색하세요" class="flex-1 w-full px-4 py-2.5 input-chic text-sm font-medium" oninput="filterProducts()">
-                <button type="button" onclick="refreshProducts()" class="shrink-0 px-3 bg-gray-800 text-white rounded-sm text-[12px] font-bold hover:bg-black transition-colors flex items-center gap-1 shadow-sm whitespace-nowrap">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                    새로고침
-                </button>
-            </div>
-            <div id="productListLoading" class="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm font-medium space-y-3">
-                <div class="spinner !border-gray-300 !border-t-black"></div>
-                <p id="productListLoadingText">상품 목록을 불러오는 중입니다...</p>
-            </div>
-            <ul id="productListView" class="flex-1 overflow-y-auto divide-y divide-gray-100 hidden pb-20"></ul>
-            <div class="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.1)]">
-                <button type="button" onclick="applySelectedProducts()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest flex items-center justify-center gap-2">
-                    <span id="selectedCountBadge" class="bg-white text-black font-extrabold px-2 py-0.5 rounded-full text-[11px] hidden">0</span>
-                    선택한 상품 내역에 추가하기
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 사진 팝업 모달 -->
-    <div id="imagePopupModal" class="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-5 hidden fade-fast" onclick="closeImagePopup()">
-        <div class="relative max-w-md w-full flex flex-col items-end">
-            <button type="button" class="text-white text-3xl font-light hover:text-gray-300 transition-colors mb-2" onclick="closeImagePopup()">&times;</button>
-            <img id="popupImage" src="" alt="Product Detail" class="w-full h-auto max-h-[80vh] object-contain rounded-sm shadow-2xl" onclick="event.stopPropagation()">
-        </div>
-    </div>
-
     <script>
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykeNregrBIcRcS7Xy_26RcnzDzmnBSGgLQgP3TUIzMlRjB5w0QknZHARY6WlAg44wPdg/exec';
 
-        // 🌟 사장님 닉네임 구글 시트 연결 🌟
         const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
         
         let nicknameData = [];
@@ -448,7 +391,6 @@
             input.value = name;
             input.dispatchEvent(new Event('input')); 
             closeNicknameModal();
-            // 닉네임이 입력되면 강조 컨테이너의 빨간 배경을 살짝 연하게 바꿔주는 시각적 피드백
             document.getElementById('nickname-container').classList.replace('bg-red-50', 'bg-white');
         }
         function applyManualNickname() {
@@ -460,234 +402,6 @@
             selectNickname(searchInput);
         }
 
-        // --- 구글 시트 상품 연동 및 장바구니 로직 ---
-        let productData = [];
-        let productCart = {}; 
-        let isProductsLoaded = false;
-
-        async function fetchProductData() {
-            if (isProductsLoaded) return;
-            try {
-                const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRI6cW1MyLv5gbcfsjEyYuMDWdL6jDit_Fuz2ZNXPKwEJZeedXoNorHHhUdsoDnDxBzzrFu6P72WVOy/pub?gid=1797935796&single=true&output=csv";
-                const response = await fetch(csvUrl);
-                const text = await response.text();
-                
-                const rows = text.replace(/\r/g, '').split('\n');
-                let data = [];
-                
-                rows.forEach((row, index) => {
-                    const cleanRow = row.trim();
-                    if (!cleanRow) return;
-                    
-                    const cols = [];
-                    let current = '';
-                    let inQuotes = false;
-                    
-                    for (let i = 0; i < cleanRow.length; i++) {
-                        if (cleanRow[i] === '"') { inQuotes = !inQuotes; } 
-                        else if (cleanRow[i] === ',' && !inQuotes) { cols.push(current.trim()); current = ''; } 
-                        else { current += cleanRow[i]; }
-                    }
-                    cols.push(current.trim());
-                    
-                    if (cols[0]) {
-                        const firstColLower = cols[0].toLowerCase();
-                        if (firstColLower !== "name" && firstColLower !== "price" && firstColLower !== "상품명") {
-                            const rawPrice = cols[1] ? cols[1].trim() : '';
-                            const numOnly = rawPrice.replace(/[^0-9-]/g, '');
-                            const priceNum = parseInt(numOnly, 10);
-                            const isMemo = rawPrice === '-' || (!isNaN(priceNum) && priceNum <= 0);
-
-                            if (!isMemo) {
-                                data.push({ id: index, name: cols[0], price: cols[1] || '', status: cols[2] ? cols[2].trim() : '', imageUrl: cols[3] ? cols[3].trim() : '' });
-                            }
-                        }
-                    }
-                });
-
-                data.sort((a, b) => {
-                    const matchA = a.name.match(/^(\d+)/);
-                    const numA = matchA ? parseInt(matchA[0]) : 0;
-                    const matchB = b.name.match(/^(\d+)/);
-                    const numB = matchB ? parseInt(matchB[0]) : 0;
-                    if (numA === 0 && numB === 0) return a.name.localeCompare(b.name);
-                    return numB - numA;
-                });
-                
-                productData = data;
-                isProductsLoaded = true;
-                document.getElementById('productListLoading').classList.add('hidden');
-                document.getElementById('productListView').classList.remove('hidden');
-                renderProducts();
-            } catch (error) {
-                console.error("데이터 로드 실패", error);
-                document.getElementById('productListLoading').innerHTML = "<p class='text-red-500'>데이터를 불러오는 데 실패했습니다.</p>";
-            }
-        }
-
-        function renderProducts(searchTerm = "") {
-            const ul = document.getElementById('productListView');
-            ul.innerHTML = '';
-            
-            const filtered = productData.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-            
-            if (filtered.length === 0) {
-                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed"><span class="text-red-500 font-bold mb-1.5 block text-[14px]">앗, 찾으시는 상품이 없나요? 😢</span>우측 상단의 <strong>[새로고침]</strong>을 한 번 눌러보시거나,<br>그래도 없다면 이 창을 닫으신 후 이전 화면의<br><strong>구매 내역 텍스트 칸에 직접 입력</strong>해주셔도 정상 접수됩니다!</li>';
-                return;
-            }
-
-            filtered.forEach((product, index) => {
-                const li = document.createElement('li');
-                li.className = `flex items-center justify-between py-4 px-5 transition-colors group ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`;
-                
-                const isSoldOut = product.status === '품절';
-                const isSelected = !!productCart[product.name];
-                const qty = productCart[product.name] || 0;
-                
-                const onlyNumbers = product.price.replace(/[^0-9]/g, '');
-                const num = parseInt(onlyNumbers, 10);
-                const formattedPrice = isNaN(num) ? product.price : num.toLocaleString();
-                
-                let html = `<div class="flex items-center gap-3 pr-4">`;
-                
-                html += `
-                    <div class="shrink-0 flex items-center justify-center cursor-pointer py-2 pr-1" onclick="toggleSelection('${product.name}')">
-                        <div class="w-5 h-5 border flex items-center justify-center transition-colors ${isSelected ? 'bg-black border-black' : 'bg-white border-gray-300'}">
-                            ${isSelected ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-white" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>' : ''}
-                        </div>
-                    </div>
-                `;
-
-                if (product.imageUrl) {
-                    html += `
-                        <div class="w-10 h-10 shrink-0 cursor-pointer overflow-hidden rounded-sm border border-gray-200 shadow-sm" onclick="openImagePopup('${product.imageUrl}', event)">
-                            <img src="${product.imageUrl}" alt="${product.name}" class="w-full h-full object-cover hover:scale-110 transition-transform duration-300">
-                        </div>
-                    `;
-                }
-
-                html += `
-                    <div class="flex flex-col gap-1">
-                        <div class="flex items-center gap-2">
-                            <span class="text-[14px] font-medium leading-snug break-keep tracking-wide ${isSoldOut ? 'text-gray-500' : 'text-black'}">${product.name}</span>
-                            ${isSoldOut ? '<span class="text-[10px] bg-red-600 text-white px-1.5 py-0.5 tracking-wider font-bold shrink-0">품절</span>' : ''}
-                        </div>
-                `;
-
-                if (isSelected && !isSoldOut) {
-                    html += `
-                        <div class="flex items-center mt-1 w-20 border border-gray-300 overflow-hidden bg-white h-6 rounded-sm fade-fast">
-                            <button type="button" onclick="updateCart('${product.name}', -1, event)" class="w-7 h-full text-gray-500 flex items-center justify-center hover:bg-gray-100 text-lg font-light leading-none active:bg-gray-200">-</button>
-                            <div class="flex-1 h-full flex items-center justify-center text-[11px] font-bold border-l border-r border-gray-300 text-black bg-[#fafafa]">${qty}</div>
-                            <button type="button" onclick="updateCart('${product.name}', 1, event)" class="w-7 h-full text-gray-500 flex items-center justify-center hover:bg-gray-100 text-lg font-light leading-none active:bg-gray-200">+</button>
-                        </div>
-                    `;
-                }
-
-                html += `</div></div>`;
-
-                html += `
-                    <div class="flex items-center gap-4 shrink-0">
-                        <div class="text-[15px] font-bold tracking-wider ${isSoldOut ? 'text-gray-500' : 'text-black'}">
-                            ${formattedPrice}
-                        </div>
-                    </div>
-                `;
-
-                li.innerHTML = html;
-                ul.appendChild(li);
-            });
-            
-            updateCartBadge();
-        }
-
-        function toggleSelection(name) {
-            if (productCart[name]) { delete productCart[name]; } else { productCart[name] = 1; }
-            renderProducts(document.getElementById('productSearch').value);
-        }
-
-        function updateCart(name, delta, event) {
-            if(event) event.stopPropagation();
-            const currentQty = productCart[name] || 0;
-            const nextQty = currentQty + delta;
-            if (nextQty > 0) { productCart[name] = nextQty; } else { delete productCart[name]; }
-            renderProducts(document.getElementById('productSearch').value);
-        }
-
-        function openImagePopup(url, event) {
-            if(event) event.stopPropagation();
-            document.getElementById('popupImage').src = url;
-            document.getElementById('imagePopupModal').classList.remove('hidden');
-        }
-
-        function closeImagePopup() { document.getElementById('imagePopupModal').classList.add('hidden'); }
-
-        function updateCartBadge() {
-            const totalItems = Object.values(productCart).reduce((a, b) => a + b, 0);
-            const badge = document.getElementById('selectedCountBadge');
-            if (totalItems > 0) {
-                badge.innerText = totalItems + "개";
-                badge.classList.remove('hidden');
-            } else {
-                badge.classList.add('hidden');
-            }
-        }
-
-        function filterProducts() { renderProducts(document.getElementById('productSearch').value); }
-
-        function refreshProducts() {
-            isProductsLoaded = false;
-            document.getElementById('productListView').classList.add('hidden');
-            const loadingEl = document.getElementById('productListLoading');
-            loadingEl.classList.remove('hidden');
-            document.getElementById('productListLoadingText').innerText = '최신 실시간 목록을 불러오는 중...';
-            fetchProductData();
-        }
-
-        function openProductModal() {
-            document.getElementById('productSelectModal').classList.remove('hidden');
-            document.getElementById('productListLoadingText').innerText = '상품 목록을 불러오는 중입니다...';
-            fetchProductData();
-        }
-
-        function closeProductModal() { document.getElementById('productSelectModal').classList.add('hidden'); }
-
-        function applySelectedProducts() {
-            const textarea = document.getElementById('order_list');
-            const selectedNames = Object.keys(productCart);
-            
-            if (selectedNames.length === 0) {
-                closeProductModal();
-                return;
-            }
-
-            let newText = "";
-            selectedNames.forEach(name => {
-                newText += `${name} ${productCart[name]}개\n`;
-            });
-
-            if (textarea.value.trim() !== "") {
-                textarea.value = textarea.value.trim() + "\n" + newText.trim();
-            } else {
-                textarea.value = newText.trim();
-            }
-
-            productCart = {};
-            document.getElementById('productSearch').value = "";
-            if (isProductsLoaded) renderProducts();
-            closeProductModal();
-        }
-
-        function clearOrderList() {
-            document.getElementById('order_list').value = '';
-            productCart = {};
-            localStorage.removeItem('ember_form_cart');
-            if (isProductsLoaded) {
-                renderProducts(document.getElementById('productSearch').value);
-            }
-        }
-
-        // --- 유틸 로직 ---
         function showCustomAlert(msg) {
             document.getElementById('customAlertMessage').innerText = msg;
             document.getElementById('customAlertModal').classList.remove('hidden');
@@ -696,17 +410,14 @@
             document.getElementById('customAlertModal').classList.add('hidden');
         }
 
-        // 🌟 억지로 끌어내리기 (Pull to Reveal) 로직 🌟
         let pullStartY = 0;
         let isPullingAtBottom = false;
         let isBizInfoRevealed = false;
 
         function isAtBottom() {
-            // 소수점 오차 및 모바일 브라우저 툴바 보정을 위해 10px 여유
             return (window.innerHeight + Math.ceil(window.scrollY)) >= document.body.offsetHeight - 10;
         }
 
-        // 터치 시작 시 바닥인지 체크
         window.addEventListener('touchstart', function(e) {
             if (isBizInfoRevealed) return;
             if (isAtBottom()) {
@@ -717,18 +428,14 @@
             }
         }, { passive: true });
 
-        // 화면을 위로 스와이프 하는지 (억지로 끌어올리는지) 체크
         window.addEventListener('touchmove', function(e) {
             if (!isPullingAtBottom || isBizInfoRevealed) return;
             let currentY = e.touches[0].clientY;
-            
-            // 바닥에 도달한 상태에서 60px 이상 억지로 더 끌어올렸을 때 발동
             if (pullStartY - currentY > 60) { 
                 revealBizInfo();
             }
         }, { passive: true });
 
-        // PC 환경을 위한 마우스 휠 바닥 오버스크롤 감지
         window.addEventListener('wheel', function(e) {
             if (isBizInfoRevealed) return;
             if (e.deltaY > 0 && isAtBottom()) {
@@ -740,13 +447,9 @@
             if (isBizInfoRevealed) return;
             isBizInfoRevealed = true;
             const bizContent = document.getElementById('bizInfoContent');
-            
-            // 숨겨진 영역 부드럽게 펼치기
             bizContent.style.height = bizContent.scrollHeight + "px";
             bizContent.style.opacity = "1";
             bizContent.classList.replace('border-transparent', 'border-gray-100');
-            
-            // 맨 밑으로 부드럽게 이동
             setTimeout(() => {
                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
             }, 100);
@@ -764,9 +467,8 @@
 
         function safeGetStorage() {
             let rawData = null;
-            try { rawData = localStorage.getItem('deliveryInfo'); } catch(e) {}
+            try { localStorage.getItem('deliveryInfo'); } catch(e) {}
             if (rawData) return rawData;
-            
             try {
                 const name = "deliveryInfo=";
                 const ca = decodeURIComponent(document.cookie).split(';');
@@ -784,10 +486,8 @@
                 showCustomAlert("개인정보 수집 및 이용 동의 항목에 체크해주세요.");
                 return;
             }
-
             document.getElementById('intro-page').classList.add('hidden');
             document.getElementById('form-page').classList.remove('hidden');
-            
             const savedData = safeGetStorage();
             if (savedData) {
                 document.getElementById('historyModal').classList.remove('hidden');
@@ -806,15 +506,12 @@
                     document.getElementById('address_base').value = data.address_base || '';
                     document.getElementById('address_detail').value = data.address_detail || '';
                     document.getElementById('memo').value = data.memo || '';
-                    document.getElementById('order_list').value = data.order_list || '';
                     
                     const phoneEl = document.getElementById('phone');
                     if(phoneEl.value.length === 11) {
                         document.getElementById('phoneError').classList.add('hidden');
                         phoneEl.classList.remove('border-red-500');
                     }
-
-                    // 닉네임이 로드되었으면 빨간색 강조 컨테이너를 약간 연하게 처리
                     if(data.nickname) {
                         document.getElementById('nickname-container').classList.replace('bg-red-50', 'bg-white');
                     }
@@ -840,14 +537,14 @@
                         <div class="w-14 h-14 bg-black rounded-full flex items-center justify-center mx-auto mb-5">
                             <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
                         </div>
-                        <h2 class="text-[18px] font-extrabold text-black mb-2 tracking-wide">주문서 접수 완료</h2>
+                        <h2 class="text-[18px] font-extrabold text-black mb-2 tracking-wide">배송지 접수 완료</h2>
                         <p class="text-[13px] text-gray-600 mb-6 break-keep leading-relaxed">
                             성공적으로 전송되었습니다.<br><br>
                             화면 우측 상단이나 하단의 <strong class="text-black bg-gray-100 px-1 py-0.5 rounded">닫기(X)</strong> 버튼을 눌러<br>
                             카카오톡으로 돌아간 뒤 <strong class="inline-block px-2 py-0.5 mt-1 rounded border alert-flash">닉네임</strong>을 꼭 남겨주세요.
                         </p>
                         <button onclick="location.reload()" class="text-[11px] text-gray-400 underline decoration-gray-300 underline-offset-4 hover:text-black">
-                            새 주문서 작성하기 (초기화)
+                            새 배송지 작성하기 (초기화)
                         </button>
                     </div>
                 </div>
@@ -932,8 +629,7 @@
                 address_base: document.getElementById('address_base').value,
                 address_detail: document.getElementById('address_detail').value,
                 full_address: `(${document.getElementById('zipcode').value}) ${document.getElementById('address_base').value} ${document.getElementById('address_detail').value}`,
-                memo: document.getElementById('memo').value,
-                order_list: document.getElementById('order_list').value
+                memo: document.getElementById('memo').value
             };
 
             btn.disabled = true;
@@ -976,7 +672,7 @@
                 btn.classList.remove('bg-red-600', 'bg-stripes', 'cursor-wait');
                 btn.classList.add('bg-black', 'hover:bg-gray-900');
                 btnText.classList.remove('loading-dots');
-                btnText.textContent = '주문서 전송하기';
+                btnText.textContent = '배송지 전송하기';
                 spinner.classList.add('hidden');
             }
         });
