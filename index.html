@@ -86,6 +86,17 @@
 
         <div class="relative z-10 w-full px-4 pb-6 max-w-md mx-auto">
             <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl rounded-sm">
+                
+                <!-- 카카오톡/인스타 브라우저 경고창 (동적 표시) -->
+                <div id="inAppWarning" class="hidden mb-4 bg-yellow-50 border border-yellow-300 p-3 rounded-sm text-center shadow-sm">
+                    <p class="text-yellow-800 font-extrabold text-[13px] tracking-tight">⚠️ 인앱 브라우저 감지됨</p>
+                    <p class="text-yellow-700 text-[11.5px] mt-1 font-bold tracking-tight leading-relaxed">
+                        전송 오류가 발생할 수 있습니다.<br>
+                        우측 하단 <strong class="bg-yellow-200 px-1 rounded">[⋮]</strong> 또는 <strong class="bg-yellow-200 px-1 rounded">[⋯]</strong> 버튼을 눌러<br>
+                        <strong class="text-black">'다른 브라우저로 열기'</strong>를 권장합니다.
+                    </p>
+                </div>
+
                 <h2 class="text-[16px] font-extrabold text-black mb-3 border-b-2 border-black pb-2">엠버언니 개인정보 수집 및 이용 동의</h2>
                 
                 <div class="bg-gray-50 border border-gray-200 p-3.5 rounded-sm">
@@ -320,12 +331,52 @@
     </div>
 
     <script>
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykeNregrBIcRcS7Xy_26RcnzDzmnBSGgLQgP3TUIzMlRjB5w0QknZHARY6WlAg44wPdg/exec';
-
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxpWMSVM5qGTqBGp52vRZGwP2dE0-WjBTCH7ejLoxNdNkgBKRL8A1sCMfrLXJMPcc1VUg/exec';
         const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
         
         let nicknameData = [];
         let isNicknamesLoaded = false;
+
+        // 인앱 브라우저(카카오톡/인스타) 감지 로직
+        document.addEventListener('DOMContentLoaded', () => {
+            const ua = navigator.userAgent.toLowerCase();
+            if (ua.indexOf('kakaotalk') > -1 || ua.indexOf('instagram') > -1) {
+                document.getElementById('inAppWarning').classList.remove('hidden');
+            }
+            
+            // 🔥 속도 개선: 사용자가 안내문 읽을 동안 뒤에서 닉네임 미리 불러오기
+            fetchNicknameData();
+        });
+
+        // 타임아웃이 적용된 안전한 Fetch 함수 (무한 로딩 방지용)
+        async function fetchWithTimeout(resource, options = {}) {
+            const { timeout = 15000 } = options; // 15초 타임아웃
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
+            const response = await fetch(resource, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            return response;
+        }
+
+        // 🔥 새로 추가된 기능: 튕겼을 때 몰래 다시 시도하는 '자동 재시도' 로직
+        async function fetchWithRetry(url, options, maxRetries = 3) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetchWithTimeout(url, options);
+                    return response; // 성공하면 바로 결과 반환
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error; // 마지막 재시도까지 실패하면 에러 뿜기
+                    
+                    // 실패 시 대기 후 재시도 (점점 길게 대기: 1초 -> 2초 -> 3초)
+                    const waitTime = (i + 1) * 1000 + Math.random() * 500;
+                    console.log(`구글 서버 혼잡! ${waitTime}ms 후 재시도 중... (${i + 1}/${maxRetries})`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                }
+            }
+        }
 
         async function fetchNicknameData() {
             if (isNicknamesLoaded) return;
@@ -344,17 +395,21 @@
                     nicknameData = [...new Set(data)]; 
                 } 
                 isNicknamesLoaded = true;
-                document.getElementById('nicknameListLoading').classList.add('hidden');
-                document.getElementById('nicknameListView').classList.remove('hidden');
+                const loadingEl = document.getElementById('nicknameListLoading');
+                const listEl = document.getElementById('nicknameListView');
+                if(loadingEl) loadingEl.classList.add('hidden');
+                if(listEl) listEl.classList.remove('hidden');
                 renderNicknames('');
             } catch (error) {
                 console.error("닉네임 데이터 로드 실패", error);
-                document.getElementById('nicknameListLoading').innerHTML = "<p class='text-red-500'>목록을 불러오지 못했습니다.</p>";
+                const loadingEl = document.getElementById('nicknameListLoading');
+                if(loadingEl) loadingEl.innerHTML = "<p class='text-red-500'>목록을 불러오지 못했습니다. 직접 입력해주세요.</p>";
             }
         }
 
         function renderNicknames(searchTerm = "") {
             const ul = document.getElementById('nicknameListView');
+            if(!ul) return;
             ul.innerHTML = '';
             
             const term = searchTerm.trim();
@@ -387,7 +442,7 @@
         function openNicknameModal() {
             document.getElementById('nicknameSelectModal').classList.remove('hidden');
             setTimeout(() => document.getElementById('nicknameSearch').focus(), 100);
-            fetchNicknameData();
+            if(!isNicknamesLoaded) fetchNicknameData();
         }
         function closeNicknameModal() { document.getElementById('nicknameSelectModal').classList.add('hidden'); }
         function selectNickname(name) {
@@ -642,20 +697,23 @@
                 memo: document.getElementById('memo').value
             };
 
+            // 🔥 UI 개선: 사용자가 안심할 수 있는 차분한 디자인의 로딩 상태
             btn.disabled = true;
-            btn.classList.add('bg-red-600', 'bg-stripes', 'cursor-wait');
+            btn.classList.add('bg-gray-700', 'cursor-wait', 'opacity-90');
             btn.classList.remove('bg-black', 'hover:bg-gray-900');
             btnText.classList.add('loading-dots');
-            btnText.textContent = '중복데이터 확인중 ';
+            btnText.textContent = '안전하게 전송 중입니다 ';
             spinner.classList.remove('hidden');
 
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                // 🔥 안정성 개선: 무한 로딩 방지 및 구글 서버 혼잡 시 자동 3번 재시도 기능 적용
+                const response = await fetchWithRetry(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(payload),
-                    redirect: "follow" 
-                });
+                    redirect: "follow",
+                    timeout: 15000 
+                }, 3); // 최대 3번까지 재시도
                 
                 const result = await response.json();
                 
@@ -676,10 +734,15 @@
                 }
             } catch (error) {
                 console.error('Fetch Error:', error);
-                showCustomAlert('데이터 통신 에러가 발생했습니다.\n\n카카오톡/인스타그램 내장 브라우저의 보안 정책 때문일 수 있습니다. 화면 우측 하단의 [⋮] 또는 [⋯] 버튼을 눌러 "다른 브라우저(사파리/크롬)로 열기"를 한 후 다시 시도해 주세요.');
+                if (error.name === 'AbortError') {
+                    showCustomAlert('⏳ 대기 시간이 초과되었습니다.\n\n동시 접속자가 많거나 인터넷이 불안정합니다. 화면 우측 하단의 [⋮] 버튼을 눌러 "다른 브라우저로 열기" 후 다시 시도해주세요.');
+                } else {
+                    showCustomAlert('🚨 데이터 전송에 실패했습니다.\n\n방송 중 동시 접속자가 많아 지연되고 있습니다. 잠시 후 [배송지 전송하기] 버튼을 다시 한 번만 꾹 눌러주세요!');
+                }
             } finally {
+                // 버튼 상태 원상복구
                 btn.disabled = false;
-                btn.classList.remove('bg-red-600', 'bg-stripes', 'cursor-wait');
+                btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
                 btn.classList.add('bg-black', 'hover:bg-gray-900');
                 btnText.classList.remove('loading-dots');
                 btnText.textContent = '배송지 전송하기';
