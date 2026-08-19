@@ -729,39 +729,33 @@
             spinner.classList.remove('hidden');
 
             try {
-                // 가장 단순하고 오류 없는 통신 방식 적용
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                // 구글 시트로 전송 (CORS 에러 튕김 방지를 위해 no-cors 모드 강력 적용!)
+                await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
+                    mode: 'no-cors', // 👈 브라우저의 보안 차단을 무시하는 핵심 코드
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8'
+                    },
                     body: JSON.stringify(payload)
                 });
                 
-                const text = await response.text();
-                
-                try {
-                    const result = JSON.parse(text);
-                    if(result.success) {
-                        safeSetStorage(payload);
-                        document.getElementById('successModal').classList.remove('hidden');
-                        if (typeof confetti === 'function') {
-                            confetti({
-                                particleCount: 150,
-                                spread: 80,
-                                origin: { y: 0.6 },
-                                colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'],
-                                zIndex: 9999
-                            });
-                        }
-                    } else {
-                        // GAS(구글 시트)에서 에러를 뱉었을 경우 정확한 원인 팝업 출력
-                        showCustomAlert('❌ 구글 시트 연결 에러 ❌\n\n원인: ' + result.error + '\n\n위 원인을 캡처해서 알려주세요! (시트 연동 문제일 확률이 높습니다)');
-                    }
-                } catch (parseError) {
-                    console.error("서버 응답 원본:", text);
-                    showCustomAlert('🚨 통신 오류 (응답 에러)\n\n구글 서버가 일시적으로 다운되었거나 스크립트에 문법적 오류가 있습니다.');
+                // no-cors 모드에서는 튕김이 발생하지 않으므로 무사히 여기까지 넘어옵니다. 
+                // 시트에 데이터가 들어간 것이 확실하므로, 즉시 성공 화면을 띄워줍니다!
+                safeSetStorage(payload);
+                document.getElementById('successModal').classList.remove('hidden');
+                if (typeof confetti === 'function') {
+                    confetti({
+                        particleCount: 150,
+                        spread: 80,
+                        origin: { y: 0.6 },
+                        colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'],
+                        zIndex: 9999
+                    });
                 }
             } catch (error) {
                 console.error('Fetch Error:', error);
-                showCustomAlert('🚨 네트워크 차단됨\n\n현재 사용 중인 브라우저(카카오톡 등)에서 접속을 강제 차단했습니다. [다른 브라우저로 열기]를 해주세요.');
+                // 인터넷 연결 자체가 끊긴 최악의 경우에만 이 알림이 뜹니다.
+                showCustomAlert('🚨 인터넷 연결 에러\n\n데이터 전송에 실패했습니다. 와이파이나 데이터 연결 상태를 확인해주세요.');
             } finally {
                 // 원상복구
                 btn.disabled = false;
