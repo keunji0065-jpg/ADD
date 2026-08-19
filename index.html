@@ -20,7 +20,7 @@
             border-radius: 0;
             border: 1px solid #d1d5db;
             background-color: #fafafa;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease; /* 반응 속도 상향 */
         }
         .input-chic:focus {
             border-color: #000000;
@@ -35,11 +35,11 @@
             border-top: 2px solid #ffffff;
             width: 20px;
             height: 20px;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite; /* 스피너 회전 속도 상향 */
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        .fade-enter { animation: fadeIn 0.6s ease-out forwards; }
+        .fade-enter { animation: fadeIn 0.4s ease-out forwards; } /* 화면 전환 속도 상향 */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -57,11 +57,11 @@
 
         .loading-dots:after {
             content: '.';
-            animation: dots 1.5s steps(5, end) infinite;
+            animation: dots 1.2s steps(5, end) infinite; /* 텍스트 애니메이션 속도 상향 */
         }
         @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60% { content: '...'; } 80%, 100% { content: ''; } }
 
-        .fade-fast { animation: fadeIn 0.25s ease-out forwards; }
+        .fade-fast { animation: fadeIn 0.15s ease-out forwards; }
 
         @keyframes alert-flash {
             0%, 100% { background-color: #fef2f2; color: #dc2626; border-color: #f87171; box-shadow: none; }
@@ -87,7 +87,7 @@
         <div class="relative z-10 w-full px-4 pb-6 max-w-md mx-auto">
             <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl rounded-sm">
                 
-                <!-- 카카오톡/인스타 브라우저 경고창 (동적 표시) -->
+                <!-- 카카오톡/인스타 브라우저 경고창 -->
                 <div id="inAppWarning" class="hidden mb-4 bg-yellow-50 border border-yellow-300 p-3.5 rounded-sm text-center shadow-sm">
                     <p class="text-yellow-800 font-extrabold text-[14px] tracking-tight mb-1.5">⚠️ 인앱 브라우저 감지됨</p>
                     <p id="inAppWarningText" class="text-yellow-700 text-[12px] font-bold tracking-tight leading-relaxed break-keep mb-3">
@@ -124,7 +124,7 @@
                 </div>
                 
                 <label class="flex items-center justify-center gap-2 mt-4 py-3.5 bg-black border border-black rounded-sm cursor-pointer hover:bg-gray-800 transition-colors group">
-                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-4 h-4 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 150); }">
+                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-4 h-4 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
                     <span class="text-[13px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
                 </label>
             </div>
@@ -228,6 +228,7 @@
         </div>
     </div>
 
+    <!-- 각종 모달창들 (History, Nickname, Postcode, Success, Alert) -->
     <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
         <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
             <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
@@ -332,7 +333,8 @@
     </div>
 
     <script>
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxpWMSVM5qGTqBGp52vRZGwP2dE0-WjBTCH7ejLoxNdNkgBKRL8A1sCMfrLXJMPcc1VUg/exec';
+        // 🌟 새로 발급받으신 주소 완벽 적용
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx6iAEY4yRGLmFHSqkX17ghffXvLQ8-W2DJuBAcOW8p17rdRSu2rwPtsaokdxSGWtipVw/exec';
         const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
         
         let nicknameData = [];
@@ -356,23 +358,23 @@
             // 1. 카카오톡 접속 시 즉시 외부 브라우저(사파리/크롬)로 강제 오픈
             if (ua.match(/kakaotalk/i)) {
                 location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(currentUrl);
-                
-                // 간혹 강제 이동이 막힌 기기를 위해 안내창 띄우기
+                // 강제 이동이 막힌 기기를 위한 폴백(Fallback) 안내
                 document.getElementById('inAppWarning').classList.remove('hidden');
                 document.getElementById('inAppWarningText').innerHTML = "카카오톡 내장 브라우저에서는 잦은 오류가 발생합니다.<br><br>우측 하단 <strong class='bg-yellow-200 px-1 rounded'>[⋮]</strong> 버튼을 눌러<br><strong class='text-black'>'다른 브라우저로 열기'</strong>를 반드시 선택해주세요.";
-                document.getElementById('copyUrlBtn').classList.add('hidden'); // 카톡은 버튼 대신 메뉴 이용 안내
+                document.getElementById('copyUrlBtn').classList.add('hidden');
             } 
-            // 2. 인스타그램 / 페이스북 (강제 이동 불가하므로 링크 복사 유도)
+            // 2. 인스타그램 / 페이스북 / 라인 (강제 이동 불가, 주소 복사 유도)
             else if (ua.match(/instagram/i) || ua.match(/fb/i) || ua.match(/facebook/i) || ua.match(/line/i)) {
                 document.getElementById('inAppWarning').classList.remove('hidden');
             }
             
-            // 닉네임 몰래 미리 로딩 (속도 향상)
+            // 페이지 진입 즉시 닉네임 몰래 로딩 (속도 최적화)
             fetchNicknameData();
         });
 
+        // 🌟 타임아웃 제한 시간을 30초(30000ms)로 넉넉하게 연장하여 무한 로딩 방지
         async function fetchWithTimeout(resource, options = {}) {
-            const { timeout = 15000 } = options; // 15초 제한
+            const { timeout = 30000 } = options; 
             const controller = new AbortController();
             const id = setTimeout(() => controller.abort(), timeout);
             const response = await fetch(resource, {
@@ -383,16 +385,17 @@
             return response;
         }
 
-        async function fetchWithRetry(url, options, maxRetries = 3) {
-            for (let i = 0; i < maxRetries; i++) {
+        // 전송 실패 시 자동으로 몰래 다시 보내는 강력한 로직 (체감속도를 위해 재시도 텀 감소)
+        async function fetchWithRetry(url, options, maxRetries = 2) {
+            for (let i = 0; i <= maxRetries; i++) {
                 try {
                     const response = await fetchWithTimeout(url, options);
                     return response;
                 } catch (error) {
-                    if (i === maxRetries - 1) throw error;
-                    
-                    const waitTime = (i + 1) * 1000 + Math.random() * 500;
-                    console.log(`서버 대기 중... ${waitTime}ms 후 재시도 (${i + 1}/${maxRetries})`);
+                    if (i === maxRetries) throw error;
+                    // 재시도 텀을 줄여 더 빠릿빠릿하게 (500ms ~ 1500ms 이내)
+                    const waitTime = (i + 1) * 500 + Math.random() * 300; 
+                    console.log(`통신 지연... ${waitTime}ms 후 재시도 (${i + 1}/${maxRetries})`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                 }
             }
@@ -461,7 +464,7 @@
         function filterNicknames() { renderNicknames(document.getElementById('nicknameSearch').value); }
         function openNicknameModal() {
             document.getElementById('nicknameSelectModal').classList.remove('hidden');
-            setTimeout(() => document.getElementById('nicknameSearch').focus(), 100);
+            setTimeout(() => document.getElementById('nicknameSearch').focus(), 50); // 속도 상향
             if(!isNicknamesLoaded) fetchNicknameData();
         }
         function closeNicknameModal() { document.getElementById('nicknameSelectModal').classList.add('hidden'); }
@@ -717,6 +720,7 @@
                 memo: document.getElementById('memo').value
             };
 
+            // 전송 중 버튼 UI 변경 (안심 문구 및 회색빛)
             btn.disabled = true;
             btn.classList.add('bg-gray-700', 'cursor-wait', 'opacity-90');
             btn.classList.remove('bg-black', 'hover:bg-gray-900');
@@ -725,13 +729,13 @@
             spinner.classList.remove('hidden');
 
             try {
-                // 재시도 3회가 포함된 강력한 Fetch 전송 로직
+                // 🌟 재시도 기능을 포함한 강력한 데이터 전송 로직 (타임아웃 30초 적용)
                 const response = await fetchWithRetry(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(payload),
                     redirect: "follow"
-                }, 3); 
+                }, 2); // 2회까지 재시도
                 
                 const result = await response.json();
                 
@@ -753,11 +757,12 @@
             } catch (error) {
                 console.error('Fetch Error:', error);
                 if (error.name === 'AbortError') {
-                    showCustomAlert('⏳ 대기 시간이 초과되었습니다.\n\n동시 접속자가 많거나 인터넷이 불안정합니다. 화면 위의 [🔗 주소 복사하기] 버튼을 눌러 다른 브라우저에서 시도해주세요.');
+                    showCustomAlert('⏳ 대기 시간이 초과되었습니다.\n\n동시 접속자가 너무 많아 응답이 지연되고 있습니다. 잠시만 기다리신 후 다시 전송 버튼을 눌러주세요.');
                 } else {
                     showCustomAlert('🚨 데이터 전송에 실패했습니다.\n\n방송 중 동시 접속자가 많아 지연되고 있습니다. 잠시 후 [배송지 전송하기] 버튼을 다시 한 번만 꾹 눌러주세요!');
                 }
             } finally {
+                // 원상복구
                 btn.disabled = false;
                 btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
                 btn.classList.add('bg-black', 'hover:bg-gray-900');
