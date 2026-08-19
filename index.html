@@ -334,7 +334,7 @@
 
     <script>
         // 🌟 새로 발급받으신 주소 완벽 적용
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx6iAEY4yRGLmFHSqkX17ghffXvLQ8-W2DJuBAcOW8p17rdRSu2rwPtsaokdxSGWtipVw/exec';
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwu00OpLh3UtPScJvhmpjDX28iGG4rjGt-WldzpD4LqRPOuMLzEEbRB6Z_Bpmqneukz1w/exec';
         const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
         
         let nicknameData = [];
@@ -729,38 +729,39 @@
             spinner.classList.remove('hidden');
 
             try {
-                // 🌟 재시도 기능을 포함한 강력한 데이터 전송 로직 (타임아웃 30초 적용)
-                const response = await fetchWithRetry(GOOGLE_SCRIPT_URL, {
+                // 가장 단순하고 오류 없는 통신 방식 적용
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload),
-                    redirect: "follow"
-                }, 2); // 2회까지 재시도
+                    body: JSON.stringify(payload)
+                });
                 
-                const result = await response.json();
+                const text = await response.text();
                 
-                if(result.success) {
-                    safeSetStorage(payload);
-                    document.getElementById('successModal').classList.remove('hidden');
-                    if (typeof confetti === 'function') {
-                        confetti({
-                            particleCount: 150,
-                            spread: 80,
-                            origin: { y: 0.6 },
-                            colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'],
-                            zIndex: 9999
-                        });
+                try {
+                    const result = JSON.parse(text);
+                    if(result.success) {
+                        safeSetStorage(payload);
+                        document.getElementById('successModal').classList.remove('hidden');
+                        if (typeof confetti === 'function') {
+                            confetti({
+                                particleCount: 150,
+                                spread: 80,
+                                origin: { y: 0.6 },
+                                colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'],
+                                zIndex: 9999
+                            });
+                        }
+                    } else {
+                        // GAS(구글 시트)에서 에러를 뱉었을 경우 정확한 원인 팝업 출력
+                        showCustomAlert('❌ 구글 시트 연결 에러 ❌\n\n원인: ' + result.error + '\n\n위 원인을 캡처해서 알려주세요! (시트 연동 문제일 확률이 높습니다)');
                     }
-                } else {
-                    showCustomAlert('전송 실패: ' + (result.error || '알 수 없는 오류'));
+                } catch (parseError) {
+                    console.error("서버 응답 원본:", text);
+                    showCustomAlert('🚨 통신 오류 (응답 에러)\n\n구글 서버가 일시적으로 다운되었거나 스크립트에 문법적 오류가 있습니다.');
                 }
             } catch (error) {
                 console.error('Fetch Error:', error);
-                if (error.name === 'AbortError') {
-                    showCustomAlert('⏳ 대기 시간이 초과되었습니다.\n\n동시 접속자가 너무 많아 응답이 지연되고 있습니다. 잠시만 기다리신 후 다시 전송 버튼을 눌러주세요.');
-                } else {
-                    showCustomAlert('🚨 데이터 전송에 실패했습니다.\n\n방송 중 동시 접속자가 많아 지연되고 있습니다. 잠시 후 [배송지 전송하기] 버튼을 다시 한 번만 꾹 눌러주세요!');
-                }
+                showCustomAlert('🚨 네트워크 차단됨\n\n현재 사용 중인 브라우저(카카오톡 등)에서 접속을 강제 차단했습니다. [다른 브라우저로 열기]를 해주세요.');
             } finally {
                 // 원상복구
                 btn.disabled = false;
