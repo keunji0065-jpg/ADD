@@ -80,7 +80,7 @@
     <div id="intro-page" class="relative max-w-md w-full mx-auto min-h-screen bg-black flex flex-col justify-end z-40 shadow-2xl overflow-hidden sm:my-10 sm:min-h-[800px] sm:rounded-2xl">
         
         <div class="absolute inset-0 z-0 bg-black">
-            <img src="https://i.postimg.cc/j2jq2pMn/Gemini-Generated-Image-3y30zc3y30zc3y30.png" alt="Ember Model" class="w-full h-full object-cover opacity-100 object-top" onerror="this.src='https://via.placeholder.com/400x800?text=Ember+Model'">
+            <img src="https://i.postimg.cc/j2jq2pMn/Gemini-Generated-Image-3y30zc3y30zc3y30.png" alt="Ember Model" class="w-full h-full object-cover opacity-100 object-top" onerror="this.src='https://placehold.co/400x800/000000/ffffff?text=Ember+Model'">
             <div class="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/40"></div>
         </div>
 
@@ -88,13 +88,15 @@
             <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl rounded-sm">
                 
                 <!-- 카카오톡/인스타 브라우저 경고창 (동적 표시) -->
-                <div id="inAppWarning" class="hidden mb-4 bg-yellow-50 border border-yellow-300 p-3 rounded-sm text-center shadow-sm">
-                    <p class="text-yellow-800 font-extrabold text-[13px] tracking-tight">⚠️ 인앱 브라우저 감지됨</p>
-                    <p class="text-yellow-700 text-[11.5px] mt-1 font-bold tracking-tight leading-relaxed">
-                        전송 오류가 발생할 수 있습니다.<br>
-                        우측 하단 <strong class="bg-yellow-200 px-1 rounded">[⋮]</strong> 또는 <strong class="bg-yellow-200 px-1 rounded">[⋯]</strong> 버튼을 눌러<br>
-                        <strong class="text-black">'다른 브라우저로 열기'</strong>를 권장합니다.
+                <div id="inAppWarning" class="hidden mb-4 bg-yellow-50 border border-yellow-300 p-3.5 rounded-sm text-center shadow-sm">
+                    <p class="text-yellow-800 font-extrabold text-[14px] tracking-tight mb-1.5">⚠️ 인앱 브라우저 감지됨</p>
+                    <p id="inAppWarningText" class="text-yellow-700 text-[12px] font-bold tracking-tight leading-relaxed break-keep mb-3">
+                        인스타그램 등 내장 브라우저에서는<br>전송 오류가 발생할 수 있습니다.<br>
+                        아래 버튼을 눌러 링크를 복사한 뒤,<br><strong class="text-black bg-yellow-200 px-1 rounded">사파리(Safari)나 크롬(Chrome)</strong>에서 열어주세요.
                     </p>
+                    <button type="button" id="copyUrlBtn" onclick="copyCurrentUrl()" class="w-full bg-yellow-400 text-yellow-900 font-bold py-2.5 rounded shadow-sm text-[13px] hover:bg-yellow-500 transition-colors">
+                        🔗 현재 주소 복사하기
+                    </button>
                 </div>
 
                 <h2 class="text-[16px] font-extrabold text-black mb-3 border-b-2 border-black pb-2">엠버언니 개인정보 수집 및 이용 동의</h2>
@@ -193,7 +195,6 @@
                     <textarea id="memo" rows="2" placeholder="배송 기사님께 전달할 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
-                <!-- 🌟 안내 문구 -->
                 <div class="bg-red-50 border border-red-200 p-4 rounded-sm mt-6 mb-2 text-center shadow-sm">
                     <div class="text-[13px] text-gray-800 leading-relaxed break-keep font-medium space-y-2.5">
                         <p>주문은 <strong class="text-red-600 font-extrabold">방송 중 채팅</strong>으로만 가능합니다.</p>
@@ -337,20 +338,41 @@
         let nicknameData = [];
         let isNicknamesLoaded = false;
 
-        // 인앱 브라우저(카카오톡/인스타) 감지 로직
+        function copyCurrentUrl() {
+            const url = location.href;
+            const tempInput = document.createElement('input');
+            tempInput.value = url;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            showCustomAlert('주소가 복사되었습니다!\n\n사파리(Safari)나 크롬(Chrome) 브라우저를 열고 주소창에 붙여넣기 해주세요.');
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const ua = navigator.userAgent.toLowerCase();
-            if (ua.indexOf('kakaotalk') > -1 || ua.indexOf('instagram') > -1) {
+            const currentUrl = location.href;
+            
+            // 1. 카카오톡 접속 시 즉시 외부 브라우저(사파리/크롬)로 강제 오픈
+            if (ua.match(/kakaotalk/i)) {
+                location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(currentUrl);
+                
+                // 간혹 강제 이동이 막힌 기기를 위해 안내창 띄우기
+                document.getElementById('inAppWarning').classList.remove('hidden');
+                document.getElementById('inAppWarningText').innerHTML = "카카오톡 내장 브라우저에서는 잦은 오류가 발생합니다.<br><br>우측 하단 <strong class='bg-yellow-200 px-1 rounded'>[⋮]</strong> 버튼을 눌러<br><strong class='text-black'>'다른 브라우저로 열기'</strong>를 반드시 선택해주세요.";
+                document.getElementById('copyUrlBtn').classList.add('hidden'); // 카톡은 버튼 대신 메뉴 이용 안내
+            } 
+            // 2. 인스타그램 / 페이스북 (강제 이동 불가하므로 링크 복사 유도)
+            else if (ua.match(/instagram/i) || ua.match(/fb/i) || ua.match(/facebook/i) || ua.match(/line/i)) {
                 document.getElementById('inAppWarning').classList.remove('hidden');
             }
             
-            // 🔥 속도 개선: 사용자가 안내문 읽을 동안 뒤에서 닉네임 미리 불러오기
+            // 닉네임 몰래 미리 로딩 (속도 향상)
             fetchNicknameData();
         });
 
-        // 타임아웃이 적용된 안전한 Fetch 함수 (무한 로딩 방지용)
         async function fetchWithTimeout(resource, options = {}) {
-            const { timeout = 15000 } = options; // 15초 타임아웃
+            const { timeout = 15000 } = options; // 15초 제한
             const controller = new AbortController();
             const id = setTimeout(() => controller.abort(), timeout);
             const response = await fetch(resource, {
@@ -361,18 +383,16 @@
             return response;
         }
 
-        // 🔥 새로 추가된 기능: 튕겼을 때 몰래 다시 시도하는 '자동 재시도' 로직
         async function fetchWithRetry(url, options, maxRetries = 3) {
             for (let i = 0; i < maxRetries; i++) {
                 try {
                     const response = await fetchWithTimeout(url, options);
-                    return response; // 성공하면 바로 결과 반환
+                    return response;
                 } catch (error) {
-                    if (i === maxRetries - 1) throw error; // 마지막 재시도까지 실패하면 에러 뿜기
+                    if (i === maxRetries - 1) throw error;
                     
-                    // 실패 시 대기 후 재시도 (점점 길게 대기: 1초 -> 2초 -> 3초)
                     const waitTime = (i + 1) * 1000 + Math.random() * 500;
-                    console.log(`구글 서버 혼잡! ${waitTime}ms 후 재시도 중... (${i + 1}/${maxRetries})`);
+                    console.log(`서버 대기 중... ${waitTime}ms 후 재시도 (${i + 1}/${maxRetries})`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                 }
             }
@@ -697,7 +717,6 @@
                 memo: document.getElementById('memo').value
             };
 
-            // 🔥 UI 개선: 사용자가 안심할 수 있는 차분한 디자인의 로딩 상태
             btn.disabled = true;
             btn.classList.add('bg-gray-700', 'cursor-wait', 'opacity-90');
             btn.classList.remove('bg-black', 'hover:bg-gray-900');
@@ -706,14 +725,13 @@
             spinner.classList.remove('hidden');
 
             try {
-                // 🔥 안정성 개선: 무한 로딩 방지 및 구글 서버 혼잡 시 자동 3번 재시도 기능 적용
+                // 재시도 3회가 포함된 강력한 Fetch 전송 로직
                 const response = await fetchWithRetry(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify(payload),
-                    redirect: "follow",
-                    timeout: 15000 
-                }, 3); // 최대 3번까지 재시도
+                    redirect: "follow"
+                }, 3); 
                 
                 const result = await response.json();
                 
@@ -735,12 +753,11 @@
             } catch (error) {
                 console.error('Fetch Error:', error);
                 if (error.name === 'AbortError') {
-                    showCustomAlert('⏳ 대기 시간이 초과되었습니다.\n\n동시 접속자가 많거나 인터넷이 불안정합니다. 화면 우측 하단의 [⋮] 버튼을 눌러 "다른 브라우저로 열기" 후 다시 시도해주세요.');
+                    showCustomAlert('⏳ 대기 시간이 초과되었습니다.\n\n동시 접속자가 많거나 인터넷이 불안정합니다. 화면 위의 [🔗 주소 복사하기] 버튼을 눌러 다른 브라우저에서 시도해주세요.');
                 } else {
                     showCustomAlert('🚨 데이터 전송에 실패했습니다.\n\n방송 중 동시 접속자가 많아 지연되고 있습니다. 잠시 후 [배송지 전송하기] 버튼을 다시 한 번만 꾹 눌러주세요!');
                 }
             } finally {
-                // 버튼 상태 원상복구
                 btn.disabled = false;
                 btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
                 btn.classList.add('bg-black', 'hover:bg-gray-900');
