@@ -84,48 +84,55 @@
             <div class="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/40"></div>
         </div>
 
-        <div class="relative z-10 w-full px-4 pb-6 max-w-md mx-auto">
-            <div class="bg-white/95 backdrop-blur-md border border-gray-200 p-5 shadow-2xl rounded-sm">
+        <div class="relative z-10 w-full px-4 pb-4 max-w-md mx-auto">
+            <!-- 투명도(bg-white/60)와 블러 효과(backdrop-blur-md)를 적용하여 배경이 비치게 만듦 -->
+            <div class="bg-white/60 backdrop-blur-md border border-white/50 p-3 shadow-2xl rounded-sm">
                 
                 <!-- 카카오톡/인스타 브라우저 경고창 -->
-                <div id="inAppWarning" class="hidden mb-4 bg-yellow-50 border border-yellow-300 p-3.5 rounded-sm text-center shadow-sm">
-                    <p class="text-yellow-800 font-extrabold text-[14px] tracking-tight mb-1.5">⚠️ 인앱 브라우저 감지됨</p>
-                    <p id="inAppWarningText" class="text-yellow-700 text-[12px] font-bold tracking-tight leading-relaxed break-keep mb-3">
+                <div id="inAppWarning" class="hidden mb-2.5 bg-yellow-50/90 border border-yellow-300/80 p-2.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
+                    <p class="text-yellow-800 font-extrabold text-[13px] tracking-tight mb-1">⚠️ 인앱 브라우저 감지됨</p>
+                    <p id="inAppWarningText" class="text-yellow-700 text-[11px] font-bold tracking-tight leading-relaxed break-keep mb-2">
                         인스타그램 등 내장 브라우저에서는<br>전송 오류가 발생할 수 있습니다.<br>
-                        아래 버튼을 눌러 링크를 복사한 뒤,<br><strong class="text-black bg-yellow-200 px-1 rounded">사파리(Safari)나 크롬(Chrome)</strong>에서 열어주세요.
+                        아래 버튼을 눌러 링크를 복사한 뒤,<br><strong class="text-black bg-yellow-200/80 px-1 rounded">사파리(Safari)나 크롬(Chrome)</strong>에서 열어주세요.
                     </p>
-                    <button type="button" id="copyUrlBtn" onclick="copyCurrentUrl()" class="w-full bg-yellow-400 text-yellow-900 font-bold py-2.5 rounded shadow-sm text-[13px] hover:bg-yellow-500 transition-colors">
+                    <button type="button" id="copyUrlBtn" onclick="copyCurrentUrl()" class="w-full bg-yellow-400/90 text-yellow-900 font-bold py-2 rounded shadow-sm text-[12px] hover:bg-yellow-500 transition-colors">
                         🔗 현재 주소 복사하기
                     </button>
                 </div>
 
-                <h2 class="text-[16px] font-extrabold text-black mb-3 border-b-2 border-black pb-2">엠버언니 개인정보 수집 및 이용 동의</h2>
+                <h2 class="text-[14px] font-extrabold text-black mb-2 border-b-2 border-black/80 pb-1.5">개인정보 수집·이용 및 제3자 제공 동의</h2>
                 
-                <div class="bg-gray-50 border border-gray-200 p-3.5 rounded-sm">
-                    <div class="grid grid-cols-[max-content_auto_1fr] gap-x-2 gap-y-1.5 text-[12px] text-gray-700 leading-snug">
-                        <strong class="text-gray-900 tracking-tight">수집·이용 목적</strong>
-                        <strong class="text-gray-900">:</strong>
+                <!-- 내부 박스에도 투명도 적용 -->
+                <div class="bg-white/50 border border-white/60 p-2.5 rounded-sm shadow-inner backdrop-blur-sm">
+                    <div class="grid grid-cols-[max-content_auto_1fr] gap-x-2 gap-y-1 text-[11px] text-gray-900 font-medium leading-snug">
+                        <strong class="text-black tracking-tight">수집·이용 목적</strong>
+                        <strong class="text-black">:</strong>
                         <span>상품 주문 확인, 배송, 고객 상담 및 민원 처리</span>
                         
-                        <strong class="text-gray-900 tracking-tight">수집 항목</strong>
-                        <strong class="text-gray-900">:</strong>
-                        <span>성명, 연락처, 배송지 주소, 유튜브 닉네임</span>
+                        <strong class="text-black tracking-tight">수집 및 제공 항목</strong>
+                        <strong class="text-black">:</strong>
+                        <span>성명, 연락처, 주소, 유튜브 닉네임</span>
                         
-                        <strong class="text-gray-900 tracking-tight">보유 및 이용 기간</strong>
-                        <strong class="text-gray-900">:</strong>
-                        <span class="break-keep">상품 배송 완료 후 30일간 보유.</span>
+                        <strong class="text-black tracking-tight">보유 및 이용</strong>
+                        <strong class="text-black">:</strong>
+                        <span class="break-keep">입력일로부터 30일</span>
+
+                        <div class="col-span-3 my-0.5 border-t border-black/10"></div>
+
+                        <strong class="text-black tracking-tight">제3자 제공</strong>
+                        <strong class="text-black">:</strong>
+                        <span>위탁배송을 위한 공급사 및 택배사</span>
                     </div>
-                    <p class="text-red-600 font-bold text-[11.5px] pt-2.5 tracking-tight border-t border-gray-200/60 mt-2.5">※ 동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
+                    <p class="text-red-700 font-extrabold text-[10.5px] pt-1.5 tracking-tight border-t border-black/10 mt-1.5">※ 동의 거부 시 상품 주문 및 배송 불가합니다.</p>
                 </div>
                 
-                <div class="mt-4 bg-red-50 border border-red-200 p-3 rounded-sm text-center shadow-sm">
-                    <p class="text-red-600 font-extrabold text-[13px] tracking-tight">배송지 입력은 월 1회만 하시면 됩니다.</p>
-                    <p class="text-gray-700 text-[11.5px] mt-0.5 font-bold tracking-tight">(주소 변경 시에만 다시 입력해 주세요)</p>
+                <div class="mt-2 bg-red-50/80 border border-red-300/70 p-1.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
+                    <p class="text-red-700 font-extrabold text-[11.5px] tracking-tight">배송지 입력은 30일마다 1회 / 주소변경은 입력 후 연락주세요</p>
                 </div>
                 
-                <label class="flex items-center justify-center gap-2 mt-4 py-3.5 bg-black border border-black rounded-sm cursor-pointer hover:bg-gray-800 transition-colors group">
-                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-4 h-4 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
-                    <span class="text-[13px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
+                <label class="flex items-center justify-center gap-2 mt-2 py-2.5 bg-black/85 border border-black/50 rounded-sm cursor-pointer hover:bg-black transition-colors group backdrop-blur-sm shadow-md">
+                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-3.5 h-3.5 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
+                    <span class="text-[12px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
                 </label>
             </div>
         </div>
