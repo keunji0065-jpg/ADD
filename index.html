@@ -87,18 +87,6 @@
         <div class="relative z-10 w-full px-4 pb-4 max-w-md mx-auto">
             <div class="bg-white/60 backdrop-blur-md border border-white/50 p-3 shadow-2xl rounded-sm">
                 
-                <!-- 카카오톡/인스타 브라우저 경고창 -->
-                <div id="inAppWarning" class="hidden mb-2.5 bg-yellow-50/90 border border-yellow-300/80 p-2.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
-                    <p class="text-yellow-800 font-extrabold text-[13px] tracking-tight mb-1">⚠️ 인앱 브라우저 감지됨</p>
-                    <p id="inAppWarningText" class="text-yellow-700 text-[11px] font-bold tracking-tight leading-relaxed break-keep mb-2">
-                        인스타그램 등 내장 브라우저에서는<br>전송 오류가 발생할 수 있습니다.<br>
-                        아래 버튼을 눌러 링크를 복사한 뒤,<br><strong class="text-black bg-yellow-200/80 px-1 rounded">사파리(Safari)나 크롬(Chrome)</strong>에서 열어주세요.
-                    </p>
-                    <button type="button" id="copyUrlBtn" onclick="copyCurrentUrl()" class="w-full bg-yellow-400/90 text-yellow-900 font-bold py-2 rounded shadow-sm text-[12px] hover:bg-yellow-500 transition-colors">
-                        🔗 현재 주소 복사하기
-                    </button>
-                </div>
-
                 <h2 class="text-[14px] font-extrabold text-black mb-2 border-b-2 border-black/80 pb-1.5">개인정보 수집·이용 및 제3자 제공 동의</h2>
                 
                 <div class="bg-white/50 border border-white/60 p-2.5 rounded-sm shadow-inner backdrop-blur-sm">
@@ -122,16 +110,16 @@
                         <span>위탁배송을 위한 공급사 및 택배사</span>
                     </div>
                     <!-- 수정 요청 반영: 가운데 정렬, 검정색 굵은 글씨 -->
-                    <p class="text-black font-extrabold text-[12px] pt-2.5 tracking-tight border-t border-black/10 mt-2.5 text-center">동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
-                </div>
-                
-                <!-- 수정 요청 반영: 안내 문구 수정 -->
-                <div class="mt-2 bg-red-50/80 border border-red-300/70 p-1.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
-                    <p class="text-red-700 font-extrabold text-[11.5px] tracking-tight">배송지 입력은 30일마다 1회 / 주소변경은 수정 후 연락주세요</p>
-                </div>
-                
-                <label class="flex items-center justify-center gap-2 mt-2 py-2.5 bg-black/85 border border-black/50 rounded-sm cursor-pointer hover:bg-black transition-colors group backdrop-blur-sm shadow-md">
-                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-3.5 h-3.5 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
+                <p class="text-black font-extrabold text-[12px] pt-2.5 tracking-tight border-t border-black/10 mt-2.5 text-center">동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
+            </div>
+            
+            <!-- 수정 요청 반영: 안내 문구 수정 -->
+            <div class="mt-2 bg-red-50/80 border border-red-300/70 p-1.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
+                <p class="text-red-700 font-extrabold text-[11.5px] tracking-tight">배송지 입력은 30일마다 1회 / 닉네임 및 주소변경시 재입력 필수</p>
+            </div>
+            
+            <label class="flex items-center justify-center gap-2 mt-2 py-2.5 bg-black/85 border border-black/50 rounded-sm cursor-pointer hover:bg-black transition-colors group backdrop-blur-sm shadow-md">
+                <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-3.5 h-3.5 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
                     <span class="text-[12px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
                 </label>
             </div>
@@ -159,7 +147,7 @@
                     </div>
                     <p id="lastSubmitDateText" class="text-[15px] font-extrabold text-blue-600 tracking-wide mt-1"></p>
                     <p class="text-[11px] text-gray-500 mt-2.5 break-keep leading-relaxed bg-white border border-gray-100 p-1.5 rounded-sm shadow-inner">
-                        ※ 30일 이내에 이미 제출하셨다면,<br>주소가 변경된 경우에만 다시 입력해 주세요.
+                        ※ 30일 이내에 이미 제출하셨더라도,<br>주소 변경, 닉네임 변경된 경우 다시 입력해주세요.
                     </p>
                 </div>
 
@@ -358,26 +346,7 @@
         let nicknameData = [];
         let isNicknamesLoaded = false;
 
-        function copyCurrentUrl() {
-            const url = location.href;
-            const tempInput = document.createElement('input');
-            tempInput.value = url;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            document.execCommand('copy');
-            document.body.removeChild(tempInput);
-            showCustomAlert('주소가 복사되었습니다!\n\n사파리(Safari)나 크롬(Chrome) 브라우저를 열고 주소창에 붙여넣기 해주세요.');
-        }
-
         document.addEventListener('DOMContentLoaded', () => {
-            const ua = navigator.userAgent.toLowerCase();
-            const currentUrl = location.href;
-            
-            // 인앱 브라우저 체크
-            if (ua.match(/instagram/i) || ua.match(/fb/i) || ua.match(/facebook/i) || ua.match(/line/i) || ua.match(/kakaotalk/i)) {
-                document.getElementById('inAppWarning').classList.remove('hidden');
-            }
-            
             fetchNicknameData();
         });
 
