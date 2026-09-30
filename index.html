@@ -45,16 +45,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .bg-stripes {
-            background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.15) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.15) 50%, rgba(255, 255, 255, 0.15) 75%, transparent 75%, transparent);
-            background-size: 40px 40px;
-            animation: stripes-move 1s linear infinite;
-        }
-        @keyframes stripes-move {
-            0% { background-position: 0 0; }
-            100% { background-position: 40px 0; }
-        }
-
         .loading-dots:after {
             content: '.';
             animation: dots 1.2s steps(5, end) infinite;
@@ -69,6 +59,14 @@
         }
         .alert-flash {
             animation: alert-flash 0.8s ease-in-out infinite;
+        }
+
+        @keyframes btn-glow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.6); transform: scale(1); }
+            50% { box-shadow: 0 0 20px 8px rgba(0, 0, 0, 0.25); transform: scale(1.015); }
+        }
+        .btn-glow {
+            animation: btn-glow 1.5s ease-in-out infinite;
         }
     </style>
 </head>
@@ -87,7 +85,7 @@
         <div class="relative z-10 w-full px-4 pb-4 max-w-md mx-auto">
             <div class="bg-white/60 backdrop-blur-md border border-white/50 p-3 shadow-2xl rounded-sm">
                 
-                <h2 class="text-[14px] font-extrabold text-black mb-2 border-b-2 border-black/80 pb-1.5">개인정보 수집·이용 및 제3자 제공 동의</h2>
+                <h2 class="text-[14px] font-extrabold text-black mb-2 border-b-2 border-black/80 pb-1.5">개인정보 수집 및 제3자 제공 동의</h2>
                 
                 <div class="bg-white/50 border border-white/60 p-2.5 rounded-sm shadow-inner backdrop-blur-sm">
                     <div class="grid grid-cols-[max-content_auto_1fr] gap-x-2 gap-y-1 text-[11px] text-gray-900 font-medium leading-snug">
@@ -95,31 +93,27 @@
                         <strong class="text-black">:</strong>
                         <span>상품 주문 확인, 배송, 고객 상담 및 민원 처리</span>
                         
-                        <strong class="text-black tracking-tight">수집 및 제공 항목</strong>
+                        <strong class="text-black tracking-tight">수집 항목</strong>
                         <strong class="text-black">:</strong>
-                        <span>성명, 연락처, 주소, 유튜브 닉네임</span>
+                        <span>성명, 연락처, 배송지 주소, 유튜브 닉네임</span>
+
+                        <strong class="text-black tracking-tight">제3자 제공</strong>
+                        <strong class="text-black">:</strong>
+                        <span>위탁 배송을 위해 해당 상품 공급사에 배송 정보(성명, 연락처, 주소) 제공</span>
                         
                         <strong class="text-black tracking-tight">보유 및 이용</strong>
                         <strong class="text-black">:</strong>
                         <span class="break-keep">주소 입력일로부터 30일</span>
-
-                        <div class="col-span-3 my-0.5 border-t border-black/10"></div>
-
-                        <strong class="text-black tracking-tight">제3자 제공</strong>
-                        <strong class="text-black">:</strong>
-                        <span>위탁배송을 위한 공급사 및 택배사</span>
                     </div>
-                    <!-- 수정 요청 반영: 가운데 정렬, 검정색 굵은 글씨 -->
-                <p class="text-black font-extrabold text-[12px] pt-2.5 tracking-tight border-t border-black/10 mt-2.5 text-center">동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
-            </div>
-            
-            <!-- 수정 요청 반영: 안내 문구 수정 -->
-            <div class="mt-2 bg-red-50/80 border border-red-300/70 p-1.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
-                <p class="text-red-700 font-extrabold text-[11.5px] tracking-tight">배송지 입력은 30일마다 1회 / 닉네임 및 주소변경시 재입력 필수</p>
-            </div>
-            
-            <label class="flex items-center justify-center gap-2 mt-2 py-2.5 bg-black/85 border border-black/50 rounded-sm cursor-pointer hover:bg-black transition-colors group backdrop-blur-sm shadow-md">
-                <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-3.5 h-3.5 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
+                    <p class="text-black font-extrabold text-[12px] pt-2.5 tracking-tight border-t border-black/10 mt-2.5 text-center">동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
+                </div>
+                
+                <div class="mt-2 bg-red-50/80 border border-red-300/70 p-1.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
+                    <p class="text-red-700 font-extrabold text-[11.5px] tracking-tight">배송지 입력은 30일마다 1회 / 닉네임 및 주소변경시 재입력 필수</p>
+                </div>
+                
+                <label class="flex items-center justify-center gap-2 mt-2 py-2.5 bg-black/85 border border-black/50 rounded-sm cursor-pointer hover:bg-black transition-colors group backdrop-blur-sm shadow-md">
+                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-3.5 h-3.5 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
                     <span class="text-[12px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
                 </label>
             </div>
@@ -139,7 +133,6 @@
         <div class="p-6 space-y-8 flex-grow bg-white">
             <form id="addressForm" class="space-y-6">
                 
-                <!-- 새로 추가된 "마지막 제출일시 표시" 컨테이너 -->
                 <div id="lastSubmitContainer" class="hidden -mt-2 mb-2 bg-[#f8fafc] border border-blue-200 p-4 rounded-sm text-center shadow-sm">
                     <div class="flex items-center justify-center gap-1.5 mb-1">
                         <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -147,7 +140,7 @@
                     </div>
                     <p id="lastSubmitDateText" class="text-[15px] font-extrabold text-blue-600 tracking-wide mt-1"></p>
                     <p class="text-[11px] text-gray-500 mt-2.5 break-keep leading-relaxed bg-white border border-gray-100 p-1.5 rounded-sm shadow-inner">
-                        ※ 30일 이내에 이미 제출하셨더라도,<br>주소 변경, 닉네임 변경된 경우 다시 입력해주세요.
+                        ※ 주소 변경, 닉네임 변경된 경우 다시 입력해주세요.
                     </p>
                 </div>
 
@@ -190,7 +183,6 @@
                         <input type="text" id="zipcode" autocomplete="postal-code" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500 bg-gray-50">
                         <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
                     </div>
-
                     <input type="text" id="address_base" autocomplete="address-line1" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2 bg-gray-50">
                     <input type="text" id="address_detail" autocomplete="address-line2" required placeholder="상세 주소 (동, 호수, 건물명)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
                 </div>
@@ -202,18 +194,29 @@
                     <textarea id="memo" rows="2" placeholder="배송 기사님께 전달할 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
                 </div>
 
-                <div class="bg-red-50 border border-red-200 p-4 rounded-sm mt-6 mb-2 text-center shadow-sm">
-                    <div class="text-[13px] text-gray-800 leading-relaxed break-keep font-medium space-y-2.5">
-                        <p>주문은 <strong class="text-red-600 font-extrabold">방송 중 채팅</strong>으로만 가능합니다.</p>
-                        <p>카카오톡 채널 채팅에 꼭 <strong class="text-black font-extrabold border-b border-black">구매상품</strong>과 <strong class="text-red-600 font-extrabold alert-flash inline-block border border-red-300 px-1.5 py-0.5 mt-0.5 mb-0.5 rounded-sm">닉네임</strong>을 남겨주세요.</p>
-                        <p><strong class="text-red-600 font-extrabold">순차적으로 주문서 전달</strong> 드립니다.</p>
+                <div class="bg-[#fffbeb] border-2 border-[#ef4444] px-4 py-3 rounded-lg mt-6 mb-3 text-center shadow-sm">
+                    <h3 class="text-[#ef4444] font-black text-[14px] mb-2 flex items-center justify-center gap-1 border-b border-red-200 pb-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        필독! 주문 필수 안내
+                    </h3>
+                    <div class="text-[13px] text-gray-900 leading-snug break-keep font-medium space-y-2">
+                        <div class="bg-white border border-yellow-400 py-2 px-2.5 rounded shadow-sm">
+                            <p>
+                                <strong class="text-black font-black">카카오 채널</strong>에 
+                                <strong class="text-red-600 font-extrabold alert-flash inline-block border border-red-300 px-1 py-0.5 rounded-sm mx-0.5">닉네임</strong>을 남겨주시면<br>순차적으로 주문서 전달 해드립니다.
+                            </p>
+                        </div>
+                        <p class="pt-0.5">
+                            주문서의 <strong class="text-black font-black bg-yellow-300 px-1 py-0.5 inline-block">주문내역과 주소가 맞는지 꼭 확인</strong>해주세요.
+                        </p>
                     </div>
                 </div>
 
                 <div class="pt-6 pb-4">
-                    <button type="submit" id="submitBtn" class="w-full bg-black text-white py-4 font-bold text-base tracking-widest hover:bg-gray-900 transition-all flex justify-center items-center gap-3 rounded-sm">
-                        <span id="btnText">배송지 전송하기</span>
-                        <div id="loadingSpinner" class="spinner hidden"></div>
+                    <button type="submit" id="submitBtn" class="w-full bg-black text-white py-4 font-extrabold text-[17px] tracking-widest hover:bg-gray-900 transition-all flex justify-center items-center gap-2 rounded-lg btn-glow border-2 border-black relative z-10">
+                        <span id="btnText">배송지 최종 전송하기</span>
+                        <svg id="btnIcon" class="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"></path></svg>
+                        <div id="loadingSpinner" class="spinner hidden absolute right-6"></div>
                     </button>
                 </div>
             </form>
@@ -526,7 +529,7 @@
                 try {
                     const data = JSON.parse(rawData);
                     
-                    // 🌟 마지막 제출 날짜가 있다면 화면 상단에 표시해줌
+                    // 마지막 제출 날짜 표시
                     if (data.timestamp) {
                         const d = new Date(data.timestamp);
                         const y = d.getFullYear();
@@ -690,7 +693,8 @@
 
             btn.disabled = true;
             btn.classList.add('bg-gray-700', 'cursor-wait', 'opacity-90');
-            btn.classList.remove('bg-black', 'hover:bg-gray-900');
+            btn.classList.remove('bg-black', 'hover:bg-gray-900', 'btn-glow', 'border-black');
+            if (document.getElementById('btnIcon')) document.getElementById('btnIcon').classList.add('hidden');
             btnText.classList.add('loading-dots');
             btnText.textContent = '안전하게 전송 중입니다 ';
             spinner.classList.remove('hidden');
@@ -699,15 +703,16 @@
                 showCustomAlert('🚨 인터넷 연결 에러\n\n와이파이나 데이터 연결 상태를 확인해주세요.');
                 btn.disabled = false;
                 btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
-                btn.classList.add('bg-black', 'hover:bg-gray-900');
+                btn.classList.add('bg-black', 'hover:bg-gray-900', 'btn-glow', 'border-black');
+                if (document.getElementById('btnIcon')) document.getElementById('btnIcon').classList.remove('hidden');
                 btnText.classList.remove('loading-dots');
-                btnText.textContent = '배송지 전송하기';
+                btnText.textContent = '배송지 최종 전송하기';
                 spinner.classList.add('hidden');
                 return;
             }
 
             try {
-                // 백그라운드 우회 전송 (강력한 전송방식, 고객이 창을 닫아도 넘어감)
+                // 강력한 전송방식, 고객이 창을 닫아도 넘어감
                 fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     mode: 'no-cors',
@@ -720,7 +725,6 @@
                 // 고객 안심용 로딩 대기
                 await new Promise(resolve => setTimeout(resolve, 800));
                 
-                // 전송 성공 화면 처리
                 safeSetStorage(payload);
                 document.getElementById('successModal').classList.remove('hidden');
                 if (typeof confetti === 'function') {
@@ -738,9 +742,10 @@
             } finally {
                 btn.disabled = false;
                 btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
-                btn.classList.add('bg-black', 'hover:bg-gray-900');
+                btn.classList.add('bg-black', 'hover:bg-gray-900', 'btn-glow', 'border-black');
+                if (document.getElementById('btnIcon')) document.getElementById('btnIcon').classList.remove('hidden');
                 btnText.classList.remove('loading-dots');
-                btnText.textContent = '배송지 전송하기';
+                btnText.textContent = '배송지 최종 전송하기';
                 spinner.classList.add('hidden');
             }
         });
