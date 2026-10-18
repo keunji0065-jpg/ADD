@@ -469,7 +469,7 @@
             const depositTotal = currentUser ? Number(currentUser.depositTotal || 0) : 0;
             const rawBalance = baseGrandTotal - depositTotal;
             const isCard = currentUser ? Boolean(currentUser.isCard) : false;
-            const cardFeeRate = currentUser && currentUser.cardFeeRate !== undefined ? Number(currentUser.cardFeeRate) : 10;
+            const cardFeeRate = (currentUser && Number(currentUser.cardFeeRate) > 0) ? Number(currentUser.cardFeeRate) : 10;
             const cardFee = (isCard && rawBalance > 0) ? Math.round(rawBalance * (cardFeeRate / 100)) : 0;
             const finalBalance = rawBalance + cardFee;
 
