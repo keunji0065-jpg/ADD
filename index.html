@@ -6,18 +6,27 @@
     <meta name="theme-color" content="#111827">
     <title>엠버언니 - 주문 & 입금 확인</title>
 
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://images.unsplash.com" crossorigin>
+    <link rel="preconnect" href="https://script.google.com" crossorigin>
+    <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web" crossorigin="anonymous"></script>
-    <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <!-- 무거운 외부 스크립트(아이콘, 우편번호)는 화면 렌더링을 막지 않도록 defer 비동기 로드 -->
+    <script src="https://unpkg.com/@phosphor-icons/web" crossorigin="anonymous" defer></script>
+    <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" defer></script>
+
+    <!-- 글꼴과 대문 이미지를 비동기로 로드하여 첫 화면 멈춤(Render-blocking) 원천 차단 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap" media="print" onload="this.media='all'">
 
     <style>
-        @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
-        @import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap");
         body {
-            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
             background-color: #d4d4d8;
             color: #111827;
             margin: 0;
@@ -38,15 +47,15 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwZ_FgUxdg-1nzV9kTabOMGgZKNSYUBxIjfNge4-N4psMgF-6Rv2XqjvpWUex4T5tKF/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxV73sRur4NVs3XIG9-kwRMed6wcql6kvCauLYvp-RmZOwj-frT3LiDcmvFoDPFLtTX/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_zSCxhX';
 
-        // 대문 고정 화보 이미지 (가을/겨울 시즌 코트 화보)
-        const FIXED_AUTUMN_WINTER_HERO = 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=1000&q=85';
-        const FALLBACK_COAT_HERO = 'https://images.unsplash.com/photo-1548624313-0396c75e4b1a?auto=format&fit=crop&w=1000&q=85';
+        // 대문 고정 화보 이미지 (모바일 데이터 절약 및 초고속 로딩을 위해 w=720, q=75 최적화)
+        const FIXED_AUTUMN_WINTER_HERO = 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=720&q=75';
+        const FALLBACK_COAT_HERO = 'https://images.unsplash.com/photo-1548624313-0396c75e4b1a?auto=format&fit=crop&w=720&q=75';
 
         const Icon = ({ name, className = "", weight = "regular", size = 16 }) => (
             <i className={`ph ph-${name} ${className}`} data-phosphor-icon-weight={weight} style={{ fontSize: size }}></i>
@@ -224,6 +233,11 @@
             const [isSavingAddress, setIsSavingAddress] = useState(false);
             const [toastMsg, setToastMsg] = useState("");
 
+            // ✨ 고객이 페이지에 접속해서 닉네임을 입력하는 동안 백그라운드에서 미리 구글 시트 캐시를 예열(Warm-up)하여 조회 버튼 클릭 시 0.3초 만에 열리도록 가속!
+            useEffect(() => {
+                fetch(`${DEFAULT_GAS_URL}?action=warmup&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, { mode: 'no-cors' }).catch(() => {});
+            }, []);
+
             const showToast = (msg) => {
                 setToastMsg(msg);
                 setTimeout(() => setToastMsg(""), 2200);
@@ -288,7 +302,7 @@
                         const cloned = JSON.parse(JSON.stringify(sampleFound));
                         setCurrentUser(cloned);
                         initAddressState(cloned);
-                    }, 200);
+                    }, 100);
                     return;
                 }
 
@@ -316,6 +330,10 @@
             };
 
             const handleOpenPostcode = () => {
+                if (!window.daum || !window.daum.Postcode) {
+                    showToast("주소 검색 도구를 불러오는 중입니다. 1초 후 다시 눌러주세요.");
+                    return;
+                }
                 new window.daum.Postcode({
                     oncomplete: function(data) {
                         let fullAddr = data.address;
@@ -397,7 +415,6 @@
             };
 
             const handleConfirmOrder = async () => {
-                // 고객이 배송지를 입력/수정해 놓고 '배송지 저장'을 누르지 않은 채 바로 확인 버튼을 누른 경우 자동으로 배송지 저장부터 실행!
                 if (!currentUser.address || !currentUser.address.baseAddress || isEditingAddress) {
                     if (addrForm.realname.trim() || addrForm.phone.trim() || addrForm.baseAddress.trim()) {
                         const savedOk = await handleSaveAddress();
@@ -454,7 +471,6 @@
             const isCard = currentUser ? Boolean(currentUser.isCard) : false;
             const cardFeeRate = currentUser && currentUser.cardFeeRate !== undefined ? Number(currentUser.cardFeeRate) : 10;
             const cardFee = (isCard && rawBalance > 0) ? Math.round(rawBalance * (cardFeeRate / 100)) : 0;
-            const finalGrandTotal = baseGrandTotal + cardFee;
             const finalBalance = rawBalance + cardFee;
 
             const isPaid = activeItems.length > 0 && finalBalance === 0 && !isCard;
@@ -474,23 +490,24 @@
                         </div>
                     )}
 
-                    {/* 미로그인 상태: 화보 대문 & 로그인 카드 */}
+                    {}
                     {!currentUser ? (
-                        <div className="w-full max-w-[420px] h-[100dvh] sm:h-[760px] bg-[#e5e4e2] sm:rounded-2xl shadow-lg border-0 sm:border border-gray-300 overflow-hidden relative flex flex-col justify-end">
-                            {/* 화보 배경 이미지 (가을/겨울 시즌 코트 화보 1장 고정) */}
+                        <div className="w-full max-w-[420px] h-[100dvh] sm:h-[760px] bg-[#2c2a29] sm:rounded-2xl shadow-lg border-0 sm:border border-gray-300 overflow-hidden relative flex flex-col justify-end">
                             <img 
                                 src={FIXED_AUTUMN_WINTER_HERO} 
+                                fetchpriority="high"
+                                decoding="async"
                                 onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_COAT_HERO; }}
                                 alt="엠버언니 가을겨울 화보" 
                                 className="absolute inset-0 w-full h-full object-cover object-top select-none pointer-events-none"
                             />
 
-                            {/* 정중앙 화보 타이포그래피 (하이엔드 매거진 표지 느낌) */}
+                            {/* 정중앙 화보 타이포그래피 */}
                             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none pb-48">
                                 <h1 className="text-[#f8f5f0] text-[52px] font-serif tracking-[0.3em] pl-[0.3em] font-medium drop-shadow-2xl" style={{ textShadow: '0 4px 25px rgba(0,0,0,0.7)' }}>EMBER</h1>
                             </div>
 
-                            {/* 하단 반투명 글래스모피즘 로그인 카드 (글씨체 및 높이 확대) */}
+                            {/* 하단 반투명 글래스모피즘 로그인 카드 */}
                             <div className="relative z-20 px-3 pb-4 pt-2 safe-bottom">
                                 <div className="bg-white/55 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-white/70">
                                     <div className="flex items-center justify-between mb-3">
@@ -505,7 +522,6 @@
                                     <form onSubmit={handleLogin} className="space-y-2.5">
                                         <div className="flex items-stretch gap-2">
                                             <div className="flex-1 space-y-2 min-w-0">
-                                                {/* 닉네임 줄 */}
                                                 <div className="flex items-center gap-2">
                                                     <label className="text-[13px] font-extrabold text-gray-900 w-[64px] shrink-0 flex justify-between items-center drop-shadow-sm">
                                                         <span>닉</span><span>네</span><span>임</span><span className="ml-0.5">:</span>
@@ -519,7 +535,6 @@
                                                     />
                                                 </div>
 
-                                                {/* 비밀번호 줄 */}
                                                 <div className="flex items-center gap-2">
                                                     <label className="text-[13px] font-extrabold text-gray-900 w-[64px] shrink-0 flex justify-between items-center drop-shadow-sm">
                                                         <span>비</span><span>밀</span><span>번</span><span>호</span><span className="ml-0.5">:</span>
@@ -536,7 +551,6 @@
                                                 </div>
                                             </div>
 
-                                            {/* 우측 2줄 통합 검정색 조회 버튼 */}
                                             <button 
                                                 type="submit"
                                                 disabled={isLoading}
@@ -560,7 +574,6 @@
                                         )}
                                     </form>
 
-                                    {/* 첫구매 / 미열람 고객 카카오톡 문의 버튼 */}
                                     <div className="mt-3 pt-2.5 border-t border-gray-900/15 space-y-2">
                                         <p className="text-[12px] font-extrabold text-gray-900 text-center tracking-tight drop-shadow-sm">
                                             💡 문의 시 <span className="text-red-600 underline underline-offset-2">닉네임과 전화번호 뒷 4자리</span>를 카톡으로 남겨주세요!
@@ -710,7 +723,6 @@
                                         </div>
                                     )}
 
-                                    {/* 미납/완납/과납/카드 상태 박스 */}
                                     {isUnpaid && (
                                         <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2.5">
                                             <div className="flex justify-between items-center">
