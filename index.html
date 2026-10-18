@@ -239,6 +239,25 @@
             return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
         };
 
+        const formatDepositTime = (val) => {
+            if (!val) return '';
+            const strVal = String(val).trim();
+            const korMatch = strVal.match(/(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/i);
+            if (korMatch && (strVal.includes('오전') || strVal.includes('오후') || /\b(AM|PM)\b/i.test(strVal) || !strVal.includes('T'))) {
+                const ampm = (korMatch[1] || '').toUpperCase();
+                let hour = parseInt(korMatch[2], 10);
+                const min = korMatch[3];
+                if ((ampm === '오후' || ampm === 'PM') && hour < 12) hour += 12;
+                else if ((ampm === '오전' || ampm === 'AM') && hour === 12) hour = 0;
+                return `${String(hour).padStart(2, '0')}:${min}`;
+            }
+            const dt = new Date(strVal);
+            if (!isNaN(dt.getTime()) && strVal.length > 8) {
+                return dt.toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' });
+            }
+            return strVal;
+        };
+
         const CustomerPortal = () => {
             const [nickInput, setNickInput] = useState("");
             const [pinInput, setPinInput] = useState("");
@@ -759,16 +778,30 @@
 
                                     {summary.depositsList.length > 0 ? (
                                         <div className="divide-y divide-gray-100 text-[12px]">
-                                            {summary.depositsList.map((d, idx) => (
-                                                <div key={d.id || idx} className="py-1 flex justify-between items-center">
-                                                    <span className="text-gray-600">
-                                                        {d.time ? `${d.time} ` : ''}입금 {d.name ? `(${d.name})` : ''}
-                                                    </span>
-                                                    <span className="font-bold text-gray-900 tabular-nums">
-                                                        {Number(d.amount).toLocaleString()}원
-                                                    </span>
-                                                </div>
-                                            ))}
+                                            {summary.depositsList.map((d, idx) => {
+                                                // d.time 또는 d.id에서 입금 시간("2026. 10. 18 오후 3:27:27" 또는 ISO)을 추출하여 24시간제(15:27)로 표시
+                                                let dispTime = formatDepositTime(d.time || '');
+                                                if (!dispTime && d.id) {
+                                                    dispTime = formatDepositTime(d.id);
+                                                }
+                                                return (
+                                                    <div key={d.id || idx} className="py-1.5 flex justify-between items-center">
+                                                        <div className="flex items-center gap-1.5 text-gray-700">
+                                                            {dispTime && (
+                                                                <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 tabular-nums">
+                                                                    {dispTime}
+                                                                </span>
+                                                            )}
+                                                            <span className="font-medium">
+                                                                입금 {d.name ? `(${d.name})` : ''}
+                                                            </span>
+                                                        </div>
+                                                        <span className="font-bold text-gray-900 tabular-nums">
+                                                            {Number(d.amount).toLocaleString()}원
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     ) : (
                                         <div className="text-[12px] text-gray-400 py-1">
