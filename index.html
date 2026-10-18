@@ -68,7 +68,7 @@
         // 사장님 주문서와 동일한 구글 앱스 스크립트 및 마스터 시트 연동 설정
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyujXVimwiq1y93a_th91vp1H6rXeFfi_mdfQ1o-RZHwm7sRJtMxxqQH0i-JNsl6IYa/exec';
         const MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
-        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xaxbCxlG';
+        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_IuqtG/chat';
 
         const fetchGasApi = async (url, payload = null) => {
             const options = { method: payload ? 'POST' : 'GET', redirect: "follow" };
@@ -627,8 +627,9 @@
 
                                         <div className="pt-1 border-t border-slate-400/40">
                                             <a 
-                                                href="#kakao-channel"
-                                                onClick={(e) => { e.preventDefault(); showToast("엠버 공식 카카오톡 채널로 이동합니다."); }}
+                                                href={KAKAO_CHANNEL_URL}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="w-full bg-[#FEE500]/95 hover:bg-[#FEE500] text-neutral-900 font-extrabold py-2.5 px-2 rounded transition-all text-[12.5px] flex items-center justify-center gap-1.5 border border-[#e5ce00] tracking-tight"
                                             >
                                                 <Icon name="chat-circle-dots" weight="fill" size={15} className="text-neutral-900 shrink-0" />
@@ -966,8 +967,9 @@
                                             )}
 
                                             <a 
-                                                href="#kakao-cs"
-                                                onClick={(e) => { e.preventDefault(); showToast("카카오톡 상담창으로 연결됩니다."); }}
+                                                href={KAKAO_CHANNEL_URL}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="w-full bg-[#FEE500] hover:bg-[#fada0a] text-slate-900 font-bold text-[12px] py-2 px-3 rounded flex items-center justify-center gap-1.5 border border-[#e5ce00]"
                                             >
                                                 <Icon name="chat-circle-dots" weight="fill" size={14} />
