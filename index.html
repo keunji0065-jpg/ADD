@@ -52,7 +52,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxKaPP2kInDVWmkrw1l8QO5ZE6aH-aLYfBcxpv46phxsY-Ak-zuCz7f-Z1bVwojQC6d/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQ9Of1vp9-_BGHyxx4Ci8gVPZGmBqvrZ1esnIGqe23LPiW2vdoNPAV13UgfST0vye-/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -464,6 +464,7 @@
                 }
 
                 setIsLoading(true);
+                setTrackingMap({});
 
                 // 1) 샘플 테스트 계정 우선 확인
                 const sampleFound = SAMPLE_DB.find(u => isFlexibleNickMatch(u.nickname, rawNick));
