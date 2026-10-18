@@ -281,6 +281,7 @@
             const [pinInput, setPinInput] = useState("");
             const [loginError, setLoginError] = useState("");
             const [isLoading, setIsLoading] = useState(false);
+            const [isRefreshing, setIsRefreshing] = useState(false);
 
             const [currentUser, setCurrentUser] = useState(null);
             const [orderHistoryList, setOrderHistoryList] = useState([]);
@@ -444,7 +445,7 @@
                 initAddressState(targetOrder);
             };
 
-            const handleLogin = async (e, customNick, customPin) => {
+            const handleLogin = async (e, customNick, customPin, isRefreshCall = false) => {
                 if (e) e.preventDefault();
                 setLoginError("");
 
@@ -464,6 +465,9 @@
                 }
 
                 setIsLoading(true);
+                if (isRefreshCall) {
+                    setIsRefreshing(true);
+                }
                 setTrackingMap({});
 
                 // 1) 샘플 테스트 계정 우선 확인
@@ -471,6 +475,7 @@
                 if (sampleFound) {
                     setTimeout(() => {
                         setIsLoading(false);
+                        setIsRefreshing(false);
                         if (sampleFound.phoneLast4 !== cleanPin) {
                             setLoginError("비밀번호 4자리가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
                             return;
@@ -482,7 +487,10 @@
                         setSelectedBroadcastIdx(nextIdx);
                         setCurrentUser(hList[nextIdx]);
                         initAddressState(hList[nextIdx]);
-                    }, 100);
+                        if (isRefreshCall) {
+                            showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
+                        }
+                    }, isRefreshCall ? 450 : 100);
                     return;
                 }
 
@@ -492,6 +500,7 @@
                     const res = await fetch(url);
                     const data = await res.json();
                     setIsLoading(false);
+                    setIsRefreshing(false);
 
                     if (data.status === "success" && data.customerData) {
                         const hList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
@@ -500,6 +509,9 @@
                         setSelectedBroadcastIdx(nextIdx);
                         setCurrentUser(hList[nextIdx]);
                         initAddressState(hList[nextIdx]);
+                        if (isRefreshCall) {
+                            showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
+                        }
                     } else if (data.errorType === "WRONG_PIN") {
                         setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
                     } else if (data.status === "not_found") {
@@ -509,7 +521,12 @@
                     }
                 } catch (err) {
                     setIsLoading(false);
-                    setLoginError("서버와 통신할 수 없습니다. 인터넷 연결을 확인해 주세요.");
+                    setIsRefreshing(false);
+                    if (isRefreshCall) {
+                        showToast("통신 오류가 발생했습니다. 다시 시도해 주세요.");
+                    } else {
+                        setLoginError("서버와 통신할 수 없습니다. 인터넷 연결을 확인해 주세요.");
+                    }
                 }
             };
 
@@ -823,10 +840,16 @@
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                     <button 
-                                        onClick={() => handleLogin(null, currentUser.nickname, currentUser.phoneLast4)}
-                                        className="text-[12px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1.5 rounded border border-gray-700 flex items-center gap-1"
+                                        onClick={() => handleLogin(null, currentUser.nickname, currentUser.phoneLast4 || pinInput, true)}
+                                        disabled={isRefreshing || isLoading}
+                                        className={`text-[12px] font-extrabold px-2.5 py-1.5 rounded border flex items-center gap-1 transition-all active:scale-95 ${
+                                            isRefreshing 
+                                                ? 'bg-blue-600 text-white border-blue-500 shadow-inner' 
+                                                : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700'
+                                        }`}
                                     >
-                                        <Icon name="arrows-clockwise" weight="bold" size={13} /> 새로고침
+                                        <Icon name="arrows-clockwise" weight="bold" size={13} className={isRefreshing ? "animate-spin" : ""} />
+                                        <span>{isRefreshing ? "갱신중..." : "새로고침"}</span>
                                     </button>
                                     <button 
                                         onClick={() => { setCurrentUser(null); setOrderHistoryList([]); setSelectedBroadcastIdx(0); setNickInput(""); setPinInput(""); }}
@@ -837,7 +860,14 @@
                                 </div>
                             </header>
 
-                            <main className="p-3 space-y-2.5">
+                            {isRefreshing && (
+                                <div className="bg-blue-600 text-white text-[12px] font-extrabold py-2 px-3 flex items-center justify-center gap-2 shadow-sm animate-pulse">
+                                    <Icon name="spinner" className="animate-spin" size={15} />
+                                    <span>최신 주문 및 입금·배송 상태를 불러오고 있습니다...</span>
+                                </div>
+                            )}
+
+                            <main className={`p-3 space-y-2.5 transition-opacity duration-200 ${isRefreshing ? 'opacity-60 pointer-events-none' : 'opacity-100'}`}>
                                 {/* ✨ 날짜별 방송 주문서 선택 탭 (최근 2~3주 방송 이력 열람 가능) */}
                                 {orderHistoryList.length > 1 && (
                                     <section className="bg-white rounded-lg p-2.5 border border-blue-200 shadow-sm">
