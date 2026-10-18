@@ -25,29 +25,34 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap" media="print" onload="this.media='all'">
 
     <style>
-        body {
+        html, body {
             font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
             background-color: #d4d4d8;
             color: #111827;
             margin: 0;
             padding: 0;
+            min-height: 100%;
+            overflow-x: hidden;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-y;
             -webkit-tap-highlight-color: transparent;
         }
         .font-serif {
             font-family: 'Cormorant Garamond', Georgia, serif;
         }
         .safe-bottom {
-            padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+            padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-start sm:justify-center sm:py-4 sm:px-4">
+<body class="min-h-screen w-full overflow-y-auto py-0 sm:py-6 sm:px-4">
     <div id="root" class="w-full flex justify-center"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbygYRyEJboWJE_LB_EOApSuJYqIwmTEiIomzqmyPtMwe5He6LMElLqU5Sylf85a5K3Q/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxgxJiRBjnkVS1Eg6gez4PUzCibhNpnKqPlsXqab6bGHTjh5fX_mgsaYSfrOxNeIk02/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -163,7 +168,66 @@
                     memo: "문 앞에 놓아주세요",
                     updatedAt: "2026-10-18 14:20"
                 },
-                isConfirmed: false
+                trackingNumbers: ["2548-1920-3841"],
+                isConfirmed: false,
+                historyList: [
+                    {
+                        sheetTabName: "주문_10/18 여성복",
+                        nickname: "테스트1",
+                        phoneLast4: "1234",
+                        broadcastName: "10/18 여성복",
+                        isVip: false,
+                        freeShippingThreshold: 200000,
+                        isCard: false,
+                        shipping: 4000,
+                        depositTotal: 59000,
+                        deposits: [
+                            { id: "dep_1", time: "26-10-18 16:26", name: "김은지", amount: 59000 }
+                        ],
+                        items: [
+                            { id: 1, product: "01 알파카 핸드메이드 코트 베이지 F", qty: 1, price: 55000, isWaitlist: false }
+                        ],
+                        address: {
+                            realname: "김은지",
+                            phone: "01012341234",
+                            zipcode: "06035",
+                            baseAddress: "서울 강남구 가로수길 5 (신사동)",
+                            detailAddress: "101동 502호",
+                            memo: "문 앞에 놓아주세요",
+                            updatedAt: "2026-10-18 14:20"
+                        },
+                        trackingNumbers: ["2548-1920-3841"],
+                        isConfirmed: false
+                    },
+                    {
+                        sheetTabName: "주문_10/11 가을신상",
+                        nickname: "테스트1",
+                        phoneLast4: "1234",
+                        broadcastName: "10/11 가을신상",
+                        isVip: false,
+                        freeShippingThreshold: 200000,
+                        isCard: false,
+                        shipping: 0,
+                        depositTotal: 215000,
+                        deposits: [
+                            { id: "dep_old_1", time: "26-10-11 21:15", name: "김은지", amount: 215000 }
+                        ],
+                        items: [
+                            { id: 101, product: "03 프리미엄 구스다운 패딩 블랙 M (2주 소요)", qty: 1, price: 215000, isWaitlist: false }
+                        ],
+                        address: {
+                            realname: "김은지(친정집)",
+                            phone: "01012341234",
+                            zipcode: "04799",
+                            baseAddress: "서울 성동구 성수이로 88",
+                            detailAddress: "202동 1104호",
+                            memo: "경비실에 맡겨주세요",
+                            updatedAt: "2026-10-11 21:18"
+                        },
+                        trackingNumbers: ["2548-0098-7712"],
+                        isConfirmed: true
+                    }
+                ]
             },
             {
                 nickname: "테스트2",
@@ -219,6 +283,8 @@
             const [isLoading, setIsLoading] = useState(false);
 
             const [currentUser, setCurrentUser] = useState(null);
+            const [orderHistoryList, setOrderHistoryList] = useState([]);
+            const [selectedBroadcastIdx, setSelectedBroadcastIdx] = useState(0);
             const [isEditingAddress, setIsEditingAddress] = useState(false);
             const [addrForm, setAddrForm] = useState({
                 realname: "",
@@ -232,11 +298,112 @@
             const [agreeThirdParty, setAgreeThirdParty] = useState(false);
             const [isSavingAddress, setIsSavingAddress] = useState(false);
             const [toastMsg, setToastMsg] = useState("");
+            const [trackingMap, setTrackingMap] = useState({});
+            const [collapsedTracks, setCollapsedTracks] = useState({});
 
             // ✨ 고객이 페이지에 접속해서 닉네임을 입력하는 동안 백그라운드에서 미리 구글 시트 캐시를 예열(Warm-up)하여 조회 버튼 클릭 시 0.3초 만에 열리도록 가속!
             useEffect(() => {
                 fetch(`${DEFAULT_GAS_URL}?action=warmup&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, { mode: 'no-cors' }).catch(() => {});
             }, []);
+
+            const formatTrackingDisplay = (raw) => {
+                const digits = String(raw || '').replace(/[^0-9]/g, '');
+                if (digits.length === 12) {
+                    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 12)}`;
+                }
+                return String(raw || '').trim();
+            };
+
+            const fetchInlineTracking = async (rawTrackNo, force = false) => {
+                const cleanDigits = String(rawTrackNo || '').replace(/[^0-9]/g, '');
+                if (!cleanDigits) return;
+                if (!force && trackingMap[cleanDigits] && (trackingMap[cleanDigits].loading || trackingMap[cleanDigits].loaded)) {
+                    return;
+                }
+
+                setTrackingMap(prev => ({
+                    ...prev,
+                    [cleanDigits]: { loading: true, loaded: false, stateText: "실시간 위치 조회중...", steps: [] }
+                }));
+
+                // 1) 테스트 샘플 송장번호인 경우 즉시 인라인 배송흐름 표시
+                if (cleanDigits === "254819203841" || cleanDigits === "254800987712") {
+                    setTimeout(() => {
+                        setTrackingMap(prev => ({
+                            ...prev,
+                            [cleanDigits]: {
+                                loading: false,
+                                loaded: true,
+                                stateText: cleanDigits === "254800987712" ? "배달완료" : "배송중 (간선하차)",
+                                steps: cleanDigits === "254800987712" ? [
+                                    { time: "2026-10-13 14:22", location: "서울성동(대)", status: "배달완료 · 고객님께 물품을 전달하였습니다 (문앞 배송)" },
+                                    { time: "2026-10-13 08:40", location: "서울성동(대)", status: "배달출발 · 배달을 준비중입니다" },
+                                    { time: "2026-10-12 22:15", location: "동서울터미널", status: "간선하차 · 물류터미널에 도착하였습니다" },
+                                    { time: "2026-10-12 17:30", location: "광주광산(대)", status: "집하완료 · 보내시는 고객님으로부터 상품을 인수받았습니다" }
+                                ] : [
+                                    { time: "2026-10-19 01:15", location: "수도권메가허브", status: "간선하차 · 물류터미널에서 행선지별 분류중입니다" },
+                                    { time: "2026-10-18 21:40", location: "광주터미널", status: "간선상차 · 수도권행 간선차량으로 출발하였습니다" },
+                                    { time: "2026-10-18 18:10", location: "광주서구(대)", status: "집하완료 · 보내시는 고객님으로부터 상품을 인수받았습니다" }
+                                ]
+                            }
+                        }));
+                    }, 180);
+                    return;
+                }
+
+                // 2) 공개 배송조회 API 1차 시도 (tracker.delivery - 롯데택배 kr.lotte)
+                try {
+                    const res = await fetch(`https://apis.tracker.delivery/carriers/kr.lotte/tracks/${cleanDigits}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        const progresses = Array.isArray(data.progresses) ? [...data.progresses].reverse() : [];
+                        if (progresses.length > 0) {
+                            setTrackingMap(prev => ({
+                                ...prev,
+                                [cleanDigits]: {
+                                    loading: false,
+                                    loaded: true,
+                                    stateText: data.state?.text || "배송중",
+                                    steps: progresses.map(p => ({
+                                        time: formatKstDateString(p.time),
+                                        location: p.location?.name || "롯데택배",
+                                        status: p.status?.text ? `${p.status.text}${p.description ? ` · ${p.description}` : ''}` : (p.description || '')
+                                    }))
+                                }
+                            }));
+                            return;
+                        }
+                    }
+                } catch (e) {}
+
+                // 3) 구글 앱스 스크립트 서버를 통한 롯데택배 직접 파싱 2차 시도
+                try {
+                    const gasRes = await fetch(`${DEFAULT_GAS_URL}?action=get_lotte_tracking&invNo=${cleanDigits}&t=${Date.now()}`);
+                    const gasData = await gasRes.json();
+                    if (gasData && gasData.status === 'success' && Array.isArray(gasData.steps) && gasData.steps.length > 0) {
+                        setTrackingMap(prev => ({
+                            ...prev,
+                            [cleanDigits]: {
+                                loading: false,
+                                loaded: true,
+                                stateText: gasData.stateText || "배송중",
+                                steps: gasData.steps
+                            }
+                        }));
+                        return;
+                    }
+                } catch (e) {}
+
+                setTrackingMap(prev => ({
+                    ...prev,
+                    [cleanDigits]: {
+                        loading: false,
+                        loaded: true,
+                        stateText: "운송장 등록 완료 (택배사 집하 대기중)",
+                        steps: []
+                    }
+                }));
+            };
 
             const showToast = (msg) => {
                 setToastMsg(msg);
@@ -256,7 +423,7 @@
             };
 
             const initAddressState = (userObj) => {
-                if (userObj.address && userObj.address.baseAddress) {
+                if (userObj && userObj.address && userObj.address.baseAddress) {
                     setAddrForm(userObj.address);
                     setIsEditingAddress(false);
                     setAgreePrivacy(true);
@@ -267,6 +434,14 @@
                     setAgreePrivacy(false);
                     setAgreeThirdParty(false);
                 }
+            };
+
+            const handleSelectBroadcast = (idx) => {
+                if (!orderHistoryList[idx]) return;
+                setSelectedBroadcastIdx(idx);
+                const targetOrder = orderHistoryList[idx];
+                setCurrentUser(targetOrder);
+                initAddressState(targetOrder);
             };
 
             const handleLogin = async (e, customNick, customPin) => {
@@ -300,13 +475,17 @@
                             return;
                         }
                         const cloned = JSON.parse(JSON.stringify(sampleFound));
-                        setCurrentUser(cloned);
-                        initAddressState(cloned);
+                        const hList = Array.isArray(cloned.historyList) && cloned.historyList.length > 0 ? cloned.historyList : [cloned];
+                        setOrderHistoryList(hList);
+                        const nextIdx = selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
+                        setSelectedBroadcastIdx(nextIdx);
+                        setCurrentUser(hList[nextIdx]);
+                        initAddressState(hList[nextIdx]);
                     }, 100);
                     return;
                 }
 
-                // 2) 실시간 구글 시트 연동 조회
+                // 2) 실시간 구글 시트 연동 조회 (날짜별 방송 주문서 리스트 포함)
                 try {
                     const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick.trim())}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`;
                     const res = await fetch(url);
@@ -314,8 +493,12 @@
                     setIsLoading(false);
 
                     if (data.status === "success" && data.customerData) {
-                        setCurrentUser(data.customerData);
-                        initAddressState(data.customerData);
+                        const hList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
+                        setOrderHistoryList(hList);
+                        const nextIdx = selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
+                        setSelectedBroadcastIdx(nextIdx);
+                        setCurrentUser(hList[nextIdx]);
+                        initAddressState(hList[nextIdx]);
                     } else if (data.errorType === "WRONG_PIN") {
                         setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
                     } else if (data.status === "not_found") {
@@ -367,8 +550,9 @@
                 const isSample = SAMPLE_DB.some(u => cleanHandle(u.nickname) === cleanHandle(currentUser.nickname));
                 if (isSample) {
                     setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr }));
+                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr } : item));
                     setIsEditingAddress(false);
-                    showToast("배송지가 저장되었습니다!");
+                    showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 저장되었습니다!`);
                     return true;
                 }
 
@@ -387,7 +571,9 @@
                             phone: "'" + cleanPhone,
                             zipcode: "",
                             address: fullCombinedAddress,
-                            memo: updatedAddr.memo.trim()
+                            memo: updatedAddr.memo.trim(),
+                            sheetTabName: currentUser.sheetTabName || '메인주문',
+                            broadcastName: currentUser.broadcastName || ''
                         }
                     };
                     const res = await fetch(DEFAULT_GAS_URL, {
@@ -398,9 +584,10 @@
                     const result = await res.json();
                     if (result.success || result.status === 'success') {
                         setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr }));
+                        setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr } : item));
                         setPinInput(newLast4);
                         setIsEditingAddress(false);
-                        showToast("배송지가 안전하게 저장되었습니다!");
+                        showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 안전하게 저장되었습니다!`);
                         return true;
                     } else {
                         showToast("저장에 실패했습니다. 다시 시도해 주세요.");
@@ -433,6 +620,7 @@
                         isConfirmed: true,
                         address: prev.address ? { ...prev.address, updatedAt: nowStr } : prev.address
                     }));
+                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, isConfirmed: true, address: item.address ? { ...item.address, updatedAt: nowStr } : item.address } : item));
                     showToast("주문 및 배송지 확인이 완료되었습니다!");
                     return;
                 }
@@ -444,7 +632,11 @@
                         body: JSON.stringify({
                             action: 'confirm_customer_order',
                             masterId: DEFAULT_MASTER_SHEET_ID,
-                            data: { nickname: currentUser.nickname }
+                            data: {
+                                nickname: currentUser.nickname,
+                                sheetTabName: currentUser.sheetTabName || '메인주문',
+                                broadcastName: currentUser.broadcastName || ''
+                            }
                         })
                     });
                     setCurrentUser(prev => ({
@@ -452,6 +644,7 @@
                         isConfirmed: true,
                         address: prev.address ? { ...prev.address, updatedAt: nowStr } : prev.address
                     }));
+                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, isConfirmed: true, address: item.address ? { ...item.address, updatedAt: nowStr } : item.address } : item));
                     showToast("주문 및 배송지 확인이 완료되었습니다!");
                 } catch (e) {
                     showToast("확인 처리 중 오류가 발생했습니다.");
@@ -468,9 +661,14 @@
             const baseGrandTotal = productTotal + shippingFee;
             const depositTotal = currentUser ? Number(currentUser.depositTotal || 0) : 0;
             const rawBalance = baseGrandTotal - depositTotal;
-            const isCard = currentUser ? Boolean(currentUser.isCard) : false;
-            const cardFeeRate = (currentUser && Number(currentUser.cardFeeRate) > 0) ? Number(currentUser.cardFeeRate) : 10;
+            const isCard = Boolean(currentUser && (currentUser.isCard === true || String(currentUser.isCard || '').toUpperCase().startsWith('O') || String(currentUser.isCard || '').includes('카드')));
+            const parsedFeeFromCardStr = (() => {
+                const m = String(currentUser?.isCard || '').match(/(\d+(?:\.\d+)?)%/);
+                return m ? Number(m[1]) : 0;
+            })();
+            const cardFeeRate = parsedFeeFromCardStr > 0 ? parsedFeeFromCardStr : ((currentUser && Number(currentUser.cardFeeRate) > 0) ? Number(currentUser.cardFeeRate) : 10);
             const cardFee = (isCard && rawBalance > 0) ? Math.round(rawBalance * (cardFeeRate / 100)) : 0;
+            const finalGrandTotal = baseGrandTotal + cardFee;
             const finalBalance = rawBalance + cardFee;
 
             const isPaid = activeItems.length > 0 && finalBalance === 0 && !isCard;
@@ -481,6 +679,27 @@
                 ? currentUser.deposits
                 : (depositTotal > 0 ? [{ id: 'dep_sum', time: '', name: (currentUser?.address?.realname || currentUser?.nickname || '입금확인'), amount: depositTotal }] : []);
 
+            const userTrackingList = (() => {
+                if (!currentUser) return [];
+                if (Array.isArray(currentUser.trackingNumbers) && currentUser.trackingNumbers.length > 0) {
+                    return currentUser.trackingNumbers;
+                }
+                if (currentUser.trackingNumber) {
+                    return String(currentUser.trackingNumber).split(/[,\/\n]+/).map(s => s.trim()).filter(Boolean);
+                }
+                return [];
+            })();
+
+            // ✨ 주문서가 열리거나 방송 날짜 탭을 바꿀 때 송장번호가 있으면 클릭할 필요도 없이 그 자리에서 자동으로 배송흐름을 불러옵니다!
+            useEffect(() => {
+                if (userTrackingList.length > 0) {
+                    userTrackingList.forEach(trk => {
+                        const cleanDigits = String(trk).replace(/[^0-9]/g, '');
+                        if (cleanDigits) fetchInlineTracking(cleanDigits);
+                    });
+                }
+            }, [currentUser, selectedBroadcastIdx]);
+
             return (
                 <div className="w-full flex flex-col items-center">
                     {toastMsg && (
@@ -490,9 +709,8 @@
                         </div>
                     )}
 
-                    {}
                     {!currentUser ? (
-                        <div className="w-full max-w-[420px] h-[100dvh] sm:h-[760px] bg-[#2c2a29] sm:rounded-2xl shadow-lg border-0 sm:border border-gray-300 overflow-hidden relative flex flex-col justify-end">
+                        <div className="w-full max-w-[420px] min-h-[100dvh] sm:min-h-[760px] bg-[#2c2a29] sm:rounded-2xl shadow-lg border-0 sm:border border-gray-300 relative flex flex-col justify-end overflow-y-auto">
                             <img 
                                 src={FIXED_AUTUMN_WINTER_HERO} 
                                 fetchpriority="high"
@@ -502,13 +720,13 @@
                                 className="absolute inset-0 w-full h-full object-cover object-top select-none pointer-events-none"
                             />
 
-                            {/* 정중앙 화보 타이포그래피 */}
-                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none pb-48">
-                                <h1 className="text-[#f8f5f0] text-[52px] font-serif tracking-[0.3em] pl-[0.3em] font-medium drop-shadow-2xl" style={{ textShadow: '0 4px 25px rgba(0,0,0,0.7)' }}>EMBER</h1>
+                            {/* 전체 화보 화면(inset-0) 기준 정중앙에 EMBER 로고 배치 */}
+                            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-4">
+                                <h1 className="text-[#f8f5f0] text-[48px] sm:text-[54px] font-serif tracking-[0.3em] pl-[0.3em] font-medium drop-shadow-2xl translate-y-2" style={{ textShadow: '0 4px 25px rgba(0,0,0,0.75)' }}>EMBER</h1>
                             </div>
 
                             {/* 하단 반투명 글래스모피즘 로그인 카드 */}
-                            <div className="relative z-20 px-3 pb-4 pt-2 safe-bottom">
+                            <div className="relative z-20 px-3 pb-6 pt-2 safe-bottom mt-auto">
                                 <div className="bg-white/55 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-white/70">
                                     <div className="flex items-center justify-between mb-3">
                                         <h2 className="text-[16px] font-black text-gray-900 tracking-tight drop-shadow-sm">
@@ -592,9 +810,9 @@
                             </div>
                         </div>
                     ) : (
-                        <div className="w-full max-w-[430px] bg-gray-100 rounded-xl shadow border border-gray-300 overflow-hidden">
-                            {/* 상단 헤더 */}
-                            <header className="bg-gray-900 text-white px-4 py-3 flex items-center justify-between">
+                        <div className="w-full max-w-[430px] min-h-[100dvh] sm:min-h-0 bg-gray-100 sm:rounded-xl shadow border-0 sm:border border-gray-300 pb-8">
+                            {/* 상단 헤더 (스크롤 시에도 상단에 고정되어 언제든 새로고침/닫기 가능) */}
+                            <header className="sticky top-0 z-30 bg-gray-900 text-white px-4 py-3 flex items-center justify-between shadow-sm">
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="font-extrabold text-[17px] text-white truncate">{currentUser.nickname} 님</span>
                                     {isPaid && <span className="bg-green-500 text-white text-[12px] font-extrabold px-2 py-0.5 rounded">완납</span>}
@@ -610,7 +828,7 @@
                                         <Icon name="arrows-clockwise" weight="bold" size={13} /> 새로고침
                                     </button>
                                     <button 
-                                        onClick={() => { setCurrentUser(null); setNickInput(""); setPinInput(""); }}
+                                        onClick={() => { setCurrentUser(null); setOrderHistoryList([]); setSelectedBroadcastIdx(0); setNickInput(""); setPinInput(""); }}
                                         className="text-[12px] font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1.5 rounded border border-gray-700"
                                     >
                                         닫기
@@ -619,6 +837,44 @@
                             </header>
 
                             <main className="p-3 space-y-2.5">
+                                {/* ✨ 날짜별 방송 주문서 선택 탭 (최근 2~3주 방송 이력 열람 가능) */}
+                                {orderHistoryList.length > 1 && (
+                                    <section className="bg-white rounded-lg p-2.5 border border-blue-200 shadow-sm">
+                                        <div className="flex items-center justify-between mb-1.5 px-0.5">
+                                            <span className="text-[12px] font-extrabold text-gray-700 flex items-center gap-1">
+                                                <Icon name="calendar-check" weight="fill" className="text-blue-600" size={14} />
+                                                <span>방송 날짜별 주문서 선택 ({orderHistoryList.length}건)</span>
+                                            </span>
+                                            <span className="text-[11px] font-semibold text-gray-400">터치하여 이전 주문 보기</span>
+                                        </div>
+                                        <div className="flex gap-1.5 overflow-x-auto pb-1">
+                                            {orderHistoryList.map((hist, idx) => {
+                                                const isSelected = idx === selectedBroadcastIdx;
+                                                const cleanTitle = String(hist.broadcastName || `주문서 ${idx + 1}`).replace(/\s*주문\s*목록\s*/g, '').trim();
+                                                return (
+                                                    <button
+                                                        key={hist.sheetTabName || idx}
+                                                        type="button"
+                                                        onClick={() => handleSelectBroadcast(idx)}
+                                                        className={`px-3 py-2 rounded-lg text-[13px] font-extrabold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 border ${
+                                                            isSelected
+                                                                ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                                                                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                                                        }`}
+                                                    >
+                                                        <span>{cleanTitle}</span>
+                                                        {idx === 0 && (
+                                                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${isSelected ? 'bg-white text-blue-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                                최신
+                                                            </span>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
+                                )}
+
                                 {/* 1. 주문 품목 및 금액 영수증 */}
                                 <section className="bg-white rounded-lg p-3.5 border border-gray-200 shadow-sm">
                                     <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-gray-200">
@@ -668,7 +924,7 @@
                                         </div>
                                     )}
 
-                                    {/* 금액 요약 */}
+                                    {/* 금액 요약 (위에는 총 주문금액만 깔끔하게 표시) */}
                                     <div className="mt-3 pt-3 border-t border-dashed border-gray-300 space-y-1.5 text-[14px]">
                                         <div className="flex justify-between text-gray-600">
                                             <span className="font-semibold">상품 합계</span>
@@ -792,11 +1048,15 @@
                                 {/* 3. 배송지 확인 및 입력 */}
                                 <section className="bg-white rounded-lg p-3.5 border border-gray-200 shadow-sm">
                                     <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-gray-200">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <span className="text-[14px] font-extrabold text-gray-900 shrink-0">배송지</span>
+                                        <div className="flex flex-col min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[14px] font-extrabold text-gray-900 shrink-0">
+                                                    [{String(currentUser.broadcastName || '주문서').replace(/\s*주문\s*목록\s*/g, '').trim()}] 배송지
+                                                </span>
+                                            </div>
                                             {currentUser.address && currentUser.address.baseAddress && currentUser.address.updatedAt && !isEditingAddress && (
-                                                <span className="text-[11.5px] font-semibold text-gray-500 truncate">
-                                                    (최근 입력·확인: {formatKstDateString(currentUser.address.updatedAt)})
+                                                <span className="text-[11.5px] font-semibold text-gray-500 truncate mt-0.5">
+                                                    최근 입력·확인: {formatKstDateString(currentUser.address.updatedAt)}
                                                 </span>
                                             )}
                                         </div>
@@ -945,6 +1205,112 @@
                                             </div>
                                         </form>
                                     )}
+
+                                    <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[13.5px] font-extrabold text-gray-900 flex items-center gap-1.5">
+                                                <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#E60012]"></span>
+                                                <span>롯데택배 송장번호 · 실시간 이동흐름</span>
+                                            </span>
+                                            {userTrackingList.length > 0 && (
+                                                <span className="text-[11px] font-extrabold text-[#E60012] bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                                    출고 {userTrackingList.length}건
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {userTrackingList.length === 0 ? (
+                                            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-[12.5px] text-gray-500 font-semibold flex items-center justify-between">
+                                                <span>📦 상품 준비 중 (출고 후 송장번호와 이동흐름이 바로 표시됩니다)</span>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {userTrackingList.map((trk, tIdx) => {
+                                                    const cleanDigits = String(trk).replace(/[^0-9]/g, '');
+                                                    const trkInfo = trackingMap[cleanDigits] || { loading: true, steps: [] };
+                                                    const isCollapsed = Boolean(collapsedTracks[cleanDigits]);
+                                                    return (
+                                                        <div key={tIdx} className="bg-white border-2 border-red-200 rounded-xl overflow-hidden shadow-sm">
+                                                            {/* 상단 송장번호 헤더 바 */}
+                                                            <div className="bg-red-50/80 px-3 py-2.5 border-b border-red-100 flex items-center justify-between gap-2">
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="bg-[#E60012] text-white text-[10px] font-black px-1.5 py-0.5 rounded">롯데택배</span>
+                                                                        <span className="text-[14.5px] font-black text-gray-900 tabular-nums tracking-tight">
+                                                                            {formatTrackingDisplay(trk)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="text-[12px] font-extrabold text-[#E60012] mt-1 flex items-center gap-1">
+                                                                        <Icon name="truck" weight="fill" size={13} />
+                                                                        <span>현재상태: {trkInfo.stateText || "배송 조회중..."}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => copyText(cleanDigits, "송장번호가")}
+                                                                        className="bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 px-2.5 py-1.5 rounded-lg text-[11.5px] font-extrabold shadow-sm"
+                                                                    >
+                                                                        번호복사
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => fetchInlineTracking(cleanDigits, true)}
+                                                                        className="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 p-1.5 rounded-lg text-[12px] font-bold shadow-sm"
+                                                                        title="배송상태 새로고침"
+                                                                    >
+                                                                        <Icon name="arrows-clockwise" weight="bold" size={14} className={trkInfo.loading ? "animate-spin text-[#E60012]" : ""} />
+                                                                    </button>
+                                                                    {trkInfo.steps && trkInfo.steps.length > 0 && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setCollapsedTracks(prev => ({ ...prev, [cleanDigits]: !prev[cleanDigits] }))}
+                                                                            className="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-2 py-1.5 rounded-lg text-[11.5px] font-extrabold shadow-sm"
+                                                                        >
+                                                                            {isCollapsed ? "펼치기" : "접기"}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* 바로 아래에 펼쳐지는 실시간 이동흐름 타임라인 */}
+                                                            {!isCollapsed && (
+                                                                <div className="p-3 bg-white">
+                                                                    {trkInfo.loading ? (
+                                                                        <div className="py-4 flex items-center justify-center gap-2 text-[12.5px] font-bold text-gray-500">
+                                                                            <Icon name="spinner" className="animate-spin text-[#E60012]" size={18} />
+                                                                            <span>실시간 택배 이동흐름을 불러오고 있습니다...</span>
+                                                                        </div>
+                                                                    ) : trkInfo.steps && trkInfo.steps.length > 0 ? (
+                                                                        <div className="relative pl-3.5 border-l-2 border-red-200 space-y-3 my-1 ml-1">
+                                                                            {trkInfo.steps.map((st, sIdx) => (
+                                                                                <div key={sIdx} className="relative">
+                                                                                    <span className={`absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white ${sIdx === 0 ? 'bg-[#E60012] ring-2 ring-red-200' : 'bg-gray-300'}`}></span>
+                                                                                    <div className={`text-[13px] font-extrabold leading-snug ${sIdx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
+                                                                                        {st.status}
+                                                                                    </div>
+                                                                                    <div className="text-[11.5px] font-semibold text-gray-500 flex items-center gap-1.5 mt-0.5">
+                                                                                        <span className="text-gray-700 font-bold">📍 {st.location}</span>
+                                                                                        <span>·</span>
+                                                                                        <span className="tabular-nums">{st.time}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="py-2.5 px-2 bg-gray-50 rounded-lg text-[12px] text-gray-600 font-semibold text-center leading-relaxed">
+                                                                            송장이 등록되어 택배사 집하(상품인수) 대기 중입니다.<br/>
+                                                                            집하 스캔 후 이 자리에서 바로 이동흐름이 표시됩니다.
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
                                 </section>
 
                                 {/* 4. 하단 최종 확인 버튼 & 카톡 채널 문의 */}
