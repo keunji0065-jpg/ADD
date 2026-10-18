@@ -38,7 +38,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbw18_LWGYGClzcQbfGYb8D9ftdaroUXEN9j-QXMga69aChKwj0DuPZ64135tPlikOo4/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyocgWbANVAnUaHKzviVCZdFf4ZimduPZHhTX7SvSDg1_RWK0n1rVwT-Gkr2xn67DU/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -171,7 +171,7 @@
                 items: [
                     { id: 2, product: "05 캐시미어 라운드 니트 차콜", qty: 1, price: 42000, isWaitlist: false },
                     { id: 3, product: "08 울 슬랙스 블랙 M", qty: 1, price: 38000, isWaitlist: false },
-                    { id: 4, product: "12 앙고라 가디건 핑크", qty: 1, price: 35000, isWaitlist: true }
+                    { id: 4, product: "12 앙고라 가디건 핑크", qty: 1, price: 35000, isWaitlist: true, waitlistOrder: 1 }
                 ],
                 address: {
                     realname: "박선영",
@@ -640,12 +640,14 @@
                                     {waitlistItems.length > 0 && (
                                         <div className="mt-2.5 pt-2.5 border-t border-dashed border-orange-200 bg-orange-50/60 -mx-3.5 px-3.5 py-2">
                                             <div className="text-[12px] font-extrabold text-orange-700 mb-1">
-                                                ⏱️ 품절 대기 상품 (총 주문금액 제외)
+                                                ⏱️ 품절/거파 대기 상품 (총 주문금액 제외)
                                             </div>
                                             {waitlistItems.map((item, idx) => (
-                                                <div key={item.id || idx} className="flex justify-between text-[13px] text-orange-800 font-semibold py-0.5">
+                                                <div key={item.id || idx} className="flex justify-between items-center text-[13px] text-orange-800 font-semibold py-0.5">
                                                     <span className="truncate pr-2">{item.product}</span>
-                                                    <span className="shrink-0">{item.qty}개 대기</span>
+                                                    <span className="shrink-0 bg-orange-500 text-white text-[11px] font-extrabold px-2 py-0.5 rounded">
+                                                        {item.qty > 1 ? `${item.qty}개 · ` : ''}{item.waitlistOrder ? `대기 ${item.waitlistOrder}번` : '대기중'}
+                                                    </span>
                                                 </div>
                                             ))}
                                         </div>
