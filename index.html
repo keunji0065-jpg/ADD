@@ -61,7 +61,6 @@
 
         const maskDetailAddress = (detail) => {
             if (!detail) return '***';
-            // 상세주소의 동·호수 등 숫자를 모두 *로 마스킹 처리하여 개인정보 완벽 보호
             const masked = String(detail).replace(/[0-9]/g, '*');
             return masked === detail ? detail.slice(0, 2) + '***' : masked;
         };
@@ -69,7 +68,7 @@
         // 사장님 주문서와 동일한 구글 앱스 스크립트 및 마스터 시트 연동 설정
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyujXVimwiq1y93a_th91vp1H6rXeFfi_mdfQ1o-RZHwm7sRJtMxxqQH0i-JNsl6IYa/exec';
         const MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
-        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xaxbCxlG'; // 필요시 실제 카톡 채널 링크로 변경
+        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xaxbCxlG';
 
         const fetchGasApi = async (url, payload = null) => {
             const options = { method: payload ? 'POST' : 'GET', redirect: "follow" };
@@ -82,11 +81,10 @@
             return JSON.parse(text);
         };
 
-        // 테스트용 샘플 데이터베이스
         const INITIAL_MOCK_DB = {
-            "강은지팬-krl": {
-                nickname: "강은지팬-krl",
-                phoneLast4: "5678",
+            "테스트1": {
+                nickname: "테스트1",
+                phoneLast4: "1234",
                 broadcastName: "10/18 여성복",
                 isVip: true,
                 isManager: false,
@@ -105,15 +103,16 @@
                 ],
                 address: {
                     realname: "김선정",
-                    phone: "01012345678",
+                    phone: "01056781234",
                     zipcode: "61945",
                     baseAddress: "광주광역시 서구 상무중앙로 110",
                     detailAddress: "스타타워 101동 1204호",
-                    memo: "문 앞에 놓아주세요"
+                    memo: "문 앞에 놓아주세요",
+                    updatedAt: "2026-10-18 21:45"
                 }
             },
-            "멋쟁이토마토-a2b": {
-                nickname: "멋쟁이토마토-a2b",
+            "테스트2": {
+                nickname: "테스트2",
                 phoneLast4: "1234",
                 broadcastName: "10/18 여성복",
                 isVip: false,
@@ -137,12 +136,13 @@
                     zipcode: "06035",
                     baseAddress: "서울특별시 강남구 가로수길 5",
                     detailAddress: "현대아파트 203동 501호",
-                    memo: "경비실에 맡겨주세요"
+                    memo: "경비실에 맡겨주세요",
+                    updatedAt: "2026-10-15 19:20"
                 }
             },
-            "깔로-krl": {
-                nickname: "깔로-krl",
-                phoneLast4: "0000",
+            "테스트3": {
+                nickname: "테스트3",
+                phoneLast4: "1234",
                 broadcastName: "10/18 여성복",
                 isVip: false,
                 isManager: false,
@@ -158,12 +158,39 @@
             }
         };
 
-        // 유튜브 핸들(예: @깔로-krl)이나 앞부분 닉네임('깔로')으로 검색해도 전체 닉네임('깔로-krl') 데이터를 찾아주는 도우미
         const cleanYoutubeHandle = (raw) => {
             if (!raw) return '';
             let s = String(raw).trim().replace(/^@+/, '');
             s = s.replace(/-[a-zA-Z0-9]{2,6}$/, '');
             return s.trim();
+        };
+
+        const getKstDateTimeStr = () => {
+            const now = new Date();
+            const yyyy = now.getFullYear();
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            const hh = String(now.getHours()).padStart(2, '0');
+            const min = String(now.getMinutes()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+        };
+
+        const formatDisplayDate = (raw) => {
+            if (!raw) return '';
+            const s = String(raw).trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(s) && !s.includes('T')) {
+                return s.slice(0, 16);
+            }
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) {
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const hh = String(d.getHours()).padStart(2, '0');
+                const min = String(d.getMinutes()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+            }
+            return s;
         };
 
         const CustomerPortalApp = () => {
@@ -179,7 +206,6 @@
             const [isRefreshing, setIsRefreshing] = useState(false);
             const [isLoadingLogin, setIsLoadingLogin] = useState(false);
             const [lastUpdatedTime, setLastUpdatedTime] = useState('');
-            const [demoAddedCount, setDemoAddedCount] = useState(0);
 
             const [isEditingAddress, setIsEditingAddress] = useState(false);
             const [addrForm, setAddrForm] = useState({
@@ -208,26 +234,27 @@
                 const inputLast4 = (presetPhone4 !== null ? presetPhone4 : loginPhone4).trim();
 
                 if (!rawNick) {
-                    setErrorMsg('유튜브 닉네임을 입력해 주세요.');
+                    setErrorMsg('닉네임을 입력해 주세요.');
                     return;
                 }
                 if (inputLast4.length !== 4) {
-                    setErrorMsg('연락처 뒷 4자리(비밀번호)를 정확히 입력해 주세요.');
+                    setErrorMsg('비밀번호(핸드폰번호 뒤 4자리)를 정확히 입력해 주세요.');
                     return;
                 }
 
-                // 1. 먼저 데모/테스트 프리셋에 일치하는 고객이 있는지 확인
+                // 1. 데모/테스트 프리셋 확인
                 const matchedKey = Object.keys(mockDb).find(k => k === rawNick || cleanYoutubeHandle(k) === baseNick);
                 if (matchedKey) {
                     const found = mockDb[matchedKey];
                     if (found.phoneLast4 !== inputLast4) {
-                        setErrorMsg('연락처 뒷 4자리(비밀번호)가 일치하지 않습니다. 첫 구매 고객님은 아래 카톡 채널로 번호를 먼저 남겨주세요.');
+                        setErrorMsg('비밀번호(핸드폰 뒤 4자리)가 일치하지 않습니다. 첫구매 고객님은 아래 카톡 채널로 문의해 주세요.');
                         return;
                     }
                     setCurrentUser({ ...found });
                     setIsOrderConfirmedByCustomer(false);
                     setLastUpdatedTime(getNowTimeStr());
                     if (!found.address) setIsEditingAddress(true);
+                    else setIsEditingAddress(false);
                     return;
                 }
 
@@ -242,16 +269,15 @@
                             setIsOrderConfirmedByCustomer(!!res.customerData.isConfirmed);
                             setLastUpdatedTime(getNowTimeStr());
                             if (!res.customerData.address) setIsEditingAddress(true);
+                            else setIsEditingAddress(false);
                             setIsLoadingLogin(false);
                             return;
                         } else if (res && res.errorType === 'WRONG_PIN') {
-                            setErrorMsg('연락처 뒷 4자리(비밀번호)가 일치하지 않습니다. 첫 구매 고객님은 아래 카톡 채널로 번호를 먼저 남겨주세요.');
+                            setErrorMsg('비밀번호(핸드폰 뒤 4자리)가 일치하지 않습니다. 첫구매 고객님은 아래 카톡 채널로 문의해 주세요.');
                             setIsLoadingLogin(false);
                             return;
                         }
-                    } catch (err) {
-                        // 서버 액션이 아직 배포 전일 경우 기본 안내 표시
-                    }
+                    } catch (err) {}
                     setIsLoadingLogin(false);
                 }
 
@@ -262,7 +288,6 @@
                 if (!currentUser || isRefreshing) return;
                 setIsRefreshing(true);
 
-                // 실제 서버 연동 고객인 경우 서버에서 다시 최신 주문/입금 데이터를 가져옴
                 if (!mockDb[currentUser.nickname] && GOOGLE_SCRIPT_URL && MASTER_SHEET_ID && !simulateNewOrder) {
                     try {
                         const url = `${GOOGLE_SCRIPT_URL}?action=get_customer_order&masterId=${MASTER_SHEET_ID}&nickname=${encodeURIComponent(currentUser.nickname)}&pin=${encodeURIComponent(currentUser.phoneLast4)}&t=${Date.now()}`;
@@ -340,13 +365,16 @@
                     return showToast("개인정보 수집 및 제3자 제공 동의에 체크해 주세요.");
                 }
 
+                const nowDateStr = getKstDateTimeStr();
+
                 const newAddrObj = {
                     realname: addrForm.realname.trim(),
                     phone: cleanPhone,
                     zipcode: addrForm.zipcode,
                     baseAddress: addrForm.baseAddress,
                     detailAddress: addrForm.detailAddress.trim(),
-                    memo: addrForm.memo.trim()
+                    memo: addrForm.memo.trim(),
+                    updatedAt: nowDateStr
                 };
 
                 const updatedUser = {
@@ -363,7 +391,6 @@
                 setLastUpdatedTime(getNowTimeStr());
                 showToast("배송지가 저장되어 주문서에 즉시 반영되었습니다.");
 
-                // 실제 구글 마스터 시트 주소록에 즉시 저장 전송
                 if (GOOGLE_SCRIPT_URL && MASTER_SHEET_ID) {
                     const fullAddrStr = `${newAddrObj.baseAddress} ${newAddrObj.detailAddress}`.trim();
                     fetchGasApi(GOOGLE_SCRIPT_URL, {
@@ -379,7 +406,7 @@
                             baseAddress: newAddrObj.baseAddress,
                             detailAddress: newAddrObj.detailAddress,
                             memo: newAddrObj.memo,
-                            timestamp: new Date().toISOString()
+                            timestamp: nowDateStr
                         }
                     }).catch(() => {});
                 }
@@ -391,22 +418,33 @@
                     setIsEditingAddress(true);
                     return;
                 }
+                const nowDateStr = getKstDateTimeStr();
+                const updatedUser = {
+                    ...currentUser,
+                    address: {
+                        ...currentUser.address,
+                        updatedAt: nowDateStr
+                    }
+                };
+                setCurrentUser(updatedUser);
+                if (mockDb[currentUser.nickname]) {
+                    setMockDb(prev => ({ ...prev, [currentUser.nickname]: updatedUser }));
+                }
+
                 setIsOrderConfirmedByCustomer(true);
                 setShowFanfareModal(true);
 
-                // 사장님 주문서의 '주문서확인(checkedOrders)'란에 즉시 체크 표시가 들어오도록 서버 전송
                 if (GOOGLE_SCRIPT_URL && MASTER_SHEET_ID) {
                     fetchGasApi(GOOGLE_SCRIPT_URL, {
                         action: 'confirm_customer_order',
                         masterId: MASTER_SHEET_ID,
                         data: {
                             nickname: currentUser.nickname,
-                            timestamp: new Date().toISOString()
+                            timestamp: nowDateStr
                         }
                     }).catch(() => {});
                 }
 
-                // 팡파레(꽃가루) 애니메이션 실행
                 if (window.confetti) {
                     window.confetti({
                         particleCount: 90,
@@ -429,7 +467,6 @@
                     }, 200);
                 }
 
-                // 2.2초 후 자동으로 창 닫기 (처음 화면으로 안전하게 로그아웃 처리)
                 setTimeout(() => {
                     setShowFanfareModal(false);
                     setCurrentUser(null);
@@ -461,10 +498,8 @@
             const summary = calcSummary();
 
             return (
-                <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-[#e5e7eb] sm:py-4">
-                    {}
-                    {/* 스마트폰 반응형 컨테이너: 사진 원본 비율 그대로 맞춰져 위·아래 여백이나 잘림이 절대 생기지 않음 */}
-                    <div className={`w-full sm:max-w-[400px] bg-[#f1f3f7] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-slate-300 overflow-hidden flex flex-col relative ${!currentUser ? '' : 'min-h-[100dvh] sm:min-h-[700px] pb-6'}`}>
+                <div className="min-h-[100dvh] w-full flex flex-col items-center sm:justify-center bg-[#e5e7eb] sm:py-4">
+                    <div className={`w-full sm:max-w-[420px] bg-[#f1f3f7] sm:rounded-2xl sm:shadow-2xl sm:border sm:border-slate-300 overflow-hidden flex flex-col relative ${!currentUser ? 'h-[100dvh] sm:h-[780px]' : 'min-h-[100dvh] sm:min-h-[740px] pb-6'}`}>
                         
                         {/* 상단 토스트 알림 */}
                         {toastMsg && (
@@ -474,7 +509,7 @@
                             </div>
                         )}
 
-                        {/* 주문 확정 팡파레 모달 (자동 닫힘) */}
+                        {/* 주문 확정 팡파레 모달 */}
                         {showFanfareModal && (
                             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fade-in">
                                 <div className="bg-white rounded-xl border-2 border-[#1d4ed8] shadow-2xl p-6 w-full max-w-[320px] text-center space-y-3">
@@ -509,22 +544,19 @@
                             </div>
                         )}
 
-                        {}
                         {!currentUser ? (
-                            /* 1. 메인 대문(로그인 화면): 사진 원본 전체(w-full h-auto)가 100% 다 나오고, 그 안쪽 하단에 로그인 박스가 겹쳐 올라감 */
-                            <div className="relative w-full overflow-hidden bg-[#ececeb]">
-                                {/* 메인 화보 이미지: 잘림 없이 머리부터 끝까지 100% 원본 비율 그대로 표시 */}
+                            /* 1. 메인 대문(로그인 화면): 휴대폰 전체화면 풀스크린 화보 */
+                            <div className="relative w-full h-full flex-1 overflow-hidden bg-[#d8d8d8]">
                                 <img 
                                     src="https://i.postimg.cc/VL2PVhw5/Gemini-Generated-Image-x3o9dmx3o9dmx3o9.png" 
                                     alt="EMBER 메인 배경" 
-                                    className="w-full h-auto block select-none pointer-events-none"
+                                    className="w-full h-full object-cover object-top block select-none pointer-events-none"
                                 />
 
-                                {/* 사진 안쪽 맨 아래에 겹쳐서 올라가는 고투명 로그인 박스 (아래 회색 빈 공간 제로) */}
-                                <main className="absolute bottom-0 inset-x-0 z-10 w-full p-2.5 animate-fade-in">
-                                    <div className="bg-white/40 backdrop-blur-[3px] rounded-xl border border-white/60 p-2.5 space-y-2 shadow-lg">
+                                <main className="absolute bottom-0 inset-x-0 z-10 w-full p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] animate-fade-in">
+                                    <div className="bg-white/45 backdrop-blur-[4px] rounded-xl border border-white/60 p-3 space-y-2 shadow-xl">
                                         <div className="flex items-center justify-between border-b border-slate-500/30 pb-1.5 px-0.5">
-                                            <h2 className="text-[13.5px] font-extrabold text-slate-900 tracking-tight drop-shadow-[0_1px_1px_rgba(255,255,255,0.9)]">엠버언니 주문&입금확인</h2>
+                                            <h2 className="text-[14px] font-extrabold text-slate-900 tracking-tight drop-shadow-[0_1px_1px_rgba(255,255,255,0.9)]">엠버언니 주문&입금확인</h2>
                                             <span className="text-[11px] font-bold text-[#1d4ed8] flex items-center gap-0.5 drop-shadow-[0_1px_1px_rgba(255,255,255,0.9)]">
                                                 <Icon name="shield-check" weight="fill" size={12} />
                                                 본인 인증 후 열람가능
@@ -535,8 +567,10 @@
                                             <div className="flex items-stretch gap-1.5">
                                                 <div className="flex-1 min-w-0 space-y-1.5">
                                                     <div className="flex items-center gap-1.5">
-                                                        <label className="w-[82px] shrink-0 text-[11.5px] font-extrabold text-slate-900 flex items-center justify-between drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
-                                                            <span>유튜브 닉네임</span>
+                                                        <label className="w-[58px] shrink-0 text-[12px] font-extrabold text-slate-900 flex items-center justify-between drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
+                                                            <span className="w-[46px] flex justify-between">
+                                                                <span>닉</span><span>네</span><span>임</span>
+                                                            </span>
                                                             <span>:</span>
                                                         </label>
                                                         <input 
@@ -544,13 +578,15 @@
                                                             value={loginNick}
                                                             onChange={(e) => setLoginNick(e.target.value)}
                                                             placeholder="예) @깔로-k3j ➔ 깔로"
-                                                            className="flex-1 min-w-0 px-2 py-1.5 rounded bg-white/75 border border-white/80 text-[12px] font-bold text-slate-900 placeholder:text-slate-600 placeholder:font-normal focus:bg-white/95 focus:border-slate-900 outline-none"
+                                                            className="flex-1 min-w-0 px-2.5 py-2 rounded bg-white/80 border border-white/90 text-[12.5px] font-bold text-slate-900 placeholder:text-slate-600 placeholder:font-normal focus:bg-white focus:border-slate-900 outline-none"
                                                         />
                                                     </div>
 
                                                     <div className="flex items-center gap-1.5">
-                                                        <label className="w-[82px] shrink-0 text-[11.5px] font-extrabold text-slate-900 flex items-center justify-between drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
-                                                            <span>연락처 뒷4자리</span>
+                                                        <label className="w-[58px] shrink-0 text-[12px] font-extrabold text-slate-900 flex items-center justify-between drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
+                                                            <span className="w-[46px] flex justify-between">
+                                                                <span>비</span><span>밀</span><span>번</span><span>호</span>
+                                                            </span>
                                                             <span>:</span>
                                                         </label>
                                                         <input 
@@ -559,8 +595,8 @@
                                                             maxLength={4}
                                                             value={loginPhone4}
                                                             onChange={(e) => setLoginPhone4(e.target.value.replace(/[^0-9]/g, ''))}
-                                                            placeholder="비밀번호 4자리"
-                                                            className="flex-1 min-w-0 px-2 py-1.5 rounded bg-white/75 border border-white/80 text-[12px] font-bold text-slate-900 placeholder:text-slate-600 placeholder:font-normal placeholder:tracking-normal tracking-widest focus:bg-white/95 focus:border-slate-900 outline-none"
+                                                            placeholder="핸드폰번호 뒤 4자리"
+                                                            className="flex-1 min-w-0 px-2.5 py-2 rounded bg-white/80 border border-white/90 text-[12.5px] font-bold text-slate-900 placeholder:text-slate-600 placeholder:font-normal placeholder:tracking-normal tracking-widest focus:bg-white focus:border-slate-900 outline-none"
                                                         />
                                                     </div>
                                                 </div>
@@ -568,7 +604,7 @@
                                                 <button 
                                                     type="submit"
                                                     disabled={isLoadingLogin}
-                                                    className="w-[68px] shrink-0 bg-[#0a0a0a]/90 hover:bg-[#0a0a0a] active:scale-95 text-white font-extrabold rounded shadow-sm transition-all flex flex-col items-center justify-center leading-tight text-[12px]"
+                                                    className="w-[72px] shrink-0 bg-[#0a0a0a]/90 hover:bg-[#0a0a0a] active:scale-95 text-white font-extrabold rounded shadow-sm transition-all flex flex-col items-center justify-center leading-tight text-[12.5px]"
                                                 >
                                                     {isLoadingLogin ? (
                                                         <span>조회중..</span>
@@ -582,7 +618,7 @@
                                             </div>
 
                                             {errorMsg && (
-                                                <div className="px-2 py-1.5 rounded bg-red-50/95 border border-red-200 text-red-700 text-[11px] font-bold flex items-center gap-1 leading-tight">
+                                                <div className="px-2 py-1.5 rounded bg-red-50/95 border border-red-200 text-red-700 text-[11.5px] font-bold flex items-center gap-1 leading-tight">
                                                     <Icon name="warning-circle" weight="fill" size={13} className="shrink-0 text-red-600" />
                                                     <span>{errorMsg}</span>
                                                 </div>
@@ -593,7 +629,7 @@
                                             <a 
                                                 href="#kakao-channel"
                                                 onClick={(e) => { e.preventDefault(); showToast("엠버 공식 카카오톡 채널로 이동합니다."); }}
-                                                className="w-full bg-[#FEE500]/90 hover:bg-[#FEE500] text-neutral-900 font-extrabold py-2 px-2 rounded transition-all text-[12px] flex items-center justify-center gap-1.5 border border-[#e5ce00] tracking-tight"
+                                                className="w-full bg-[#FEE500]/95 hover:bg-[#FEE500] text-neutral-900 font-extrabold py-2.5 px-2 rounded transition-all text-[12.5px] flex items-center justify-center gap-1.5 border border-[#e5ce00] tracking-tight"
                                             >
                                                 <Icon name="chat-circle-dots" weight="fill" size={15} className="text-neutral-900 shrink-0" />
                                                 <span>첫구매 / 주문서가 열리지 않는분 문의하기</span>
@@ -603,329 +639,343 @@
                                 </main>
                             </div>
                         ) : (
-                            /* 2. 로그인 완료 후: 영수증 스타일 주문서 내역 화면 */
-                            <div className="w-full px-2.5 pt-2.5 space-y-2 flex-1">
-                                <main className="space-y-2 animate-fade-in">
-                                    
-                                    {/* 구획 1: 주문자 & 처음으로/새로고침 */}
-                                    <section className="bg-white rounded border border-slate-300 px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
-                                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            /* 2. 로그인 완료 후: 상단 검정색 EMBER 바 + 영수증 스타일 주문서 내역 화면 */
+                            <div className="w-full flex-1 flex flex-col">
+                                <header className="bg-[#0a0a0a] text-white px-4 py-3 flex items-center justify-center border-b border-neutral-800 shrink-0">
+                                    <h1 className="ember-logo text-[18px] font-bold text-white leading-none select-none">
+                                        EMBER
+                                    </h1>
+                                </header>
+
+                                <div className="w-full px-2.5 pt-2.5 space-y-2 flex-1">
+                                    <main className="space-y-2 animate-fade-in">
+                                        
+                                        {/* 구획 1: 주문자 & 처음으로/새로고침 */}
+                                        <section className="bg-white rounded border border-slate-300 px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
+                                            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => { setCurrentUser(null); setIsEditingAddress(false); }}
+                                                    className="text-[11px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-0.5 py-0.5 px-1.5 rounded bg-slate-100 border border-slate-300 shrink-0"
+                                                    title="처음 화면으로"
+                                                >
+                                                    <Icon name="arrow-left" weight="bold" size={11} />
+                                                </button>
+                                                <h2 className="text-[14px] font-extrabold text-slate-900 truncate">
+                                                    {currentUser.nickname} 님
+                                                </h2>
+                                                {currentUser.isVip && (
+                                                    <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
+                                                        VIP 무료배송
+                                                    </span>
+                                                )}
+                                                {currentUser.isManager && (
+                                                    <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
+                                                        관리자 무료배송
+                                                    </span>
+                                                )}
+                                                {!currentUser.isVip && !currentUser.isManager && summary.isFreeByAmount && (
+                                                    <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
+                                                        {(summary.threshold / 10000).toLocaleString()}만원이상 무료배송
+                                                    </span>
+                                                )}
+                                            </div>
+
                                             <button 
                                                 type="button"
-                                                onClick={() => { setCurrentUser(null); setIsEditingAddress(false); }}
-                                                className="text-[11px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-0.5 py-0.5 px-1.5 rounded bg-slate-100 border border-slate-300 shrink-0"
-                                                title="처음 화면으로"
+                                                onClick={() => handleUnifiedRefresh(false)}
+                                                disabled={isRefreshing}
+                                                className="bg-[#1d4ed8] hover:bg-[#1e40af] active:scale-95 text-white font-bold text-[11.5px] px-2.5 py-1 rounded transition-all shrink-0 flex items-center gap-1"
                                             >
-                                                <Icon name="arrow-left" weight="bold" size={11} />
+                                                <Icon name="arrows-clockwise" weight="bold" size={12} className={isRefreshing ? "animate-spin" : ""} />
+                                                <span>새로고침</span>
                                             </button>
-                                            <h2 className="text-[14px] font-extrabold text-slate-900 truncate">
-                                                {currentUser.nickname} 님
-                                            </h2>
-                                            {currentUser.isVip && (
-                                                <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
-                                                    VIP 무료배송
-                                                </span>
-                                            )}
-                                            {currentUser.isManager && (
-                                                <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
-                                                    관리자 무료배송
-                                                </span>
-                                            )}
-                                            {!currentUser.isVip && !currentUser.isManager && summary.isFreeByAmount && (
-                                                <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
-                                                    {(summary.threshold / 10000).toLocaleString()}만원이상 무료배송
-                                                </span>
-                                            )}
-                                        </div>
+                                        </section>
 
-                                        <button 
-                                            type="button"
-                                            onClick={() => handleUnifiedRefresh(false)}
-                                            disabled={isRefreshing}
-                                            className="bg-[#1d4ed8] hover:bg-[#1e40af] active:scale-95 text-white font-bold text-[11.5px] px-2.5 py-1 rounded transition-all shrink-0 flex items-center gap-1"
-                                        >
-                                            <Icon name="arrows-clockwise" weight="bold" size={12} className={isRefreshing ? "animate-spin" : ""} />
-                                            <span>새로고침</span>
-                                        </button>
-                                    </section>
-
-                                    {/* 구획 2: 주문목록 & 총 주문금액 */}
-                                    <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
-                                        <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
-                                            <h3 className="text-[12.5px] font-extrabold text-slate-900">
-                                                {currentUser.broadcastName} 주문목록
-                                            </h3>
-                                            <span className="text-[11.5px] font-bold text-slate-700">
-                                                {summary.activeItems.length}품목 / 총수량 {summary.activeItems.reduce((s, i) => s + i.qty, 0)}개
-                                            </span>
-                                        </div>
-
-                                        <div className="px-3 divide-y divide-slate-100">
-                                            {summary.activeItems.map((item) => (
-                                                <div key={item.id} className="py-1.5 flex items-center justify-between gap-2 text-[12.5px]">
-                                                    <div className="font-medium text-slate-800 flex-1 min-w-0 leading-snug">
-                                                        {item.product}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        <span className="text-[11.5px] text-slate-500">
-                                                            {item.qty}개
-                                                        </span>
-                                                        <span className="font-bold text-slate-900 tabular-nums min-w-[60px] text-right">
-                                                            {item.price.toLocaleString()}원
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        <div className="bg-slate-50 border-t border-dashed border-slate-300 px-3 py-2 space-y-0.5 text-[12px]">
-                                            <div className="flex justify-between text-slate-600">
-                                                <span>상품 합계</span>
-                                                <span className="tabular-nums">{summary.productTotal.toLocaleString()}원</span>
-                                            </div>
-                                            <div className="flex justify-between text-slate-600">
-                                                <span>배송비</span>
-                                                <span className="tabular-nums">
-                                                    {summary.shipping === 0 ? '0원' : `${summary.shipping.toLocaleString()}원`}
+                                        {/* 구획 2: 주문목록 & 총 주문금액 */}
+                                        <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
+                                            <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
+                                                <h3 className="text-[12.5px] font-extrabold text-slate-900">
+                                                    {currentUser.broadcastName} 주문목록
+                                                </h3>
+                                                <span className="text-[11.5px] font-bold text-slate-700">
+                                                    {summary.activeItems.length}품목 / 총수량 {summary.activeItems.reduce((s, i) => s + i.qty, 0)}개
                                                 </span>
                                             </div>
-                                            <div className="flex justify-between items-center pt-1 mt-1 border-t border-slate-200 text-[13.5px] font-extrabold text-slate-900">
-                                                <span>총 주문금액</span>
-                                                <span className="text-[#1d4ed8] tabular-nums">
-                                                    {summary.grandTotal.toLocaleString()}원
-                                                </span>
-                                            </div>
-                                        </div>
 
-                                        {summary.waitlistItems.length > 0 && (
-                                            <div className="border-t border-slate-200 px-3 py-1.5 bg-amber-50/50 text-[12px]">
-                                                <div className="font-bold text-amber-900 mb-0.5">
-                                                    품절 대기 ({summary.waitlistItems.length}건 · 결제제외)
-                                                </div>
-                                                {summary.waitlistItems.map((item) => (
-                                                    <div key={item.id} className="py-0.5 flex justify-between text-slate-600">
-                                                        <span className="truncate pr-2">{item.product}</span>
-                                                        <span className="shrink-0">{item.qty}개</span>
+                                            <div className="px-3 divide-y divide-slate-100">
+                                                {summary.activeItems.map((item) => (
+                                                    <div key={item.id} className="py-1.5 flex items-center justify-between gap-2 text-[12.5px]">
+                                                        <div className="font-medium text-slate-800 flex-1 min-w-0 leading-snug">
+                                                            {item.product}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <span className="text-[11.5px] text-slate-500">
+                                                                {item.qty}개
+                                                            </span>
+                                                            <span className="font-bold text-slate-900 tabular-nums min-w-[60px] text-right">
+                                                                {item.price.toLocaleString()}원
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
-                                        )}
-                                    </section>
 
-                                    {/* 구획 3: 입금 및 결제 내역 */}
-                                    <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
-                                        <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
-                                            <h3 className="text-[12.5px] font-extrabold text-slate-900">
-                                                입금 내역
-                                            </h3>
-                                            <span className="text-[11.5px] font-bold text-slate-600 tabular-nums">
-                                                누적 {summary.depositTotal.toLocaleString()}원
-                                            </span>
-                                        </div>
+                                            <div className="bg-slate-50 border-t border-dashed border-slate-300 px-3 py-2 space-y-0.5 text-[12px]">
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>상품 합계</span>
+                                                    <span className="tabular-nums">{summary.productTotal.toLocaleString()}원</span>
+                                                </div>
+                                                <div className="flex justify-between text-slate-600">
+                                                    <span>배송비</span>
+                                                    <span className="tabular-nums">
+                                                        {summary.shipping === 0 ? '0원' : `${summary.shipping.toLocaleString()}원`}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center pt-1 mt-1 border-t border-slate-200 text-[13.5px] font-extrabold text-slate-900">
+                                                    <span>총 주문금액</span>
+                                                    <span className="text-[#1d4ed8] tabular-nums">
+                                                        {summary.grandTotal.toLocaleString()}원
+                                                    </span>
+                                                </div>
+                                            </div>
 
-                                        <div className="px-3 py-2 space-y-2 text-[12.5px]">
-                                            {summary.depositsList.length > 0 && (
-                                                <div className="divide-y divide-slate-100 border-b border-dashed border-slate-300 pb-1.5">
-                                                    {summary.depositsList.map((dep, idx) => (
-                                                        <div key={dep.id || idx} className="py-1 flex justify-between items-center text-[12px]">
-                                                            <span className="text-slate-600 tabular-nums">
-                                                                {dep.time} 입금 ({dep.name})
-                                                            </span>
-                                                            <span className="font-bold text-slate-900 tabular-nums">
-                                                                {Number(dep.amount).toLocaleString()}원
-                                                            </span>
+                                            {summary.waitlistItems.length > 0 && (
+                                                <div className="border-t border-slate-200 px-3 py-1.5 bg-amber-50/50 text-[12px]">
+                                                    <div className="font-bold text-amber-900 mb-0.5">
+                                                        품절 대기 ({summary.waitlistItems.length}건 · 결제제외)
+                                                    </div>
+                                                    {summary.waitlistItems.map((item) => (
+                                                        <div key={item.id} className="py-0.5 flex justify-between text-slate-600">
+                                                            <span className="truncate pr-2">{item.product}</span>
+                                                            <span className="shrink-0">{item.qty}개</span>
                                                         </div>
                                                     ))}
                                                 </div>
                                             )}
+                                        </section>
 
-                                            {summary.balance > 0 ? (
-                                                <div className="bg-red-50 border-2 border-red-500 rounded p-2.5 space-y-2">
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-[13px] font-extrabold text-red-700">미납 금액 (입금하실 금액)</span>
-                                                        <span className="text-[17px] font-black text-red-600 tabular-nums">
-                                                            {summary.balance.toLocaleString()}원
+                                        {/* 구획 3: 입금 및 결제 내역 */}
+                                        <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
+                                            <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
+                                                <h3 className="text-[12.5px] font-extrabold text-slate-900">
+                                                    입금 내역
+                                                </h3>
+                                                <span className="text-[11.5px] font-bold text-slate-600 tabular-nums">
+                                                    누적 {summary.depositTotal.toLocaleString()}원
+                                                </span>
+                                            </div>
+
+                                            <div className="px-3 py-2 space-y-2 text-[12.5px]">
+                                                {summary.depositsList.length > 0 && (
+                                                    <div className="divide-y divide-slate-100 border-b border-dashed border-slate-300 pb-1.5">
+                                                        {summary.depositsList.map((dep, idx) => (
+                                                            <div key={dep.id || idx} className="py-1 flex justify-between items-center text-[12px]">
+                                                                <span className="text-slate-600 tabular-nums">
+                                                                    {dep.time} 입금 ({dep.name})
+                                                                </span>
+                                                                <span className="font-bold text-slate-900 tabular-nums">
+                                                                    {Number(dep.amount).toLocaleString()}원
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {summary.balance > 0 ? (
+                                                    <div className="bg-red-50 border-2 border-red-500 rounded p-2.5 space-y-2">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-[13px] font-extrabold text-red-700">미납 금액 (입금하실 금액)</span>
+                                                            <span className="text-[17px] font-black text-red-600 tabular-nums">
+                                                                {summary.balance.toLocaleString()}원
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded border border-red-200 text-[12px]">
+                                                            <div>
+                                                                <span className="text-slate-600 mr-1">카카오뱅크</span>
+                                                                <strong className="text-slate-900 font-extrabold tabular-nums">7942 32 84990</strong>
+                                                                <span className="text-slate-600 ml-1">(김선정)</span>
+                                                            </div>
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => handleCopyText("79423284990", "계좌번호가")}
+                                                                className="bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-2 py-0.5 rounded shrink-0"
+                                                            >
+                                                                복사
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : summary.balance < 0 ? (
+                                                    <div className="bg-blue-50 border-2 border-[#1d4ed8] rounded p-2.5 flex justify-between items-center">
+                                                        <span className="text-[13px] font-extrabold text-[#1d4ed8]">과납 금액</span>
+                                                        <span className="text-[15px] font-black text-[#1d4ed8] tabular-nums">
+                                                            +{Math.abs(summary.balance).toLocaleString()}원
                                                         </span>
                                                     </div>
-                                                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded border border-red-200 text-[12px]">
-                                                        <div>
-                                                            <span className="text-slate-600 mr-1">카카오뱅크</span>
-                                                            <strong className="text-slate-900 font-extrabold tabular-nums">7942 32 84990</strong>
-                                                            <span className="text-slate-600 ml-1">(김선정)</span>
-                                                        </div>
-                                                        <button 
-                                                            type="button"
-                                                            onClick={() => handleCopyText("79423284990", "계좌번호가")}
-                                                            className="bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-2 py-0.5 rounded shrink-0"
-                                                        >
-                                                            복사
-                                                        </button>
+                                                ) : (
+                                                    <div className="bg-blue-50 border-2 border-[#1d4ed8] rounded py-2 px-3 text-center">
+                                                        <span className="text-[13.5px] font-black text-[#1d4ed8]">
+                                                            입금완료(완납)
+                                                        </span>
                                                     </div>
-                                                </div>
-                                            ) : summary.balance < 0 ? (
-                                                <div className="bg-blue-50 border-2 border-[#1d4ed8] rounded p-2.5 flex justify-between items-center">
-                                                    <span className="text-[13px] font-extrabold text-[#1d4ed8]">과납 금액</span>
-                                                    <span className="text-[15px] font-black text-[#1d4ed8] tabular-nums">
-                                                        +{Math.abs(summary.balance).toLocaleString()}원
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                <div className="bg-blue-50 border-2 border-[#1d4ed8] rounded py-2 px-3 text-center">
-                                                    <span className="text-[13.5px] font-black text-[#1d4ed8]">
-                                                        입금완료(완납)
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </section>
+                                                )}
+                                            </div>
+                                        </section>
 
-                                    {/* 구획 4: 배송지 */}
-                                    <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
-                                        <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
-                                            <h3 className="text-[12.5px] font-extrabold text-slate-900">
-                                                배송지
-                                            </h3>
-                                            {currentUser.address && !isEditingAddress && (
-                                                <button 
-                                                    type="button"
-                                                    onClick={openAddressEditor}
-                                                    className="text-[11px] font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded"
-                                                >
-                                                    변경
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        <div className="px-3 py-2">
-                                            {!isEditingAddress && currentUser.address ? (
-                                                <div className="space-y-0.5 text-[12.5px] text-slate-800 leading-snug">
-                                                    <div className="font-bold text-slate-900">
-                                                        {maskName(currentUser.address.realname)} · <span className="tabular-nums font-semibold">{maskPhone(currentUser.address.phone)}</span>
-                                                    </div>
-                                                    <div>
-                                                        ({currentUser.address.zipcode}) {currentUser.address.baseAddress} {maskDetailAddress(currentUser.address.detailAddress)}
-                                                    </div>
-                                                    {currentUser.address.memo && (
-                                                        <div className="text-[11.5px] text-slate-500">
-                                                            메모: {currentUser.address.memo}
-                                                        </div>
+                                        {/* 구획 4: 배송지 */}
+                                        <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
+                                            <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="text-[12.5px] font-extrabold text-slate-900">
+                                                        배송지
+                                                    </h3>
+                                                    {currentUser.address?.updatedAt && (
+                                                        <span className="text-[11px] font-medium text-slate-500 tabular-nums">
+                                                            (최근 입력·확인: {formatDisplayDate(currentUser.address.updatedAt)})
+                                                        </span>
                                                     )}
                                                 </div>
-                                            ) : (
-                                                <form onSubmit={handleSaveAddress} className="space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[12px] font-bold text-[#1d4ed8]">
-                                                            {currentUser.address ? '배송지 변경' : '배송지 입력'}
-                                                        </span>
-                                                        {currentUser.address && (
-                                                            <button 
-                                                                type="button" 
-                                                                onClick={() => setIsEditingAddress(false)}
-                                                                className="text-[11px] font-bold text-slate-500"
-                                                            >
-                                                                취소
-                                                            </button>
+                                                {currentUser.address && !isEditingAddress && (
+                                                    <button 
+                                                        type="button"
+                                                        onClick={openAddressEditor}
+                                                        className="text-[11px] font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded"
+                                                    >
+                                                        변경
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <div className="px-3 py-2">
+                                                {!isEditingAddress && currentUser.address ? (
+                                                    <div className="space-y-0.5 text-[12.5px] text-slate-800 leading-snug">
+                                                        <div className="font-bold text-slate-900">
+                                                            {maskName(currentUser.address.realname)} · <span className="tabular-nums font-semibold">{maskPhone(currentUser.address.phone)}</span>
+                                                        </div>
+                                                        <div>
+                                                            ({currentUser.address.zipcode}) {currentUser.address.baseAddress} {maskDetailAddress(currentUser.address.detailAddress)}
+                                                        </div>
+                                                        {currentUser.address.memo && (
+                                                            <div className="text-[11.5px] text-slate-500">
+                                                                메모: {currentUser.address.memo}
+                                                            </div>
                                                         )}
                                                     </div>
-
-                                                    <div className="grid grid-cols-2 gap-1.5">
-                                                        <input 
-                                                            type="text" 
-                                                            value={addrForm.realname} 
-                                                            onChange={e => setAddrForm({...addrForm, realname: e.target.value})} 
-                                                            placeholder="수령인 성함 *" 
-                                                            className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" 
-                                                        />
-                                                        <input 
-                                                            type="tel" 
-                                                            inputMode="numeric"
-                                                            value={addrForm.phone} 
-                                                            onChange={e => setAddrForm({...addrForm, phone: e.target.value.replace(/[^0-9]/g, '')})} 
-                                                            placeholder="연락처(숫자만) *" 
-                                                            className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" 
-                                                        />
-                                                    </div>
-
-                                                    <div className="space-y-1.5">
-                                                        <div className="flex gap-1.5">
-                                                            <input type="text" value={addrForm.zipcode} readOnly placeholder="우편번호" className="w-20 border border-slate-300 rounded px-2.5 py-1.5 text-[12px] bg-slate-50" />
-                                                            <button type="button" onClick={handlePostcodeSearch} className="bg-slate-700 hover:bg-slate-800 text-white text-[11.5px] font-bold px-3 py-1.5 rounded">주소 검색</button>
+                                                ) : (
+                                                    <form onSubmit={handleSaveAddress} className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[12px] font-bold text-[#1d4ed8]">
+                                                                {currentUser.address ? '배송지 변경' : '배송지 입력'}
+                                                            </span>
+                                                            {currentUser.address && (
+                                                                <button 
+                                                                    type="button" 
+                                                                    onClick={() => setIsEditingAddress(false)}
+                                                                    className="text-[11px] font-bold text-slate-500"
+                                                                >
+                                                                    취소
+                                                                </button>
+                                                            )}
                                                         </div>
-                                                        <input type="text" value={addrForm.baseAddress} readOnly placeholder="기본 주소" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12px] bg-slate-50" />
-                                                        <input type="text" value={addrForm.detailAddress} onChange={e => setAddrForm({...addrForm, detailAddress: e.target.value})} placeholder="상세 주소 (동, 호수)" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" />
-                                                        <input type="text" value={addrForm.memo} onChange={e => setAddrForm({...addrForm, memo: e.target.value})} placeholder="배송 메모 (선택)" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" />
-                                                    </div>
 
-                                                    {}
-                                                    <div className="bg-slate-50 border border-slate-300 rounded p-2.5 space-y-2 text-[11.5px]">
-                                                        <div className="font-extrabold text-slate-900 text-[12px] border-b border-slate-200 pb-1.5">
-                                                            개인정보 수집 및 제3자 제공 동의
-                                                        </div>
-                                                        <div className="grid grid-cols-[72px_10px_1fr] gap-y-1 text-slate-700 leading-snug">
-                                                            <span className="font-bold text-slate-800">수집·이용 목적</span>
-                                                            <span className="text-slate-400">:</span>
-                                                            <span>상품 주문 확인, 배송, 고객 상담 및 민원 처리</span>
-
-                                                            <span className="font-bold text-slate-800">수집 항목</span>
-                                                            <span className="text-slate-400">:</span>
-                                                            <span>성명, 연락처, 배송지 주소, 유튜브 닉네임</span>
-
-                                                            <span className="font-bold text-slate-800">제3자 제공</span>
-                                                            <span className="text-slate-400">:</span>
-                                                            <span>위탁 배송을 위해 해당 상품 공급사에 배송 정보(성명, 연락처, 주소) 제공</span>
-
-                                                            <span className="font-bold text-slate-800">보유 및 이용</span>
-                                                            <span className="text-slate-400">:</span>
-                                                            <span className="font-bold text-slate-900">주소 입력일로부터 30일</span>
-                                                        </div>
-                                                        <div className="text-[11px] text-slate-600 pt-1 border-t border-dashed border-slate-200 leading-snug">
-                                                            동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.
-                                                        </div>
-                                                        <label className="flex items-center gap-2 cursor-pointer pt-1.5 border-t border-slate-200">
+                                                        <div className="grid grid-cols-2 gap-1.5">
                                                             <input 
-                                                                type="checkbox" 
-                                                                checked={addrForm.agreePrivacy} 
-                                                                onChange={e => setAddrForm({...addrForm, agreePrivacy: e.target.checked})} 
-                                                                className="w-4 h-4 accent-slate-900 rounded" 
+                                                                type="text" 
+                                                                value={addrForm.realname} 
+                                                                onChange={e => setAddrForm({...addrForm, realname: e.target.value})} 
+                                                                placeholder="수령인 성함 *" 
+                                                                className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" 
                                                             />
-                                                            <span className="text-slate-900 font-extrabold text-[12px]">[필수] 위 내용에 동의합니다.</span>
-                                                        </label>
-                                                    </div>
+                                                            <input 
+                                                                type="tel" 
+                                                                inputMode="numeric"
+                                                                value={addrForm.phone} 
+                                                                onChange={e => setAddrForm({...addrForm, phone: e.target.value.replace(/[^0-9]/g, '')})} 
+                                                                placeholder="연락처(숫자만) *" 
+                                                                className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" 
+                                                            />
+                                                        </div>
 
-                                                    <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-2.5 rounded text-[12.5px] shadow-sm transition-colors">
-                                                        배송지 저장
-                                                    </button>
-                                                </form>
-                                            )}
-                                        </div>
-                                    </section>
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex gap-1.5">
+                                                                <input type="text" value={addrForm.zipcode} readOnly placeholder="우편번호" className="w-20 border border-slate-300 rounded px-2.5 py-1.5 text-[12px] bg-slate-50" />
+                                                                <button type="button" onClick={handlePostcodeSearch} className="bg-slate-700 hover:bg-slate-800 text-white text-[11.5px] font-bold px-3 py-1.5 rounded">주소 검색</button>
+                                                            </div>
+                                                            <input type="text" value={addrForm.baseAddress} readOnly placeholder="기본 주소" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12px] bg-slate-50" />
+                                                            <input type="text" value={addrForm.detailAddress} onChange={e => setAddrForm({...addrForm, detailAddress: e.target.value})} placeholder="상세 주소 (동, 호수)" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" />
+                                                            <input type="text" value={addrForm.memo} onChange={e => setAddrForm({...addrForm, memo: e.target.value})} placeholder="배송 메모 (선택)" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" />
+                                                        </div>
 
-                                    {/* 구획 5: 확인 및 카톡 버튼 */}
-                                    <section className="space-y-1.5 pt-0.5">
-                                        {isOrderConfirmedByCustomer ? (
-                                            <div className="w-full bg-blue-50 border border-[#1d4ed8] text-[#1d4ed8] font-bold py-2.5 px-3 rounded text-center text-[12.5px]">
-                                                ✓ 확인 완료되었습니다
+                                                        <div className="bg-slate-50 border border-slate-300 rounded p-2.5 space-y-2 text-[11.5px]">
+                                                            <div className="font-extrabold text-slate-900 text-[12px] border-b border-slate-200 pb-1.5">
+                                                                개인정보 수집 및 제3자 제공 동의
+                                                            </div>
+                                                            <div className="grid grid-cols-[72px_10px_1fr] gap-y-1 text-slate-700 leading-snug">
+                                                                <span className="font-bold text-slate-800">수집·이용 목적</span>
+                                                                <span className="text-slate-400">:</span>
+                                                                <span>상품 주문 확인, 배송, 고객 상담 및 민원 처리</span>
+
+                                                                <span className="font-bold text-slate-800">수집 항목</span>
+                                                                <span className="text-slate-400">:</span>
+                                                                <span>성명, 연락처, 배송지 주소, 유튜브 닉네임</span>
+
+                                                                <span className="font-bold text-slate-800">제3자 제공</span>
+                                                                <span className="text-slate-400">:</span>
+                                                                <span>위탁 배송을 위해 해당 상품 공급사에 배송 정보(성명, 연락처, 주소) 제공</span>
+
+                                                                <span className="font-bold text-slate-800">보유 및 이용</span>
+                                                                <span className="text-slate-400">:</span>
+                                                                <span className="font-bold text-slate-900">주소 입력일로부터 30일</span>
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-600 pt-1 border-t border-dashed border-slate-200 leading-snug">
+                                                                동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.
+                                                            </div>
+                                                            <label className="flex items-center gap-2 cursor-pointer pt-1.5 border-t border-slate-200">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={addrForm.agreePrivacy} 
+                                                                    onChange={e => setAddrForm({...addrForm, agreePrivacy: e.target.checked})} 
+                                                                    className="w-4 h-4 accent-slate-900 rounded" 
+                                                                />
+                                                                <span className="text-slate-900 font-extrabold text-[12px]">[필수] 위 내용에 동의합니다.</span>
+                                                            </label>
+                                                        </div>
+
+                                                        <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-2.5 rounded text-[12.5px] shadow-sm transition-colors">
+                                                            배송지 저장
+                                                        </button>
+                                                    </form>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <button 
-                                                type="button"
-                                                onClick={handleConfirmOrder}
-                                                className="w-full bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold py-2.5 px-3 rounded text-[13px] shadow-sm"
-                                            >
-                                                네, 주문내역과 배송지가 모두 맞습니다
-                                            </button>
-                                        )}
+                                        </section>
 
-                                        <a 
-                                            href="#kakao-cs"
-                                            onClick={(e) => { e.preventDefault(); showToast("카카오톡 상담창으로 연결됩니다."); }}
-                                            className="w-full bg-[#FEE500] hover:bg-[#fada0a] text-slate-900 font-bold text-[12px] py-2 px-3 rounded flex items-center justify-center gap-1.5 border border-[#e5ce00]"
-                                        >
-                                            <Icon name="chat-circle-dots" weight="fill" size={14} />
-                                            <span>품목 수정 등 카톡 연락하기</span>
-                                        </a>
-                                    </section>
-                                </main>
+                                        {/* 구획 5: 확인 및 카톡 버튼 */}
+                                        <section className="space-y-1.5 pt-0.5">
+                                            {isOrderConfirmedByCustomer ? (
+                                                <div className="w-full bg-blue-50 border border-[#1d4ed8] text-[#1d4ed8] font-bold py-2.5 px-3 rounded text-center text-[12.5px]">
+                                                    ✓ 확인 완료되었습니다
+                                                </div>
+                                            ) : (
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleConfirmOrder}
+                                                    className="w-full bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold py-2.5 px-3 rounded text-[13px] shadow-sm"
+                                                >
+                                                    네, 주문내역과 배송지가 모두 맞습니다
+                                                </button>
+                                            )}
+
+                                            <a 
+                                                href="#kakao-cs"
+                                                onClick={(e) => { e.preventDefault(); showToast("카카오톡 상담창으로 연결됩니다."); }}
+                                                className="w-full bg-[#FEE500] hover:bg-[#fada0a] text-slate-900 font-bold text-[12px] py-2 px-3 rounded flex items-center justify-center gap-1.5 border border-[#e5ce00]"
+                                            >
+                                                <Icon name="chat-circle-dots" weight="fill" size={14} />
+                                                <span>품목 수정 등 카톡 연락하기</span>
+                                            </a>
+                                        </section>
+                                    </main>
+                                </div>
                             </div>
                         )}
                     </div>
