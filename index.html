@@ -52,7 +52,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQ9Of1vp9-_BGHyxx4Ci8gVPZGmBqvrZ1esnIGqe23LPiW2vdoNPAV13UgfST0vye-/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyB-Ihh0Il0TbsdtPdkvcrGwRazejxgWbXbC0y9AnAjcOC-lYTFVY6xApIijRmaKsxa/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -496,7 +496,7 @@
 
                 // 2) 실시간 구글 시트 연동 조회 (날짜별 방송 주문서 리스트 포함)
                 try {
-                    const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick.trim())}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`;
+                    const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick.trim())}&pin=${encodeURIComponent(cleanPin)}${isRefreshCall ? '&nocache=1' : ''}&t=${Date.now()}`;
                     const res = await fetch(url);
                     const data = await res.json();
                     setIsLoading(false);
