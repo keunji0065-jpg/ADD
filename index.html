@@ -162,7 +162,8 @@
                 broadcastName: "10/18 여성복 주문목록",
                 isVip: true,
                 freeShippingThreshold: 200000,
-                isCard: false,
+                cardFeeRate: 10,
+                isCard: true,
                 shipping: 0,
                 depositTotal: 30000,
                 deposits: [
@@ -451,7 +452,8 @@
             const depositTotal = currentUser ? Number(currentUser.depositTotal || 0) : 0;
             const rawBalance = baseGrandTotal - depositTotal;
             const isCard = currentUser ? Boolean(currentUser.isCard) : false;
-            const cardFee = (isCard && rawBalance > 0) ? Math.round(rawBalance * 0.1) : 0;
+            const cardFeeRate = currentUser && currentUser.cardFeeRate !== undefined ? Number(currentUser.cardFeeRate) : 10;
+            const cardFee = (isCard && rawBalance > 0) ? Math.round(rawBalance * (cardFeeRate / 100)) : 0;
             const finalGrandTotal = baseGrandTotal + cardFee;
             const finalBalance = rawBalance + cardFee;
 
@@ -668,16 +670,10 @@
                                                 {shippingFee === 0 ? "0원" : `${shippingFee.toLocaleString()}원`}
                                             </span>
                                         </div>
-                                        {isCard && cardFee > 0 && (
-                                            <div className="flex justify-between text-purple-700">
-                                                <span className="font-semibold">카드 결제 수수료 (10%)</span>
-                                                <span className="font-bold tabular-nums">+{cardFee.toLocaleString()}원</span>
-                                            </div>
-                                        )}
                                         <div className="flex justify-between items-center pt-2 border-t border-gray-200">
                                             <span className="font-extrabold text-gray-900 text-[15px]">총 주문금액</span>
                                             <span className="font-black text-[18px] text-blue-600 tabular-nums">
-                                                {finalGrandTotal.toLocaleString()}원
+                                                {baseGrandTotal.toLocaleString()}원
                                             </span>
                                         </div>
                                     </div>
@@ -754,9 +750,29 @@
                                     )}
 
                                     {isCard && (
-                                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex justify-between items-center text-[14px] font-extrabold text-purple-800">
-                                            <span>카드 결제 요청 예정액</span>
-                                            <span className="text-[16px] font-black text-purple-700">{Math.max(0, finalBalance).toLocaleString()}원</span>
+                                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3.5 space-y-2 text-[14px]">
+                                            <div className="flex justify-between items-center text-gray-700 font-semibold">
+                                                <span>총 주문금액</span>
+                                                <span className="font-bold text-gray-900 tabular-nums">{baseGrandTotal.toLocaleString()}원</span>
+                                            </div>
+                                            {depositTotal > 0 && (
+                                                <div className="flex justify-between items-center text-gray-700 font-semibold">
+                                                    <span>입금완료 금액</span>
+                                                    <span className="font-bold text-emerald-700 tabular-nums">-{depositTotal.toLocaleString()}원</span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between items-center text-gray-800 font-bold pt-1 border-t border-purple-200/60">
+                                                <span>남은 미납금액 (카드결제 대상)</span>
+                                                <span className="font-extrabold text-gray-900 tabular-nums">{Math.max(0, rawBalance).toLocaleString()}원</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-purple-700 font-bold">
+                                                <span>카드 수수료 (+{cardFeeRate}%)</span>
+                                                <span className="tabular-nums">+{cardFee.toLocaleString()}원</span>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-2 border-t border-purple-300 text-purple-900 font-extrabold">
+                                                <span className="text-[15px]">카드결제 예정금액</span>
+                                                <span className="text-[18px] font-black text-purple-700 tabular-nums">{Math.max(0, finalBalance).toLocaleString()}원</span>
+                                            </div>
                                         </div>
                                     )}
                                 </section>
