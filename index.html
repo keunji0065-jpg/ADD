@@ -52,7 +52,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzBPxA5xAgKHfseWQKcv-bijaqKp4w0a9m7Ed-h9OwmKMcRLFh5ra21KLj27uQ0FLuf/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxKaPP2kInDVWmkrw1l8QO5ZE6aH-aLYfBcxpv46phxsY-Ak-zuCz7f-Z1bVwojQC6d/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -964,11 +964,18 @@
                                     ) : (
                                         <div className="divide-y divide-gray-100">
                                             {depositsHistory.map((d, index) => (
-                                                <div key={d.id || index} className="py-2 flex items-center justify-between text-[14px]">
-                                                    <div className="flex items-center gap-2 min-w-0">
+                                                <div key={d.id || index} className="py-2.5 flex items-center justify-between gap-2 text-[14px]">
+                                                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
                                                         <span className="font-extrabold text-gray-900 truncate">{d.name || currentUser.nickname}</span>
-                                                        {d.time && (
-                                                            <span className="text-[12.5px] text-gray-500 font-semibold tabular-nums shrink-0">{d.time}</span>
+                                                        {d.time ? (
+                                                            <span className="text-[12px] text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded font-extrabold tabular-nums shrink-0 flex items-center gap-1">
+                                                                <Icon name="clock" weight="bold" size={12} />
+                                                                <span>{formatKstDateString(d.time)}</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[11.5px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-bold shrink-0">
+                                                                입금확인 완료
+                                                            </span>
                                                         )}
                                                     </div>
                                                     <span className="font-extrabold text-gray-900 tabular-nums shrink-0 text-[15px]">
