@@ -46,7 +46,7 @@
         const { useState, useEffect, useMemo } = React;
 
         // ✅ 새로 배포하신 최신 구글 앱스 스크립트 URL & 마스터 시트 ID 완벽 적용
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwHEmT--neCHkg1QbbJkzvmzVrF8BQWSniLJLNMRQh8CYNUuBJdA-hHhHz92B6VnGHs/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzI-x2P-hVWCpbi6oGjs6Anct4kePcR1Yfj1dMpwt9XoIP6eUYHpkNCa6EfGWVii2FH/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_IuqtG/chat';
 
@@ -77,8 +77,8 @@
                 shipping: 0,
                 depositTotal: 74000,
                 deposits: [
-                    { id: "dep_1", time: "21:15", name: "김선정", amount: 45000 },
-                    { id: "dep_2", time: "21:42", name: "김선정", amount: 29000 }
+                    { id: "dep_1", time: "26-10-18 21:15", name: "김선정", amount: 45000 },
+                    { id: "dep_2", time: "26-10-18 21:42", name: "김선정", amount: 29000 }
                 ],
                 isConfirmed: false,
                 items: [
@@ -107,7 +107,7 @@
                 shipping: 4000,
                 depositTotal: 50000,
                 deposits: [
-                    { id: "dep_3", time: "22:05", name: "이영희", amount: 50000 }
+                    { id: "dep_3", time: "26-10-18 22:05", name: "이영희", amount: 50000 }
                 ],
                 isConfirmed: false,
                 items: [
@@ -239,23 +239,65 @@
             return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
         };
 
-        const formatDepositTime = (val) => {
+        // ✨ 입금 일시를 무조건 "YY-MM-DD HH:MM" (예: 26-10-18 16:26) 형태로 변환하는 함수
+        const formatDepositDateTime = (val) => {
             if (!val) return '';
             const strVal = String(val).trim();
-            const korMatch = strVal.match(/(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/i);
-            if (korMatch && (strVal.includes('오전') || strVal.includes('오후') || /\b(AM|PM)\b/i.test(strVal) || !strVal.includes('T'))) {
-                const ampm = (korMatch[1] || '').toUpperCase();
-                let hour = parseInt(korMatch[2], 10);
-                const min = korMatch[3];
+            if (!strVal || strVal === '확인됨' || strVal.startsWith('d_')) return '';
+
+            // 1. 이미 "26-10-18 16:26" 또는 "2026-10-18 16:26" 형태인 경우
+            const stdMatch = strVal.match(/^(?:20)?(\d{2})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})\s+(\d{1,2}):(\d{2})/);
+            if (stdMatch && !strVal.includes('오전') && !strVal.includes('오후') && !/AM|PM/i.test(strVal)) {
+                const yy = stdMatch[1];
+                const mm = String(stdMatch[2]).padStart(2, '0');
+                const dd = String(stdMatch[3]).padStart(2, '0');
+                const hh = String(stdMatch[4]).padStart(2, '0');
+                const min = stdMatch[5];
+                return `${yy}-${mm}-${dd} ${hh}:${min}`;
+            }
+
+            // 2. "2026. 10. 18 오후 4:26:46" 같은 한국어 날짜+오전/오후 시간 형태
+            const korFullMatch = strVal.match(/(?:20)?(\d{2})[./-]\s*(\d{1,2})[./-]\s*(\d{1,2})[.\s]*(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})/i);
+            if (korFullMatch) {
+                const yy = korFullMatch[1];
+                const mm = String(korFullMatch[2]).padStart(2, '0');
+                const dd = String(korFullMatch[3]).padStart(2, '0');
+                const ampm = (korFullMatch[4] || '').toUpperCase();
+                let hour = parseInt(korFullMatch[5], 10);
+                const min = korFullMatch[6];
                 if ((ampm === '오후' || ampm === 'PM') && hour < 12) hour += 12;
                 else if ((ampm === '오전' || ampm === 'AM') && hour === 12) hour = 0;
-                return `${String(hour).padStart(2, '0')}:${min}`;
+                return `${yy}-${mm}-${dd} ${String(hour).padStart(2, '0')}:${min}`;
             }
+
+            // 3. ISO 문자열 (예: "2026-10-18T07:26:46.000Z")
             const dt = new Date(strVal);
             if (!isNaN(dt.getTime()) && strVal.length > 8) {
-                return dt.toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' });
+                const kst = new Date(dt.getTime() + (9 * 60 * 60 * 1000));
+                const yy = String(kst.getUTCFullYear()).slice(-2);
+                const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
+                const dd = String(kst.getUTCDate()).padStart(2, '0');
+                const hh = String(kst.getUTCHours()).padStart(2, '0');
+                const min = String(kst.getUTCMinutes()).padStart(2, '0');
+                return `${yy}-${mm}-${dd} ${hh}:${min}`;
             }
-            return strVal;
+
+            // 4. 시간("16:26" 또는 "오후 4:26")만 들어있는 경우 오늘 날짜(YY-MM-DD)를 앞에 붙임
+            const timeOnlyMatch = strVal.match(/(오전|오후|AM|PM)?\s*(\d{1,2}):(\d{2})/i);
+            if (timeOnlyMatch) {
+                const ampm = (timeOnlyMatch[1] || '').toUpperCase();
+                let hour = parseInt(timeOnlyMatch[2], 10);
+                const min = timeOnlyMatch[3];
+                if ((ampm === '오후' || ampm === 'PM') && hour < 12) hour += 12;
+                else if ((ampm === '오전' || ampm === 'AM') && hour === 12) hour = 0;
+                const now = new Date();
+                const yy = String(now.getFullYear()).slice(-2);
+                const mm = String(now.getMonth() + 1).padStart(2, '0');
+                const dd = String(now.getDate()).padStart(2, '0');
+                return `${yy}-${mm}-${dd} ${String(hour).padStart(2, '0')}:${min}`;
+            }
+
+            return '';
         };
 
         const CustomerPortal = () => {
@@ -779,24 +821,25 @@
                                     {summary.depositsList.length > 0 ? (
                                         <div className="divide-y divide-gray-100 text-[12px]">
                                             {summary.depositsList.map((d, idx) => {
-                                                // d.time 또는 d.id에서 입금 시간("2026. 10. 18 오후 3:27:27" 또는 ISO)을 추출하여 24시간제(15:27)로 표시
-                                                let dispTime = formatDepositTime(d.time || '');
-                                                if (!dispTime && d.id) {
-                                                    dispTime = formatDepositTime(d.id);
+                                                // "예쁜전 26-10-18 16:26 59,000원" 형태로 표시
+                                                let dispDateTime = formatDepositDateTime(d.rawTime || d.time || '');
+                                                if (!dispDateTime && d.id && !String(d.id).startsWith('d_') && !String(d.id).startsWith('sum_')) {
+                                                    dispDateTime = formatDepositDateTime(d.id);
                                                 }
+                                                const depositorName = d.name || currentUser.address?.realname || currentUser.nickname;
                                                 return (
-                                                    <div key={d.id || idx} className="py-1.5 flex justify-between items-center">
-                                                        <div className="flex items-center gap-1.5 text-gray-700">
-                                                            {dispTime && (
-                                                                <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 tabular-nums">
-                                                                    {dispTime}
+                                                    <div key={d.id || idx} className="py-1.5 flex justify-between items-center gap-2">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className="font-bold text-gray-900 truncate">
+                                                                {depositorName}
+                                                            </span>
+                                                            {dispDateTime && (
+                                                                <span className="text-[11px] font-semibold text-gray-500 tabular-nums shrink-0">
+                                                                    {dispDateTime}
                                                                 </span>
                                                             )}
-                                                            <span className="font-medium">
-                                                                입금 {d.name ? `(${d.name})` : ''}
-                                                            </span>
                                                         </div>
-                                                        <span className="font-bold text-gray-900 tabular-nums">
+                                                        <span className="font-bold text-gray-900 tabular-nums shrink-0">
                                                             {Number(d.amount).toLocaleString()}원
                                                         </span>
                                                     </div>
