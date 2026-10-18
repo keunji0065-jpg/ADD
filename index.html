@@ -883,8 +883,9 @@
                                     )}
 
                                     {summary.paymentStatus === "PAID" && (
-                                        <div className="bg-blue-50 border border-blue-600 rounded p-2 text-center">
-                                            <span className="text-[13px] font-extrabold text-blue-700">
+                                        <div className="bg-emerald-600 border border-emerald-700 rounded-md p-2.5 text-center shadow-sm flex items-center justify-center gap-1.5">
+                                            <Icon name="check-circle" weight="fill" className="text-white" size={16} />
+                                            <span className="text-[13px] font-extrabold text-white tracking-tight">
                                                 입금완료(완납)
                                             </span>
                                         </div>
@@ -1109,7 +1110,7 @@
                                         className="w-full py-2 bg-[#FEE500] hover:bg-[#FADA0A] text-gray-900 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1.5 shadow-sm transition-all"
                                     >
                                         <Icon name="chat-circle-dots" weight="fill" size={15} />
-                                        <span>품목 수정 / 합배송 카톡 연락하기</span>
+                                        <span>품목수정 / 오류 등 카카오채널 연락하기</span>
                                     </a>
                                 </section>
                             </main>
