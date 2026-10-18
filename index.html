@@ -1,754 +1,910 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" class="antialiased">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>엠버언니 배송지 입력</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <title>EMBER 공식 주문확인 & 배송지 센터</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web" crossorigin="anonymous"></script>
     <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,600;1,600&display=swap');
-        
-        body { font-family: 'Pretendard', sans-serif; background-color: #f3f4f6; color: #111827; }
-        .font-serif { font-family: 'Playfair Display', serif; }
-        input, textarea { font-size: 16px !important; }
-        .break-keep { word-break: keep-all; }
-        
-        .input-chic {
-            border-radius: 0;
-            border: 1px solid #d1d5db;
-            background-color: #fafafa;
-            transition: all 0.2s ease;
+        html {
+            font-size: 14px;
+            -webkit-text-size-adjust: 100%;
         }
-        .input-chic:focus {
-            border-color: #000000;
-            background-color: #ffffff;
-            box-shadow: none;
-            outline: none;
+        body { 
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; 
+            background-color: #eef0f4; 
+            font-size: 12.5px;
+            line-height: 1.45;
+            letter-spacing: -0.02em;
+            margin: 0;
+            padding: 0;
         }
-
-        .spinner {
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top: 2px solid #ffffff;
-            width: 20px;
-            height: 20px;
-            animation: spin 0.8s linear infinite;
+        .ember-logo {
+            font-family: 'Cormorant Garamond', 'Georgia', serif;
+            letter-spacing: 0.3em;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        .fade-enter { animation: fadeIn 0.4s ease-out forwards; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .loading-dots:after {
-            content: '.';
-            animation: dots 1.2s steps(5, end) infinite;
-        }
-        @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60% { content: '...'; } 80%, 100% { content: ''; } }
-
-        .fade-fast { animation: fadeIn 0.15s ease-out forwards; }
-
-        @keyframes alert-flash {
-            0%, 100% { background-color: #fef2f2; color: #dc2626; border-color: #f87171; box-shadow: none; }
-            50% { background-color: #dc2626; color: #ffffff; border-color: #dc2626; box-shadow: 0 0 12px rgba(220, 38, 38, 0.5); }
-        }
-        .alert-flash {
-            animation: alert-flash 0.8s ease-in-out infinite;
-        }
-
-        @keyframes btn-glow {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.6); transform: scale(1); }
-            50% { box-shadow: 0 0 20px 8px rgba(0, 0, 0, 0.25); transform: scale(1.015); }
-        }
-        .btn-glow {
-            animation: btn-glow 1.5s ease-in-out infinite;
-        }
+        .animate-fade-in { animation: fadeIn 0.15s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="antialiased min-h-screen flex flex-col">
+<body class="text-slate-900 selection:bg-blue-700 selection:text-white">
+    <div id="root"></div>
 
-    <!-- ==========================================
-         [PAGE 1] 대문 (Intro / Landing Page)
-         ========================================== -->
-    <div id="intro-page" class="relative max-w-md w-full mx-auto min-h-screen bg-black flex flex-col justify-end z-40 shadow-2xl overflow-hidden sm:my-10 sm:min-h-[800px] sm:rounded-2xl">
-        
-        <div class="absolute inset-0 z-0 bg-black">
-            <img src="https://i.postimg.cc/VL2PVhw5/Gemini-Generated-Image-x3o9dmx3o9dmx3o9.png" alt="Ember Model" class="w-full h-full object-cover opacity-100 object-top" onerror="this.src='https://placehold.co/400x800/000000/ffffff?text=Ember+Model'">
-            <div class="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/40"></div>
-        </div>
+    <script type="text/babel">
+        const { useState } = React;
 
-        <div class="relative z-10 w-full px-4 pb-4 max-w-md mx-auto">
-            <div class="bg-white/60 backdrop-blur-md border border-white/50 p-3 shadow-2xl rounded-sm">
-                
-                <h2 class="text-[14px] font-extrabold text-black mb-2 border-b-2 border-black/80 pb-1.5">개인정보 수집 및 제3자 제공 동의</h2>
-                
-                <div class="bg-white/50 border border-white/60 p-2.5 rounded-sm shadow-inner backdrop-blur-sm">
-                    <div class="grid grid-cols-[max-content_auto_1fr] gap-x-2 gap-y-1 text-[11px] text-gray-900 font-medium leading-snug">
-                        <strong class="text-black tracking-tight">수집·이용 목적</strong>
-                        <strong class="text-black">:</strong>
-                        <span>상품 주문 확인, 배송, 고객 상담 및 민원 처리</span>
-                        
-                        <strong class="text-black tracking-tight">수집 항목</strong>
-                        <strong class="text-black">:</strong>
-                        <span>성명, 연락처, 배송지 주소, 유튜브 닉네임</span>
+        const Icon = ({ name, className = "", weight = "regular", size = 15 }) => (
+            <i className={`ph ph-${name} ${className}`} data-phosphor-icon-weight={weight} style={{ fontSize: size }}></i>
+        );
 
-                        <strong class="text-black tracking-tight">제3자 제공</strong>
-                        <strong class="text-black">:</strong>
-                        <span>위탁 배송을 위해 해당 상품 공급사에 배송 정보(성명, 연락처, 주소) 제공</span>
-                        
-                        <strong class="text-black tracking-tight">보유 및 이용</strong>
-                        <strong class="text-black">:</strong>
-                        <span class="break-keep">주소 입력일로부터 30일</span>
-                    </div>
-                    <p class="text-black font-extrabold text-[12px] pt-2.5 tracking-tight border-t border-black/10 mt-2.5 text-center">동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.</p>
-                </div>
-                
-                <div class="mt-2 bg-red-50/80 border border-red-300/70 p-1.5 rounded-sm text-center shadow-sm backdrop-blur-sm">
-                    <p class="text-red-700 font-extrabold text-[11.5px] tracking-tight">배송지 입력은 30일마다 1회 / 닉네임 및 주소변경시 재입력 필수</p>
-                </div>
-                
-                <label class="flex items-center justify-center gap-2 mt-2 py-2.5 bg-black/85 border border-black/50 rounded-sm cursor-pointer hover:bg-black transition-colors group backdrop-blur-sm shadow-md">
-                    <input type="checkbox" id="privacyAgree" style="accent-color: black;" class="w-3.5 h-3.5 cursor-pointer" onchange="if(this.checked) { setTimeout(startForm, 100); }">
-                    <span class="text-[12px] font-bold text-white tracking-widest group-hover:text-gray-200">위 내용에 동의합니다 (필수 체크)</span>
-                </label>
-            </div>
-        </div>
-    </div>
+        // 개인정보 마스킹 함수 (보안 철저 적용)
+        const maskName = (name) => {
+            if (!name) return '';
+            if (name.length <= 2) return name[0] + '*';
+            return name[0] + '*'.repeat(name.length - 2) + name[name.length - 1];
+        };
 
-    <!-- ==========================================
-         [PAGE 2] 입력 폼 (Form Page)
-         ========================================== -->
-    <div id="form-page" class="hidden max-w-md w-full mx-auto min-h-screen bg-white shadow-2xl flex flex-col fade-enter relative z-10 overflow-hidden sm:my-10 sm:min-h-[800px] sm:rounded-2xl">
-        
-        <header class="py-6 text-center border-b border-gray-100 flex-shrink-0 bg-white sticky top-0 z-20">
-            <h1 class="text-2xl font-serif text-black tracking-widest">EMBER</h1>
-            <p class="text-[10px] text-gray-500 tracking-[0.2em] uppercase mt-1">Address Form</p>
-        </header>
+        const maskPhone = (phone) => {
+            if (!phone) return '';
+            const clean = String(phone).replace(/[^0-9]/g, '');
+            if (clean.length < 8) return phone;
+            return `${clean.slice(0, 3)}-****-${clean.slice(-4)}`;
+        };
 
-        <div class="p-6 space-y-8 flex-grow bg-white">
-            <form id="addressForm" class="space-y-6">
-                
-                <div id="lastSubmitContainer" class="hidden -mt-2 mb-2 bg-[#f8fafc] border border-blue-200 p-4 rounded-sm text-center shadow-sm">
-                    <div class="flex items-center justify-center gap-1.5 mb-1">
-                        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        <p class="text-[12.5px] font-bold text-gray-700 tracking-tight">마지막 배송지 제출 일시</p>
-                    </div>
-                    <p id="lastSubmitDateText" class="text-[15px] font-extrabold text-blue-600 tracking-wide mt-1"></p>
-                    <p class="text-[11px] text-gray-500 mt-2.5 break-keep leading-relaxed bg-white border border-gray-100 p-1.5 rounded-sm shadow-inner">
-                        ※ 주소 변경, 닉네임 변경된 경우 다시 입력해주세요.
-                    </p>
-                </div>
+        const maskDetailAddress = (detail) => {
+            if (!detail) return '***';
+            // 상세주소의 동·호수 등 숫자를 모두 *로 마스킹 처리하여 개인정보 완벽 보호
+            const masked = String(detail).replace(/[0-9]/g, '*');
+            return masked === detail ? detail.slice(0, 2) + '***' : masked;
+        };
 
-                <div class="space-y-2" id="nickname-container">
-                    <div class="flex items-center justify-between">
-                        <label for="nickname" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center gap-1">
-                            <span>유튜브 채팅창 닉네임</span> 
-                            <span class="text-red-500">*</span>
-                        </label>
-                        <button type="button" onclick="openNicknameModal()" class="px-3 py-1.5 bg-black text-white text-[11px] font-bold tracking-wider rounded-sm hover:bg-gray-800 flex items-center gap-1 transition-colors">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"></path></svg>
-                            검색 및 입력
-                        </button>
-                    </div>
-                    <input type="text" id="nickname" autocomplete="nickname" required placeholder="우측 [검색 및 입력] 버튼을 눌러주세요" class="w-full px-4 py-3.5 input-chic text-black font-bold cursor-pointer bg-gray-50" readonly onclick="openNicknameModal()">
-                    
-                    <div class="bg-gray-50 border border-gray-200 p-3.5 mt-2 rounded-sm">
-                        <p class="text-[11px] text-gray-700 break-keep leading-relaxed font-semibold">
-                            <span class="text-red-600 font-bold mb-1 block">⚠️ 동일한 닉네임 방지를 위해 고유번호를 확인해주세요!</span>
-                            • 입력 예시: <span class="text-black bg-white border border-gray-200 px-1 font-bold">깔로-n1d</span><br>
-                            • 닉네임 뒤에 붙는 영어/숫자 코드를 함께 적어주시면 정확한 확인이 가능합니다.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <label for="name" class="block text-xs font-bold text-black uppercase tracking-wider">수령인 성함 <span class="text-red-500">*</span></label>
-                    <input type="text" id="name" autocomplete="name" required placeholder="배송 받으실 분의 실명 성함" class="w-full px-4 py-3.5 input-chic text-black">
-                </div>
-
-                <div class="space-y-2">
-                    <label for="phone" class="block text-xs font-bold text-black uppercase tracking-wider">휴대폰 번호 <span class="text-red-500">*</span></label>
-                    <input type="tel" id="phone" autocomplete="tel" required placeholder="숫자만 입력 (01012345678)" inputmode="numeric" pattern="[0-9]*" class="w-full px-4 py-3.5 input-chic text-black">
-                    <p id="phoneError" class="text-xs text-red-500 font-semibold hidden mt-1">전화번호 11자리를 정확히 입력해 주세요.</p>
-                </div>
-
-                <div class="space-y-2 pt-2 relative">
-                    <label class="block text-xs font-bold text-black uppercase tracking-wider">배송지 주소 <span class="text-red-500">*</span></label>
-                    <div class="flex gap-2">
-                        <input type="text" id="zipcode" autocomplete="postal-code" readonly required placeholder="우편번호" class="w-1/3 px-4 py-3.5 input-chic text-center text-gray-500 bg-gray-50">
-                        <button type="button" onclick="execDaumPostcode()" class="w-2/3 bg-black text-white text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">주소 검색</button>
-                    </div>
-                    <input type="text" id="address_base" autocomplete="address-line1" readonly required placeholder="기본 주소" class="w-full px-4 py-3.5 input-chic text-gray-500 mt-2 bg-gray-50">
-                    <input type="text" id="address_detail" autocomplete="address-line2" required placeholder="상세 주소 (동, 호수, 건물명)" class="w-full px-4 py-3.5 input-chic text-black mt-2">
-                </div>
-
-                <div class="space-y-2 pt-2">
-                    <label for="memo" class="block text-xs font-bold text-black uppercase tracking-wider flex items-center justify-between">
-                        <span>배송 메모</span> <span class="text-gray-400 font-normal normal-case text-[11px]">(선택)</span>
-                    </label>
-                    <textarea id="memo" rows="2" placeholder="배송 기사님께 전달할 말씀" class="w-full px-4 py-3.5 input-chic resize-none text-black"></textarea>
-                </div>
-
-                <div class="bg-[#fffbeb] border-2 border-[#ef4444] px-4 py-3 rounded-lg mt-6 mb-3 text-center shadow-sm">
-                    <h3 class="text-[#ef4444] font-black text-[14px] mb-2 flex items-center justify-center gap-1 border-b border-red-200 pb-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        필독! 주문 필수 안내
-                    </h3>
-                    <div class="text-[13px] text-gray-900 leading-snug break-keep font-medium space-y-2">
-                        <div class="bg-white border border-yellow-400 py-2 px-2.5 rounded shadow-sm">
-                            <p>
-                                <strong class="text-black font-black">카카오 채널</strong>에 
-                                <strong class="text-red-600 font-extrabold alert-flash inline-block border border-red-300 px-1 py-0.5 rounded-sm mx-0.5">닉네임</strong>을 남겨주시면<br>순차적으로 주문서 전달 해드립니다.
-                            </p>
-                        </div>
-                        <p class="pt-0.5">
-                            주문서의 <strong class="text-black font-black bg-yellow-300 px-1 py-0.5 inline-block">주문내역과 주소가 맞는지 꼭 확인</strong>해주세요.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="pt-6 pb-4">
-                    <button type="submit" id="submitBtn" class="w-full bg-black text-white py-4 font-extrabold text-[17px] tracking-widest hover:bg-gray-900 transition-all flex justify-center items-center gap-2 rounded-lg btn-glow border-2 border-black relative z-10">
-                        <span id="btnText">배송지 최종 전송하기</span>
-                        <svg id="btnIcon" class="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"></path></svg>
-                        <div id="loadingSpinner" class="spinner hidden absolute right-6"></div>
-                    </button>
-                </div>
-            </form>
-
-            <div id="copyright-section" class="mt-32 pb-16 text-center flex flex-col items-center justify-center select-none bg-white relative z-10 cursor-pointer" onclick="revealBizInfo()">
-                <p class="text-[11px] text-black font-extrabold tracking-[0.25em] uppercase mb-1">Ember Sister Official</p>
-                <p class="text-[9.5px] text-gray-400 font-bold tracking-widest uppercase">System by. 깔로</p>
-            </div>
-            
-            <div id="bizInfoContent" class="w-full text-center overflow-hidden transition-all duration-[600ms] ease-[cubic-bezier(0.25,1,0.5,1)] flex flex-col items-center justify-start border-t border-transparent" style="height: 0px; opacity: 0;">
-                <div class="py-8 w-full">
-                    <p class="text-[9.5px] text-gray-300 tracking-tight leading-relaxed font-light">
-                        상호: 엠버언니 | 대표자: 김선정 | 사업자번호: 259-20-02160<br>
-                        통신판매업신고: 2026-서울동대문-1240 | 고객센터: 카카오톡 채널 '엠버언니'
-                    </p>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
-    <!-- 각종 모달창들 (History, Nickname, Postcode, Success, Alert) -->
-    <div id="historyModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-5">
-        <div class="bg-white p-8 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
-            <h3 class="text-lg font-bold text-black mb-2 uppercase tracking-wide">Load History</h3>
-            <p class="text-[13px] text-gray-500 mb-6 break-keep">이전에 입력하신 배송지 정보가 있습니다.<br>불러오시겠습니까? <br><span class="text-black font-bold mt-1 inline-block">(※ 방송마다 1회 제출 필수)</span></p>
-            <div class="flex gap-2">
-                <button type="button" onclick="ignoreHistory()" class="w-1/2 border border-gray-300 text-gray-600 py-3 text-sm font-bold tracking-wider hover:bg-gray-50 transition-colors">새로 입력</button>
-                <button type="button" onclick="loadHistory()" class="w-1/2 bg-black text-white py-3 text-sm font-bold tracking-wider hover:bg-gray-800 transition-colors">불러오기</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="nicknameSelectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[80] hidden px-4 py-6 fade-fast">
-        <div class="bg-white w-full max-w-[460px] h-[70vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
-            <div class="bg-black px-4 py-4 flex justify-between items-center shrink-0">
-                <h4 class="text-white font-bold text-[14px] tracking-widest">닉네임 검색 및 입력</h4>
-                <button type="button" onclick="closeNicknameModal()" class="text-white hover:text-gray-300 p-1">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-            </div>
-            
-            <div class="px-4 py-4 border-b border-gray-100 shrink-0 bg-gray-50 flex flex-col gap-2.5">
-                <p class="text-[12px] text-gray-700 font-bold tracking-tight leading-snug">
-                    🔎 목록에서 닉네임을 찾아 터치해주세요.<br>
-                    목록에 없다면 직접 적으신 후 우측 <span class="bg-black text-white px-1.5 py-0.5 rounded-sm text-[10px] shadow-sm">입력 완료</span> 를 눌러주세요.
-                </p>
-                <div class="flex gap-2 w-full">
-                    <input type="text" id="nicknameSearch" placeholder="닉네임(또는 고유번호) 입력" class="flex-1 min-w-0 px-3 py-2.5 input-chic text-[13px] font-medium border-gray-300 focus:border-black" oninput="filterNicknames()">
-                    <button type="button" onclick="applyManualNickname()" class="shrink-0 bg-black text-white px-3.5 py-2.5 text-[12px] whitespace-nowrap font-bold rounded-sm hover:bg-gray-800 transition-colors shadow-sm">
-                        입력 완료
-                    </button>
-                </div>
-            </div>
-            
-            <div id="nicknameListLoading" class="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm font-medium space-y-3">
-                <div class="spinner !border-gray-300 !border-t-black"></div>
-                <p>닉네임 목록을 불러오는 중입니다...</p>
-            </div>
-            
-            <ul id="nicknameListView" class="flex-1 overflow-y-auto divide-y divide-gray-100 hidden">
-            </ul>
-        </div>
-    </div>
-
-    <div id="successModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-10">
-        <div class="w-full max-w-[460px] flex flex-col items-center">
-            <div class="bg-white w-full rounded-xl shadow-2xl overflow-hidden pt-8 pb-1">
-                <div class="text-center mb-6">
-                    <div class="w-10 h-10 border border-gray-400 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path>
-                        </svg>
-                    </div>
-                    <h3 class="text-[18px] font-extrabold text-black mb-1.5 tracking-wide">배송지 전송 완료</h3>
-                    <p class="text-gray-800 text-[13px]">배송지 정보가 정상 접수되었습니다.</p>
-                </div>
-
-                <div class="mx-4 mb-4 border border-gray-300 rounded-lg overflow-hidden shadow-sm">
-                    <div class="bg-[#1a1a1a] py-3 text-center">
-                        <h4 class="text-[15px] font-extrabold text-white tracking-widest">주문 후 필수 안내</h4>
-                    </div>
-                    
-                    <div class="bg-white p-5 space-y-5">
-                        <div class="flex items-start gap-3">
-                            <div class="shrink-0 mt-0.5">
-                                <svg class="w-[24px] h-[24px] text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
-                            </div>
-                            <p class="text-[14.5px] text-black font-extrabold break-keep leading-snug tracking-tight pt-0.5">
-                                주문서 제출 후 꼭 <span class="inline-block border px-2 py-0.5 rounded text-[15px] mt-1 mb-1 alert-flash">카카오톡 채널에 '닉네임'</span>을 남겨주셔야 주문이 확정됩니다.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="bg-white border-t border-gray-200 p-4">
-                        <button type="button" onclick="closeSuccessModal()" class="w-full bg-black text-white py-3.5 text-[14px] font-bold rounded-sm hover:bg-gray-800 transition-colors tracking-widest">확인 완료</button>
-                    </div>
-                </div>
-            </div>
-            <p class="text-[11px] text-gray-400 mt-4 break-keep tracking-tight">화면이 닫히지 않으면 직접 뒤로가기를 해주세요.</p>
-        </div>
-    </div>
-
-    <div id="addressModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] hidden px-4 py-6">
-        <div class="bg-white w-full max-w-[460px] h-[80vh] flex flex-col rounded-xl overflow-hidden shadow-2xl relative">
-            <div class="bg-black px-4 py-3.5 flex justify-between items-center shrink-0">
-                <h4 class="text-white font-bold text-[14px] tracking-widest">우편번호 검색</h4>
-                <button type="button" onclick="closeDaumPostcode()" class="text-white hover:text-gray-300 p-1">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-            </div>
-            <div id="layer" class="w-full flex-grow relative overflow-hidden" style="-webkit-overflow-scrolling:touch;"></div>
-        </div>
-    </div>
-
-    <div id="customAlertModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] hidden px-5">
-        <div class="bg-white p-7 max-w-sm w-full text-center border border-gray-200 shadow-2xl rounded-xl">
-            <div class="w-10 h-10 border-2 border-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span class="text-red-500 font-bold text-lg">!</span>
-            </div>
-            <h3 class="text-md font-bold text-black mb-2 uppercase tracking-wide">NOTICE</h3>
-            <p id="customAlertMessage" class="text-[13px] text-gray-600 mb-6 break-keep leading-relaxed"></p>
-            <button type="button" onclick="closeCustomAlert()" class="w-full bg-black text-white py-3 text-sm font-bold tracking-widest hover:bg-gray-800 transition-colors">확인</button>
-        </div>
-    </div>
-
-    <script>
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwu00OpLh3UtPScJvhmpjDX28iGG4rjGt-WldzpD4LqRPOuMLzEEbRB6Z_Bpmqneukz1w/exec';
-        const NICKNAME_CSV_URL = "https://docs.google.com/spreadsheets/d/1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ/export?format=csv&gid=2145344294"; 
-        
-        let nicknameData = [];
-        let isNicknamesLoaded = false;
-
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchNicknameData();
-        });
-
-        async function fetchNicknameData() {
-            if (isNicknamesLoaded) return;
-            try {
-                if (NICKNAME_CSV_URL !== "") {
-                    const response = await fetch(NICKNAME_CSV_URL);
-                    const text = await response.text();
-                    const rows = text.replace(/\r/g, '').split('\n');
-                    let data = [];
-                    rows.forEach(row => {
-                        const cols = row.split(',');
-                        if(cols[0] && cols[0].trim() !== '닉네임' && cols[0].trim() !== 'name') {
-                            data.push(cols[0].trim());
-                        }
-                    });
-                    nicknameData = [...new Set(data)]; 
-                } 
-                isNicknamesLoaded = true;
-                const loadingEl = document.getElementById('nicknameListLoading');
-                const listEl = document.getElementById('nicknameListView');
-                if(loadingEl) loadingEl.classList.add('hidden');
-                if(listEl) listEl.classList.remove('hidden');
-                renderNicknames('');
-            } catch (error) {
-                console.error("닉네임 데이터 로드 실패", error);
-                const loadingEl = document.getElementById('nicknameListLoading');
-                if(loadingEl) loadingEl.innerHTML = "<p class='text-red-500'>목록을 불러오지 못했습니다. 직접 입력해주세요.</p>";
+        // 테스트용 샘플 데이터베이스
+        const INITIAL_MOCK_DB = {
+            "강은지팬-krl": {
+                nickname: "강은지팬-krl",
+                phoneLast4: "5678",
+                broadcastName: "10/18 여성복",
+                isVip: true,
+                isManager: false,
+                freeShippingThreshold: 200000,
+                isCard: false,
+                shipping: 0,
+                depositTotal: 74000,
+                deposits: [
+                    { id: "d1", time: "21:15", name: "김선정", amount: 45000 },
+                    { id: "d2", time: "21:42", name: "김선정", amount: 29000 }
+                ],
+                items: [
+                    { id: 1, product: "11번 프리미엄 캐시미어 니트 베이지 55", qty: 1, price: 45000, isWaitlist: false },
+                    { id: 2, product: "15번 세미 와이드 슬랙스 블랙 S", qty: 1, price: 29000, isWaitlist: false },
+                    { id: 10, product: "19번 실크 스카프 버건디 F", qty: 1, price: 18000, isWaitlist: true }
+                ],
+                address: {
+                    realname: "김선정",
+                    phone: "01012345678",
+                    zipcode: "61945",
+                    baseAddress: "광주광역시 서구 상무중앙로 110",
+                    detailAddress: "스타타워 101동 1204호",
+                    memo: "문 앞에 놓아주세요"
+                }
+            },
+            "멋쟁이토마토-a2b": {
+                nickname: "멋쟁이토마토-a2b",
+                phoneLast4: "1234",
+                broadcastName: "10/18 여성복",
+                isVip: false,
+                isManager: false,
+                freeShippingThreshold: 200000,
+                isCard: false,
+                shipping: 4000,
+                depositTotal: 50000,
+                deposits: [
+                    { id: "d3", time: "20:50", name: "이영희", amount: 30000 },
+                    { id: "d4", time: "21:30", name: "이영희", amount: 20000 }
+                ],
+                items: [
+                    { id: 3, product: "04번 앙고라 가디건 핑크 F", qty: 1, price: 38000, isWaitlist: false },
+                    { id: 4, product: "08번 울 체크 스커트 브라운 M", qty: 2, price: 52000, isWaitlist: false },
+                    { id: 5, product: "12번 핸드메이드 코트 오트밀 55", qty: 1, price: 129000, isWaitlist: true }
+                ],
+                address: {
+                    realname: "이영희",
+                    phone: "01098761234",
+                    zipcode: "06035",
+                    baseAddress: "서울특별시 강남구 가로수길 5",
+                    detailAddress: "현대아파트 203동 501호",
+                    memo: "경비실에 맡겨주세요"
+                }
+            },
+            "깔로-krl": {
+                nickname: "깔로-krl",
+                phoneLast4: "0000",
+                broadcastName: "10/18 여성복",
+                isVip: false,
+                isManager: false,
+                freeShippingThreshold: 200000,
+                isCard: false,
+                shipping: 4000,
+                depositTotal: 0,
+                deposits: [],
+                items: [
+                    { id: 6, product: "21번 기모 맨투맨 아이보리 F", qty: 1, price: 25000, isWaitlist: false }
+                ],
+                address: null
             }
-        }
+        };
 
-        function renderNicknames(searchTerm = "") {
-            const ul = document.getElementById('nicknameListView');
-            if(!ul) return;
-            ul.innerHTML = '';
-            
-            const term = searchTerm.trim();
-            
-            if (!term) {
-                ul.innerHTML = '<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">닉네임의 일부를 입력하시면<br>검색 결과가 나타납니다.<br><br><span class="text-gray-700 font-bold mt-2 inline-block">※ 목록에 닉네임이 없다면 검색창에 적고<br>우측의 <strong class="text-white bg-black px-1.5 py-0.5 rounded-sm shadow-sm text-[11px]">입력 완료</strong> 버튼을 눌러주세요.</span></li>';
-                return;
-            }
-            
-            const filtered = nicknameData.filter(name => name.toLowerCase().includes(term.toLowerCase()));
-            
-            if (filtered.length === 0) {
-                ul.innerHTML = `<li class="p-8 text-center text-gray-500 text-[13px] break-keep leading-relaxed">
-                    <span class="text-red-500 font-bold mb-1.5 block text-[14px]">앗, 검색된 닉네임이 없어요! 😢</span>
-                    입력하신 <strong class="text-black text-[14px]">"${term}"</strong> (을)를 그대로 사용하시려면<br>우측 상단의 <strong class="text-white bg-black px-1.5 py-0.5 rounded-sm shadow-sm text-[11px]">입력 완료</strong> 버튼을 눌러주세요!
-                </li>`;
-                return;
-            }
+        // 유튜브 핸들(예: @깔로-krl)이나 앞부분 닉네임('깔로')으로 검색해도 전체 닉네임('깔로-krl') 데이터를 찾아주는 도우미
+        const cleanYoutubeHandle = (raw) => {
+            if (!raw) return '';
+            let s = String(raw).trim().replace(/^@+/, '');
+            s = s.replace(/-[a-zA-Z0-9]{2,6}$/, '');
+            return s.trim();
+        };
 
-            filtered.forEach((name, index) => {
-                const li = document.createElement('li');
-                li.className = `px-5 py-4 cursor-pointer transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 active:bg-gray-200`;
-                li.onclick = () => selectNickname(name);
-                li.innerHTML = `<span class="text-[14px] font-bold text-black tracking-wide">${name}</span>`;
-                ul.appendChild(li);
+        const CustomerPortalApp = () => {
+            const [mockDb, setMockDb] = useState(INITIAL_MOCK_DB);
+            const [loginNick, setLoginNick] = useState('');
+            const [loginPhone4, setLoginPhone4] = useState('');
+            const [currentUser, setCurrentUser] = useState(null);
+            const [errorMsg, setErrorMsg] = useState('');
+            const [toastMsg, setToastMsg] = useState('');
+
+            const [isOrderConfirmedByCustomer, setIsOrderConfirmedByCustomer] = useState(false);
+            const [showFanfareModal, setShowFanfareModal] = useState(false);
+            const [isRefreshing, setIsRefreshing] = useState(false);
+            const [lastUpdatedTime, setLastUpdatedTime] = useState('');
+            const [demoAddedCount, setDemoAddedCount] = useState(0);
+
+            const [isEditingAddress, setIsEditingAddress] = useState(false);
+            const [addrForm, setAddrForm] = useState({
+                realname: '',
+                phone: '',
+                zipcode: '',
+                baseAddress: '',
+                detailAddress: '',
+                memo: '',
+                agreePrivacy: false
             });
-        }
 
-        function filterNicknames() { renderNicknames(document.getElementById('nicknameSearch').value); }
-        function openNicknameModal() {
-            document.getElementById('nicknameSelectModal').classList.remove('hidden');
-            setTimeout(() => document.getElementById('nicknameSearch').focus(), 50); 
-            if(!isNicknamesLoaded) fetchNicknameData();
-        }
-        function closeNicknameModal() { document.getElementById('nicknameSelectModal').classList.add('hidden'); }
-        function selectNickname(name) {
-            const input = document.getElementById('nickname');
-            input.value = name;
-            input.dispatchEvent(new Event('input')); 
-            closeNicknameModal();
-            document.getElementById('nickname-container').classList.replace('bg-red-50', 'bg-white');
-        }
-        function applyManualNickname() {
-            const searchInput = document.getElementById('nicknameSearch').value.trim();
-            if (!searchInput) {
-                showCustomAlert("입력칸에 닉네임을 먼저 적어주세요!");
-                return;
-            }
-            selectNickname(searchInput);
-        }
-
-        function showCustomAlert(msg) {
-            document.getElementById('customAlertMessage').innerText = msg;
-            document.getElementById('customAlertModal').classList.remove('hidden');
-        }
-        function closeCustomAlert() {
-            document.getElementById('customAlertModal').classList.add('hidden');
-        }
-
-        let pullStartY = 0;
-        let isPullingAtBottom = false;
-        let isBizInfoRevealed = false;
-
-        function isAtBottom() {
-            return (window.innerHeight + Math.ceil(window.scrollY)) >= document.body.offsetHeight - 10;
-        }
-
-        window.addEventListener('touchstart', function(e) {
-            if (isBizInfoRevealed) return;
-            if (isAtBottom()) {
-                pullStartY = e.touches[0].clientY;
-                isPullingAtBottom = true;
-            } else {
-                isPullingAtBottom = false;
-            }
-        }, { passive: true });
-
-        window.addEventListener('touchmove', function(e) {
-            if (!isPullingAtBottom || isBizInfoRevealed) return;
-            let currentY = e.touches[0].clientY;
-            if (pullStartY - currentY > 60) { 
-                revealBizInfo();
-            }
-        }, { passive: true });
-
-        window.addEventListener('wheel', function(e) {
-            if (isBizInfoRevealed) return;
-            if (e.deltaY > 0 && isAtBottom()) {
-                revealBizInfo();
-            }
-        }, { passive: true });
-
-        function revealBizInfo() {
-            if (isBizInfoRevealed) return;
-            isBizInfoRevealed = true;
-            const bizContent = document.getElementById('bizInfoContent');
-            bizContent.style.height = bizContent.scrollHeight + "px";
-            bizContent.style.opacity = "1";
-            bizContent.classList.replace('border-transparent', 'border-gray-100');
-            setTimeout(() => {
-                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-            }, 100);
-        }
-
-        function safeSetStorage(payload) {
-            payload.timestamp = Date.now(); // 🌟 최근 저장 일시 기록
-            const dataStr = JSON.stringify(payload);
-            try { localStorage.setItem('deliveryInfo', dataStr); } catch(e) {}
-            try { 
-                const d = new Date();
-                d.setTime(d.getTime() + (365 * 24 * 60 * 60 * 1000));
-                document.cookie = "deliveryInfo=" + encodeURIComponent(dataStr) + ";expires=" + d.toUTCString() + ";path=/;SameSite=Lax";
-            } catch(e) {}
-        }
-
-        function safeGetStorage() {
-            let rawData = null;
-            try { rawData = localStorage.getItem('deliveryInfo'); } catch(e) {}
-            if (rawData) return rawData;
-            try {
-                const name = "deliveryInfo=";
-                const ca = decodeURIComponent(document.cookie).split(';');
-                for(let i = 0; i < ca.length; i++) {
-                    let c = ca[i].trim();
-                    if (c.indexOf(name) === 0) return c.substring(name.length, c.length);
-                }
-            } catch(e) {}
-            return null;
-        }
-
-        function startForm() {
-            const agreeCheck = document.getElementById('privacyAgree');
-            if (!agreeCheck.checked) {
-                showCustomAlert("개인정보 수집 및 제3자 제공 동의 항목에 체크해주세요.");
-                return;
-            }
-            document.getElementById('intro-page').classList.add('hidden');
-            document.getElementById('form-page').classList.remove('hidden');
-            
-            const rawData = safeGetStorage();
-            if (rawData) {
-                try {
-                    const data = JSON.parse(rawData);
-                    
-                    // 마지막 제출 날짜 표시
-                    if (data.timestamp) {
-                        const d = new Date(data.timestamp);
-                        const y = d.getFullYear();
-                        const m = String(d.getMonth() + 1).padStart(2, '0');
-                        const day = String(d.getDate()).padStart(2, '0');
-                        const h = String(d.getHours()).padStart(2, '0');
-                        const min = String(d.getMinutes()).padStart(2, '0');
-                        
-                        document.getElementById('lastSubmitDateText').innerText = `${y}년 ${m}월 ${day}일 ${h}:${min}`;
-                        document.getElementById('lastSubmitContainer').classList.remove('hidden');
-                    }
-                } catch(e) {}
-                
-                document.getElementById('historyModal').classList.remove('hidden');
-            }
-        }
-
-        function loadHistory() {
-            const rawData = safeGetStorage();
-            if (rawData) {
-                try {
-                    const data = JSON.parse(rawData);
-                    document.getElementById('nickname').value = data.nickname || '';
-                    document.getElementById('name').value = data.name || '';
-                    document.getElementById('phone').value = (data.phone || '').replace(/[^0-9]/g, '');
-                    document.getElementById('zipcode').value = data.zipcode || '';
-                    document.getElementById('address_base').value = data.address_base || '';
-                    document.getElementById('address_detail').value = data.address_detail || '';
-                    document.getElementById('memo').value = data.memo || '';
-                    
-                    const phoneEl = document.getElementById('phone');
-                    if(phoneEl.value.length === 11) {
-                        document.getElementById('phoneError').classList.add('hidden');
-                        phoneEl.classList.remove('border-red-500');
-                    }
-                    if(data.nickname) {
-                        document.getElementById('nickname-container').classList.replace('bg-red-50', 'bg-white');
-                    }
-                } catch(e) {
-                    console.error("데이터 파싱 오류", e);
-                }
-            }
-            ignoreHistory();
-        }
-
-        function ignoreHistory() { document.getElementById('historyModal').classList.add('hidden'); }
-        
-        function closeSuccessModal() { 
-            try {
-                if (typeof confetti === 'function') {
-                    confetti.reset();
-                }
-            } catch(e) {}
-
-            document.getElementById('successModal').classList.add('hidden'); 
-            try {
-                window.open('', '_self').close();
-                window.close();
-            } catch(e) {}
-            
-            document.body.innerHTML = `
-                <div class="min-h-screen bg-[#f3f4f6] flex flex-col items-center justify-center p-5 text-center fade-enter">
-                    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm border border-gray-200">
-                        <div class="w-14 h-14 bg-black rounded-full flex items-center justify-center mx-auto mb-5">
-                            <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                        </div>
-                        <h2 class="text-[18px] font-extrabold text-black mb-2 tracking-wide">배송지 접수 완료</h2>
-                        <p class="text-[13px] text-gray-600 mb-6 break-keep leading-relaxed">
-                            성공적으로 전송되었습니다.<br><br>
-                            화면 우측 상단이나 하단의 <strong class="text-black bg-gray-100 px-1 py-0.5 rounded">닫기(X)</strong> 버튼을 눌러<br>
-                            카카오톡으로 돌아간 뒤 <strong class="inline-block px-2 py-0.5 mt-1 rounded border alert-flash">닉네임</strong>을 꼭 남겨주세요.
-                        </p>
-                        <button onclick="location.reload()" class="text-[11px] text-gray-400 underline decoration-gray-300 underline-offset-4 hover:text-black">
-                            새 배송지 작성하기 (초기화)
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-
-        const nicknameInputEl = document.getElementById('nickname');
-        nicknameInputEl.addEventListener('input', function() { this.value = this.value.replace(/@/g, ''); });
-
-        const phoneInput = document.getElementById('phone');
-        function cleanPhoneInput(element) {
-            element.value = element.value.replace(/[^0-9]/g, '').slice(0, 11);
-            if (element.value.length === 11) {
-                document.getElementById('phoneError').classList.add('hidden');
-                element.classList.remove('border-red-500');
-            }
-        }
-        phoneInput.addEventListener('input', function() { cleanPhoneInput(this); });
-
-        const addressModal = document.getElementById('addressModal');
-        const element_layer = document.getElementById('layer');
-        
-        function closeDaumPostcode() { addressModal.classList.add('hidden'); }
-        
-        function execDaumPostcode() {
-            if (typeof daum === 'undefined' || !daum.Postcode) {
-                showCustomAlert('우편번호 서비스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-                return;
-            }
-            addressModal.classList.remove('hidden');
-
-            new daum.Postcode({
-                oncomplete: function(data) {
-                    let addr = data.userSelectedType === 'R' ? data.roadAddress : data.jibunAddress;
-                    let extraAddr = '';
-                    if(data.userSelectedType === 'R'){
-                        if(data.bname !== '' && /[동|로|가]$/g.test(data.bname)){ extraAddr += data.bname; }
-                        if(data.buildingName !== ''){ extraAddr += (extraAddr !== '' ? ', ' + data.buildingName : data.buildingName); }
-                        if(extraAddr !== ''){ extraAddr = ' (' + extraAddr + ')'; }
-                    }
-                    document.getElementById('zipcode').value = data.zonecode;
-                    document.getElementById('address_base').value = addr + extraAddr;
-                    closeDaumPostcode();
-                    document.getElementById('address_detail').focus();
-                },
-                width : '100%',
-                height : '100%',
-                maxSuggestItems : 5
-            }).embed(element_layer);
-        }
-
-        document.getElementById('addressForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('submitBtn');
-            const spinner = document.getElementById('loadingSpinner');
-            const btnText = document.getElementById('btnText');
-
-            const currentNickname = document.getElementById('nickname').value;
-            if (!currentNickname || currentNickname.trim() === "") {
-                showCustomAlert("🚨 필수 정보 누락!\n\n가장 중요한 [유튜브 닉네임]이 비어있습니다. 우측 검색 버튼을 눌러 닉네임을 꼭 입력해주세요.");
-                document.getElementById('nickname-container').scrollIntoView({ behavior: 'smooth', block: 'center' });
-                return;
-            }
-
-            const cleanPhone = document.getElementById('phone').value.replace(/[^0-9]/g, '');
-            if (cleanPhone.length !== 11) {
-                document.getElementById('phoneError').classList.remove('hidden');
-                document.getElementById('phone').classList.add('border-red-500');
-                document.getElementById('phone').focus();
-                return;
-            } else {
-                document.getElementById('phoneError').classList.add('hidden');
-                document.getElementById('phone').classList.remove('border-red-500');
-            }
-
-            const payload = {
-                action: 'add_address',
-                nickname: document.getElementById('nickname').value,
-                name: document.getElementById('name').value,
-                phone: cleanPhone,
-                zipcode: document.getElementById('zipcode').value,
-                address_base: document.getElementById('address_base').value,
-                address_detail: document.getElementById('address_detail').value,
-                full_address: `(${document.getElementById('zipcode').value}) ${document.getElementById('address_base').value} ${document.getElementById('address_detail').value}`,
-                memo: document.getElementById('memo').value
+            const showToast = (msg) => {
+                setToastMsg(msg);
+                setTimeout(() => setToastMsg(''), 2400);
             };
 
-            btn.disabled = true;
-            btn.classList.add('bg-gray-700', 'cursor-wait', 'opacity-90');
-            btn.classList.remove('bg-black', 'hover:bg-gray-900', 'btn-glow', 'border-black');
-            if (document.getElementById('btnIcon')) document.getElementById('btnIcon').classList.add('hidden');
-            btnText.classList.add('loading-dots');
-            btnText.textContent = '안전하게 전송 중입니다 ';
-            spinner.classList.remove('hidden');
+            const getNowTimeStr = () => new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-            if (!navigator.onLine) {
-                showCustomAlert('🚨 인터넷 연결 에러\n\n와이파이나 데이터 연결 상태를 확인해주세요.');
-                btn.disabled = false;
-                btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
-                btn.classList.add('bg-black', 'hover:bg-gray-900', 'btn-glow', 'border-black');
-                if (document.getElementById('btnIcon')) document.getElementById('btnIcon').classList.remove('hidden');
-                btnText.classList.remove('loading-dots');
-                btnText.textContent = '배송지 최종 전송하기';
-                spinner.classList.add('hidden');
-                return;
-            }
+            const handleLogin = (e, presetNick = null, presetPhone4 = null) => {
+                if (e) e.preventDefault();
+                setErrorMsg('');
 
-            try {
-                // 강력한 전송방식, 고객이 창을 닫아도 넘어감
-                fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'text/plain;charset=utf-8'
-                    },
-                    body: JSON.stringify(payload)
-                }).catch(e => console.log('Background fetch error', e));
-                
-                // 고객 안심용 로딩 대기
-                await new Promise(resolve => setTimeout(resolve, 800));
-                
-                safeSetStorage(payload);
-                document.getElementById('successModal').classList.remove('hidden');
-                if (typeof confetti === 'function') {
-                    confetti({
-                        particleCount: 150,
-                        spread: 80,
-                        origin: { y: 0.6 },
-                        colors: ['#000000', '#dc2626', '#ffffff', '#fbbf24'],
-                        zIndex: 9999
-                    });
+                const rawNick = (presetNick !== null ? presetNick : loginNick).trim().replace(/^@+/, '');
+                const baseNick = cleanYoutubeHandle(rawNick);
+                const inputLast4 = (presetPhone4 !== null ? presetPhone4 : loginPhone4).trim();
+
+                if (!rawNick) {
+                    setErrorMsg('유튜브 닉네임을 입력해 주세요.');
+                    return;
                 }
-            } catch (error) {
-                console.error('Fetch Error:', error);
-                showCustomAlert('🚨 데이터 전송 에러\n\n잠시 후 다시 시도해주세요.');
-            } finally {
-                btn.disabled = false;
-                btn.classList.remove('bg-gray-700', 'cursor-wait', 'opacity-90');
-                btn.classList.add('bg-black', 'hover:bg-gray-900', 'btn-glow', 'border-black');
-                if (document.getElementById('btnIcon')) document.getElementById('btnIcon').classList.remove('hidden');
-                btnText.classList.remove('loading-dots');
-                btnText.textContent = '배송지 최종 전송하기';
-                spinner.classList.add('hidden');
-            }
-        });
+                if (inputLast4.length !== 4) {
+                    setErrorMsg('연락처 뒷 4자리(비밀번호)를 정확히 입력해 주세요.');
+                    return;
+                }
+
+                // 고객이 '깔로'만 쳐도, '깔로-krl' 전체를 쳐도 DB에서 정확히 매칭하여 전체 닉네임('깔로-krl')을 불러옴
+                const matchedKey = Object.keys(mockDb).find(k => k === rawNick || cleanYoutubeHandle(k) === baseNick);
+                const found = matchedKey ? mockDb[matchedKey] : null;
+
+                if (!found) {
+                    setErrorMsg(`'${rawNick}' 님의 주문 내역이 없습니다. 닉네임을 다시 확인해 주세요.`);
+                    return;
+                }
+
+                if (found.phoneLast4 !== inputLast4) {
+                    setErrorMsg('연락처 뒷 4자리(비밀번호)가 일치하지 않습니다. 첫 구매 고객님은 아래 카톡 채널로 번호를 먼저 남겨주세요.');
+                    return;
+                }
+
+                setCurrentUser({ ...found });
+                setIsOrderConfirmedByCustomer(false);
+                setLastUpdatedTime(getNowTimeStr());
+                if (!found.address) {
+                    setIsEditingAddress(true);
+                }
+            };
+
+            const handleUnifiedRefresh = (simulateNewOrder = false) => {
+                if (!currentUser || isRefreshing) return;
+                setIsRefreshing(true);
+
+                setTimeout(() => {
+                    let latestUser = { ...mockDb[currentUser.nickname] };
+
+                    if (simulateNewOrder) {
+                        const nextCount = demoAddedCount + 1;
+                        setDemoAddedCount(nextCount);
+                        const newItem = {
+                            id: Date.now(),
+                            product: `[추가] ${30 + nextCount}번 캐시미어 머플러 차콜 F`,
+                            qty: 1,
+                            price: 19000,
+                            isWaitlist: false
+                        };
+                        latestUser = {
+                            ...currentUser,
+                            items: [...currentUser.items, newItem]
+                        };
+                        setMockDb(prev => ({ ...prev, [currentUser.nickname]: latestUser }));
+                        setIsOrderConfirmedByCustomer(false);
+                        showToast("추가 주문 내역과 결제금액이 업데이트되었습니다.");
+                    } else {
+                        showToast("최신 주문 품목 및 입금 현황을 불러왔습니다.");
+                    }
+
+                    setCurrentUser(latestUser);
+                    setLastUpdatedTime(getNowTimeStr());
+                    setIsRefreshing(false);
+                }, 300);
+            };
+
+            const handleCopyText = (text, label) => {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast(`${label} 복사되었습니다.`);
+                } catch (err) {}
+                document.body.removeChild(textArea);
+            };
+
+            const openAddressEditor = () => {
+                setAddrForm({
+                    realname: '',
+                    phone: '',
+                    zipcode: '',
+                    baseAddress: '',
+                    detailAddress: '',
+                    memo: currentUser?.address?.memo || '',
+                    agreePrivacy: false
+                });
+                setIsEditingAddress(true);
+            };
+
+            const handlePostcodeSearch = () => {
+                try {
+                    new window.daum.Postcode({
+                        oncomplete: function(data) {
+                            let fullAddr = data.address;
+                            let extraAddr = '';
+                            if (data.addressType === 'R') {
+                                if (data.bname !== '') extraAddr += data.bname;
+                                if (data.buildingName !== '') extraAddr += (extraAddr !== '' ? ', ' + data.buildingName : data.buildingName);
+                                if (extraAddr !== '') fullAddr += ' (' + extraAddr + ')';
+                            }
+                            setAddrForm(prev => ({ ...prev, zipcode: data.zonecode, baseAddress: fullAddr }));
+                        }
+                    }).open();
+                } catch (e) {
+                    showToast("주소 검색 창을 불러오지 못했습니다.");
+                }
+            };
+
+            const handleSaveAddress = (e) => {
+                e.preventDefault();
+                if (!addrForm.realname.trim()) return showToast("수령인 성함을 입력해 주세요.");
+                const cleanPhone = addrForm.phone.replace(/[^0-9]/g, '');
+                if (cleanPhone.length < 10) return showToast("올바른 휴대폰 번호를 입력해 주세요.");
+                if (!addrForm.baseAddress.trim()) return showToast("우편번호 검색을 진행해 주세요.");
+                if (!addrForm.agreePrivacy) {
+                    return showToast("개인정보 수집 및 제3자 제공 동의에 체크해 주세요.");
+                }
+
+                const newAddrObj = {
+                    realname: addrForm.realname.trim(),
+                    phone: cleanPhone,
+                    zipcode: addrForm.zipcode,
+                    baseAddress: addrForm.baseAddress,
+                    detailAddress: addrForm.detailAddress.trim(),
+                    memo: addrForm.memo.trim()
+                };
+
+                const updatedUser = {
+                    ...currentUser,
+                    phoneLast4: cleanPhone.slice(-4),
+                    address: newAddrObj
+                };
+
+                setCurrentUser(updatedUser);
+                setMockDb(prev => ({ ...prev, [currentUser.nickname]: updatedUser }));
+                setIsEditingAddress(false);
+                setLastUpdatedTime(getNowTimeStr());
+                showToast("배송지가 저장되어 주문서에 즉시 반영되었습니다.");
+            };
+
+            const handleConfirmOrder = () => {
+                if (!currentUser.address) {
+                    showToast("먼저 배송지를 입력 및 저장해 주세요.");
+                    setIsEditingAddress(true);
+                    return;
+                }
+                setIsOrderConfirmedByCustomer(true);
+                setShowFanfareModal(true);
+
+                // 팡파레(꽃가루) 애니메이션 실행
+                if (window.confetti) {
+                    window.confetti({
+                        particleCount: 90,
+                        spread: 70,
+                        origin: { y: 0.6 }
+                    });
+                    setTimeout(() => {
+                        window.confetti({
+                            particleCount: 60,
+                            angle: 60,
+                            spread: 55,
+                            origin: { x: 0 }
+                        });
+                        window.confetti({
+                            particleCount: 60,
+                            angle: 120,
+                            spread: 55,
+                            origin: { x: 1 }
+                        });
+                    }, 200);
+                }
+
+                // 2.2초 후 자동으로 창 닫기 (처음 화면으로 안전하게 로그아웃 처리)
+                setTimeout(() => {
+                    setShowFanfareModal(false);
+                    setCurrentUser(null);
+                    setIsEditingAddress(false);
+                    setLoginNick('');
+                    setLoginPhone4('');
+                    try { window.close(); } catch (e) {}
+                }, 2200);
+            };
+
+            const calcSummary = () => {
+                if (!currentUser) return null;
+                const activeItems = currentUser.items.filter(i => !i.isWaitlist);
+                const waitlistItems = currentUser.items.filter(i => i.isWaitlist);
+                const productTotal = activeItems.reduce((sum, i) => sum + i.price, 0);
+                const threshold = currentUser.freeShippingThreshold || 200000;
+                const isFreeByAmount = threshold > 0 && productTotal >= threshold;
+                const shipping = (currentUser.isVip || currentUser.isManager || isFreeByAmount) ? 0 : currentUser.shipping;
+                const grandTotal = productTotal + (activeItems.length > 0 ? shipping : 0);
+                const depositsList = currentUser.deposits || [];
+                const depositTotal = depositsList.length > 0 
+                    ? depositsList.reduce((sum, d) => sum + Number(d.amount), 0) 
+                    : (currentUser.depositTotal || 0);
+                const balance = grandTotal - depositTotal;
+                const isPaid = balance <= 0 && activeItems.length > 0;
+                return { activeItems, waitlistItems, productTotal, shipping, grandTotal, depositTotal, depositsList, balance, isPaid, threshold, isFreeByAmount };
+            };
+
+            const summary = calcSummary();
+
+            return (
+                <div className="min-h-screen w-full flex flex-col items-center justify-start sm:py-3">
+                    {/* 스마트폰 전용 프레임 컨테이너: 불필요한 여백을 줄인 375px 표준 모바일 폭 */}
+                    <div className="w-full max-w-[375px] min-h-screen sm:min-h-[680px] bg-[#f1f3f7] sm:rounded-lg sm:shadow-xl sm:border sm:border-slate-300 overflow-hidden flex flex-col pb-6 relative">
+                        
+                        {/* 상단 토스트 알림 */}
+                        {toastMsg && (
+                            <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 bg-[#0a0a0a] text-white text-[12px] font-bold px-3.5 py-2 rounded shadow-lg border border-neutral-700 flex items-center gap-1.5 animate-fade-in whitespace-nowrap">
+                                <Icon name="check-circle" weight="fill" className="text-blue-400" size={14} />
+                                <span>{toastMsg}</span>
+                            </div>
+                        )}
+
+                        {/* 주문 확정 팡파레 모달 (자동 닫힘) */}
+                        {showFanfareModal && (
+                            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fade-in">
+                                <div className="bg-white rounded-xl border-2 border-[#1d4ed8] shadow-2xl p-6 w-full max-w-[320px] text-center space-y-3">
+                                    <div className="w-14 h-14 rounded-full bg-blue-50 text-[#1d4ed8] mx-auto flex items-center justify-center border border-blue-200 shadow-inner">
+                                        <Icon name="confetti" weight="fill" size={32} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="text-[11px] font-extrabold text-[#1d4ed8] tracking-widest uppercase">ORDER CONFIRMED</div>
+                                        <h3 className="text-[18px] font-black text-slate-900">주문확정 완료! 🎉</h3>
+                                        <p className="text-[12.5px] text-slate-600 leading-snug pt-1">
+                                            <strong className="text-slate-900">{currentUser?.nickname}</strong> 님의 주문과 배송지 확인이<br/>정상적으로 접수되었습니다. 감사합니다!
+                                        </p>
+                                    </div>
+                                    <div className="pt-2">
+                                        <div className="text-[11px] text-slate-400 mb-2">잠시 후 창이 자동으로 닫힙니다...</div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowFanfareModal(false);
+                                                setCurrentUser(null);
+                                                setIsEditingAddress(false);
+                                                setLoginNick('');
+                                                setLoginPhone4('');
+                                                try { window.close(); } catch (e) {}
+                                            }}
+                                            className="w-full bg-[#0a0a0a] text-white font-bold py-2 rounded text-[12px]"
+                                        >
+                                            지금 바로 닫기
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 1. 최상단 EMBER 공식 블랙 시그니처 헤더 */}
+                        <header className="w-full bg-[#0a0a0a] text-white shadow-sm sticky top-0 z-40">
+                            <div className="px-3 h-11 flex items-center justify-between">
+                                <div className="w-20 flex items-center">
+                                    {currentUser && (
+                                        <button 
+                                            type="button"
+                                            onClick={() => { setCurrentUser(null); setIsEditingAddress(false); }}
+                                            className="text-[11px] font-bold text-neutral-200 hover:text-white flex items-center gap-1 py-1 px-2 rounded bg-neutral-900 border border-neutral-700 transition-colors"
+                                        >
+                                            <Icon name="arrow-left" weight="bold" size={11} /> 처음으로
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center justify-center">
+                                    <span className="ember-logo text-[17px] font-bold text-white pl-1">EMBER</span>
+                                </div>
+
+                                <div className="w-20 flex items-center justify-end">
+                                    <Icon name="lock-simple" className="text-neutral-400" size={14} />
+                                </div>
+                            </div>
+                        </header>
+
+                        <div className="w-full px-2.5 pt-2.5 space-y-2 flex-1">
+                            {/* 사장님 테스트용 프리셋 바 */}
+                            <div className="bg-neutral-900 text-neutral-200 rounded p-2 shadow-sm border border-neutral-800">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-[11px] font-bold text-blue-400 flex items-center gap-1">
+                                        <Icon name="device-mobile" weight="bold" size={12} /> 사장님 화면 테스트 버튼
+                                    </span>
+                                    <span className="text-[10px] bg-neutral-800 px-1.5 py-0.5 rounded text-neutral-400">실제 고객 비노출</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1">
+                                    <button onClick={() => { setLoginNick('강은지팬'); setLoginPhone4('5678'); handleLogin(null, '강은지팬', '5678'); }} className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded py-1 px-1 text-[11px] font-bold text-white transition-all text-center leading-tight">
+                                        ① 완납+VIP<br/><span className="text-[10px] text-blue-400 font-normal">강은지팬-krl</span>
+                                    </button>
+                                    <button onClick={() => { setLoginNick('멋쟁이토마토'); setLoginPhone4('1234'); handleLogin(null, '멋쟁이토마토', '1234'); }} className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded py-1 px-1 text-[11px] font-bold text-white transition-all text-center leading-tight">
+                                        ② 미납+대기<br/><span className="text-[10px] text-amber-300 font-normal">멋쟁이-a2b</span>
+                                    </button>
+                                    <button onClick={() => { setLoginNick('깔로'); setLoginPhone4('0000'); handleLogin(null, '깔로', '0000'); }} className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded py-1 px-1 text-[11px] font-bold text-white transition-all text-center leading-tight">
+                                        ③ 첫구매<br/><span className="text-[10px] text-neutral-400 font-normal">깔로-krl</span>
+                                    </button>
+                                </div>
+                                {currentUser && (
+                                    <div className="mt-1.5 pt-1.5 border-t border-neutral-800 flex items-center justify-between gap-2">
+                                        <span className="text-[11px] text-neutral-300">추가 주문 테스트:</span>
+                                        <button 
+                                            type="button"
+                                            onClick={() => handleUnifiedRefresh(true)}
+                                            className="bg-[#1d4ed8] hover:bg-[#1e40af] text-white text-[11px] font-bold px-2 py-0.5 rounded transition-all shrink-0"
+                                        >
+                                            + 추가주문 & 새로고침
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {}
+                            {/* 2. 로그인(본인 확인) 화면 */}
+                            {!currentUser ? (
+                                <main className="bg-white rounded border border-slate-200 p-3.5 animate-fade-in space-y-3.5 shadow-sm">
+                                    <div className="border-b border-slate-100 pb-2.5">
+                                        <h2 className="text-[15px] font-extrabold text-slate-900 tracking-tight">엠버언니 주문&입금확인</h2>
+                                        <p className="text-[11.5px] text-slate-600 mt-1 font-medium leading-snug flex items-start gap-1">
+                                            <Icon name="shield-check" weight="fill" className="text-[#1d4ed8] shrink-0 mt-0.5" size={14} />
+                                            <span>개인정보보호법에 의거하여 고객님의 소중한 정보는 암호화 보호되며, 본인 인증 후에만 안전하게 열람됩니다.</span>
+                                        </p>
+                                    </div>
+
+                                    <form onSubmit={(e) => handleLogin(e)} className="space-y-3">
+                                        <div>
+                                            <label className="block text-[12px] font-bold text-slate-800 mb-1">
+                                                유튜브 닉네임 <span className="text-[#1d4ed8]">*</span>
+                                            </label>
+                                            <div className="relative">
+                                                <Icon name="user" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                                <input 
+                                                    type="text" 
+                                                    value={loginNick}
+                                                    onChange={(e) => setLoginNick(e.target.value)}
+                                                    placeholder="예) @깔로-k3j ➔ 깔로 입력"
+                                                    className="w-full pl-8 pr-3 py-2 rounded border border-slate-300 text-[12.5px] font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:ring-1 focus:ring-[#1d4ed8] focus:border-[#1d4ed8] outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[12px] font-bold text-slate-800 mb-1">
+                                                연락처 뒷 4자리 <span className="text-[#1d4ed8]">*</span> <span className="text-slate-500 font-normal text-[11px]">(비밀번호)</span>
+                                            </label>
+                                            <div className="relative">
+                                                <Icon name="lock-key" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                                                <input 
+                                                    type="password" 
+                                                    inputMode="numeric"
+                                                    maxLength={4}
+                                                    value={loginPhone4}
+                                                    onChange={(e) => setLoginPhone4(e.target.value.replace(/[^0-9]/g, ''))}
+                                                    placeholder="휴대폰 뒷 4자리 입력 (예: 5678)"
+                                                    className="w-full pl-8 pr-3 py-2 rounded border border-slate-300 text-[12.5px] font-bold text-slate-900 placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal tracking-widest focus:ring-1 focus:ring-[#1d4ed8] focus:border-[#1d4ed8] outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {errorMsg && (
+                                            <div className="p-2.5 rounded bg-red-50 border border-red-200 text-red-700 text-[11.5px] font-bold flex items-start gap-1.5 leading-snug">
+                                                <Icon name="warning-circle" weight="fill" size={14} className="shrink-0 mt-0.5 text-red-600" />
+                                                <span>{errorMsg}</span>
+                                            </div>
+                                        )}
+
+                                        <button 
+                                            type="submit"
+                                            className="w-full bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold py-2.5 rounded shadow-sm transition-colors flex items-center justify-center gap-1.5 text-[13px]"
+                                        >
+                                            <span>주문서 조회하기</span>
+                                            <Icon name="arrow-right" weight="bold" size={14} />
+                                        </button>
+                                    </form>
+
+                                    <div className="pt-2.5 border-t border-slate-100">
+                                        <div className="bg-slate-50 border border-slate-200 rounded p-2.5 space-y-2">
+                                            <div className="text-[11.5px] text-slate-700 text-center leading-snug">
+                                                <strong className="text-slate-900 font-bold">첫구매 고객이나 주문서가 열리지 않는 분은</strong><br/>
+                                                카톡 채널에 <strong className="text-[#1d4ed8] font-bold">[닉네임 / 연락처 뒷 4자리]</strong>를 남겨주세요.
+                                            </div>
+                                            <a 
+                                                href="#kakao-channel"
+                                                onClick={(e) => { e.preventDefault(); showToast("엠버 공식 카카오톡 채널로 이동합니다."); }}
+                                                className="w-full bg-[#FEE500] hover:bg-[#fada0a] text-neutral-900 font-bold py-2 px-3 rounded transition-all text-[12px] flex items-center justify-center gap-1.5 border border-[#e5ce00]"
+                                            >
+                                                <Icon name="chat-circle-dots" weight="fill" size={15} className="text-neutral-900" />
+                                                <span>엠버언니 채널 연락하기</span>
+                                            </a>
+                                        </div>
+                                    </div>
+                                </main>
+                            ) : (
+                                /* 3. 로그인 완료 후: 불필요한 문구를 덜어내고 구획별로 깔끔히 나눈 영수증 스타일 */
+                                <main className="space-y-2 animate-fade-in">
+                                    
+                                    {/* 구획 1: 주문자 & 새로고침 */}
+                                    <section className="bg-white rounded border border-slate-300 px-3 py-2 flex items-center justify-between gap-2 shadow-sm">
+                                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                            <h2 className="text-[14px] font-extrabold text-slate-900 truncate">
+                                                {currentUser.nickname} 님
+                                            </h2>
+                                            {currentUser.isVip && (
+                                                <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
+                                                    VIP 무료배송
+                                                </span>
+                                            )}
+                                            {currentUser.isManager && (
+                                                <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
+                                                    관리자 무료배송
+                                                </span>
+                                            )}
+                                            {!currentUser.isVip && !currentUser.isManager && summary.isFreeByAmount && (
+                                                <span className="text-[10.5px] font-bold bg-blue-50 text-[#1d4ed8] border border-blue-200 px-1.5 py-0.5 rounded">
+                                                    {(summary.threshold / 10000).toLocaleString()}만원이상 무료배송
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <button 
+                                            type="button"
+                                            onClick={() => handleUnifiedRefresh(false)}
+                                            disabled={isRefreshing}
+                                            className="bg-[#1d4ed8] hover:bg-[#1e40af] active:scale-95 text-white font-bold text-[11.5px] px-2.5 py-1 rounded transition-all shrink-0 flex items-center gap-1"
+                                        >
+                                            <Icon name="arrows-clockwise" weight="bold" size={12} className={isRefreshing ? "animate-spin" : ""} />
+                                            <span>새로고침</span>
+                                        </button>
+                                    </section>
+
+                                    {/* 구획 2: 주문목록 & 총 주문금액 */}
+                                    <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
+                                        <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
+                                            <h3 className="text-[12.5px] font-extrabold text-slate-900">
+                                                {currentUser.broadcastName} 주문목록
+                                            </h3>
+                                            <span className="text-[11.5px] font-bold text-slate-700">
+                                                {summary.activeItems.length}품목 / 총수량 {summary.activeItems.reduce((s, i) => s + i.qty, 0)}개
+                                            </span>
+                                        </div>
+
+                                        <div className="px-3 divide-y divide-slate-100">
+                                            {summary.activeItems.map((item) => (
+                                                <div key={item.id} className="py-1.5 flex items-center justify-between gap-2 text-[12.5px]">
+                                                    <div className="font-medium text-slate-800 flex-1 min-w-0 leading-snug">
+                                                        {item.product}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <span className="text-[11.5px] text-slate-500">
+                                                            {item.qty}개
+                                                        </span>
+                                                        <span className="font-bold text-slate-900 tabular-nums min-w-[60px] text-right">
+                                                            {item.price.toLocaleString()}원
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="bg-slate-50 border-t border-dashed border-slate-300 px-3 py-2 space-y-0.5 text-[12px]">
+                                            <div className="flex justify-between text-slate-600">
+                                                <span>상품 합계</span>
+                                                <span className="tabular-nums">{summary.productTotal.toLocaleString()}원</span>
+                                            </div>
+                                            <div className="flex justify-between text-slate-600">
+                                                <span>배송비</span>
+                                                <span className="tabular-nums">
+                                                    {summary.shipping === 0 ? '0원' : `${summary.shipping.toLocaleString()}원`}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-1 mt-1 border-t border-slate-200 text-[13.5px] font-extrabold text-slate-900">
+                                                <span>총 주문금액</span>
+                                                <span className="text-[#1d4ed8] tabular-nums">
+                                                    {summary.grandTotal.toLocaleString()}원
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {summary.waitlistItems.length > 0 && (
+                                            <div className="border-t border-slate-200 px-3 py-1.5 bg-amber-50/50 text-[12px]">
+                                                <div className="font-bold text-amber-900 mb-0.5">
+                                                    품절 대기 ({summary.waitlistItems.length}건 · 결제제외)
+                                                </div>
+                                                {summary.waitlistItems.map((item) => (
+                                                    <div key={item.id} className="py-0.5 flex justify-between text-slate-600">
+                                                        <span className="truncate pr-2">{item.product}</span>
+                                                        <span className="shrink-0">{item.qty}개</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </section>
+
+                                    {/* 구획 3: 입금 및 결제 내역 */}
+                                    <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
+                                        <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
+                                            <h3 className="text-[12.5px] font-extrabold text-slate-900">
+                                                입금 내역
+                                            </h3>
+                                            <span className="text-[11.5px] font-bold text-slate-600 tabular-nums">
+                                                누적 {summary.depositTotal.toLocaleString()}원
+                                            </span>
+                                        </div>
+
+                                        <div className="px-3 py-2 space-y-2 text-[12.5px]">
+                                            {summary.depositsList.length > 0 && (
+                                                <div className="divide-y divide-slate-100 border-b border-dashed border-slate-300 pb-1.5">
+                                                    {summary.depositsList.map((dep, idx) => (
+                                                        <div key={dep.id || idx} className="py-1 flex justify-between items-center text-[12px]">
+                                                            <span className="text-slate-600 tabular-nums">
+                                                                {dep.time} 입금 ({dep.name})
+                                                            </span>
+                                                            <span className="font-bold text-slate-900 tabular-nums">
+                                                                {Number(dep.amount).toLocaleString()}원
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {summary.balance > 0 ? (
+                                                <div className="bg-red-50 border-2 border-red-500 rounded p-2.5 space-y-2">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-[13px] font-extrabold text-red-700">미납 금액 (입금하실 금액)</span>
+                                                        <span className="text-[17px] font-black text-red-600 tabular-nums">
+                                                            {summary.balance.toLocaleString()}원
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded border border-red-200 text-[12px]">
+                                                        <div>
+                                                            <span className="text-slate-600 mr-1">카카오뱅크</span>
+                                                            <strong className="text-slate-900 font-extrabold tabular-nums">7942 32 84990</strong>
+                                                            <span className="text-slate-600 ml-1">(김선정)</span>
+                                                        </div>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => handleCopyText("79423284990", "계좌번호가")}
+                                                            className="bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-2 py-0.5 rounded shrink-0"
+                                                        >
+                                                            복사
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : summary.balance < 0 ? (
+                                                <div className="bg-blue-50 border-2 border-[#1d4ed8] rounded p-2.5 flex justify-between items-center">
+                                                    <span className="text-[13px] font-extrabold text-[#1d4ed8]">과납 금액</span>
+                                                    <span className="text-[15px] font-black text-[#1d4ed8] tabular-nums">
+                                                        +{Math.abs(summary.balance).toLocaleString()}원
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-blue-50 border-2 border-[#1d4ed8] rounded py-2 px-3 text-center">
+                                                    <span className="text-[13.5px] font-black text-[#1d4ed8]">
+                                                        입금완료(완납)
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {/* 구획 4: 배송지 */}
+                                    <section className="bg-white rounded border border-slate-300 shadow-sm overflow-hidden">
+                                        <div className="bg-slate-100 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between">
+                                            <h3 className="text-[12.5px] font-extrabold text-slate-900">
+                                                배송지
+                                            </h3>
+                                            {currentUser.address && !isEditingAddress && (
+                                                <button 
+                                                    type="button"
+                                                    onClick={openAddressEditor}
+                                                    className="text-[11px] font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 px-2 py-0.5 rounded"
+                                                >
+                                                    변경
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="px-3 py-2">
+                                            {!isEditingAddress && currentUser.address ? (
+                                                <div className="space-y-0.5 text-[12.5px] text-slate-800 leading-snug">
+                                                    <div className="font-bold text-slate-900">
+                                                        {maskName(currentUser.address.realname)} · <span className="tabular-nums font-semibold">{maskPhone(currentUser.address.phone)}</span>
+                                                    </div>
+                                                    <div>
+                                                        ({currentUser.address.zipcode}) {currentUser.address.baseAddress} {maskDetailAddress(currentUser.address.detailAddress)}
+                                                    </div>
+                                                    {currentUser.address.memo && (
+                                                        <div className="text-[11.5px] text-slate-500">
+                                                            메모: {currentUser.address.memo}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <form onSubmit={handleSaveAddress} className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[12px] font-bold text-[#1d4ed8]">
+                                                            {currentUser.address ? '배송지 변경' : '배송지 입력'}
+                                                        </span>
+                                                        {currentUser.address && (
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => setIsEditingAddress(false)}
+                                                                className="text-[11px] font-bold text-slate-500"
+                                                            >
+                                                                취소
+                                                            </button>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-1.5">
+                                                        <input 
+                                                            type="text" 
+                                                            value={addrForm.realname} 
+                                                            onChange={e => setAddrForm({...addrForm, realname: e.target.value})} 
+                                                            placeholder="수령인 성함 *" 
+                                                            className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" 
+                                                        />
+                                                        <input 
+                                                            type="tel" 
+                                                            inputMode="numeric"
+                                                            value={addrForm.phone} 
+                                                            onChange={e => setAddrForm({...addrForm, phone: e.target.value.replace(/[^0-9]/g, '')})} 
+                                                            placeholder="연락처(숫자만) *" 
+                                                            className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" 
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex gap-1.5">
+                                                            <input type="text" value={addrForm.zipcode} readOnly placeholder="우편번호" className="w-20 border border-slate-300 rounded px-2.5 py-1.5 text-[12px] bg-slate-50" />
+                                                            <button type="button" onClick={handlePostcodeSearch} className="bg-slate-700 hover:bg-slate-800 text-white text-[11.5px] font-bold px-3 py-1.5 rounded">주소 검색</button>
+                                                        </div>
+                                                        <input type="text" value={addrForm.baseAddress} readOnly placeholder="기본 주소" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12px] bg-slate-50" />
+                                                        <input type="text" value={addrForm.detailAddress} onChange={e => setAddrForm({...addrForm, detailAddress: e.target.value})} placeholder="상세 주소 (동, 호수)" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" />
+                                                        <input type="text" value={addrForm.memo} onChange={e => setAddrForm({...addrForm, memo: e.target.value})} placeholder="배송 메모 (선택)" className="w-full border border-slate-300 rounded px-2.5 py-1.5 text-[12.5px] outline-none focus:border-[#1d4ed8]" />
+                                                    </div>
+
+                                                    {}
+                                                    <div className="bg-slate-50 border border-slate-300 rounded p-2.5 space-y-2 text-[11.5px]">
+                                                        <div className="font-extrabold text-slate-900 text-[12px] border-b border-slate-200 pb-1.5">
+                                                            개인정보 수집 및 제3자 제공 동의
+                                                        </div>
+                                                        <div className="grid grid-cols-[72px_10px_1fr] gap-y-1 text-slate-700 leading-snug">
+                                                            <span className="font-bold text-slate-800">수집·이용 목적</span>
+                                                            <span className="text-slate-400">:</span>
+                                                            <span>상품 주문 확인, 배송, 고객 상담 및 민원 처리</span>
+
+                                                            <span className="font-bold text-slate-800">수집 항목</span>
+                                                            <span className="text-slate-400">:</span>
+                                                            <span>성명, 연락처, 배송지 주소, 유튜브 닉네임</span>
+
+                                                            <span className="font-bold text-slate-800">제3자 제공</span>
+                                                            <span className="text-slate-400">:</span>
+                                                            <span>위탁 배송을 위해 해당 상품 공급사에 배송 정보(성명, 연락처, 주소) 제공</span>
+
+                                                            <span className="font-bold text-slate-800">보유 및 이용</span>
+                                                            <span className="text-slate-400">:</span>
+                                                            <span className="font-bold text-slate-900">주소 입력일로부터 30일</span>
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-600 pt-1 border-t border-dashed border-slate-200 leading-snug">
+                                                            동의를 거부할 권리가 있으나, 거부 시 상품 주문 및 배송 불가합니다.
+                                                        </div>
+                                                        <label className="flex items-center gap-2 cursor-pointer pt-1.5 border-t border-slate-200">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={addrForm.agreePrivacy} 
+                                                                onChange={e => setAddrForm({...addrForm, agreePrivacy: e.target.checked})} 
+                                                                className="w-4 h-4 accent-slate-900 rounded" 
+                                                            />
+                                                            <span className="text-slate-900 font-extrabold text-[12px]">[필수] 위 내용에 동의합니다.</span>
+                                                        </label>
+                                                    </div>
+
+                                                    <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-2.5 rounded text-[12.5px] shadow-sm transition-colors">
+                                                        배송지 저장
+                                                    </button>
+                                                </form>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {/* 구획 5: 확인 및 카톡 버튼 */}
+                                    <section className="space-y-1.5 pt-0.5">
+                                        {isOrderConfirmedByCustomer ? (
+                                            <div className="w-full bg-blue-50 border border-[#1d4ed8] text-[#1d4ed8] font-bold py-2.5 px-3 rounded text-center text-[12.5px]">
+                                                ✓ 확인 완료되었습니다
+                                            </div>
+                                        ) : (
+                                            <button 
+                                                type="button"
+                                                onClick={handleConfirmOrder}
+                                                className="w-full bg-[#1d4ed8] hover:bg-[#1e40af] text-white font-bold py-2.5 px-3 rounded text-[13px] shadow-sm"
+                                            >
+                                                네, 주문내역과 배송지가 모두 맞습니다
+                                            </button>
+                                        )}
+
+                                        <a 
+                                            href="#kakao-cs"
+                                            onClick={(e) => { e.preventDefault(); showToast("카카오톡 상담창으로 연결됩니다."); }}
+                                            className="w-full bg-[#FEE500] hover:bg-[#fada0a] text-slate-900 font-bold text-[12px] py-2 px-3 rounded flex items-center justify-center gap-1.5 border border-[#e5ce00]"
+                                        >
+                                            <Icon name="chat-circle-dots" weight="fill" size={14} />
+                                            <span>품목 수정 등 카톡 연락하기</span>
+                                        </a>
+                                    </section>
+                                </main>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<CustomerPortalApp />);
     </script>
 </body>
 </html>
