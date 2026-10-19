@@ -52,7 +52,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzLDOGu-X6VB8gaDoN2jVnSg-dRKP5dxMPYfvFMrqwdm4UTsS7tU21-qi9NyC12s7cp/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzqWEe8-gAiy4O1nHNukhlE1FN1J4KqKD4y7iq90qhHhhmL1WQFcSRxduCV6NgxWw2t/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -301,6 +301,7 @@
             const [toastMsg, setToastMsg] = useState("");
             const [trackingMap, setTrackingMap] = useState({});
             const [collapsedTracks, setCollapsedTracks] = useState({});
+            const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
 
             // ✨ 고객이 페이지에 접속해서 닉네임을 입력하는 동안 백그라운드에서 미리 구글 시트 캐시를 예열(Warm-up)하여 조회 버튼 클릭 시 0.3초 만에 열리도록 가속!
             useEffect(() => {
@@ -440,6 +441,7 @@
             const handleSelectBroadcast = (idx) => {
                 if (!orderHistoryList[idx]) return;
                 setSelectedBroadcastIdx(idx);
+                setIsDepositHistoryOpen(false);
                 const targetOrder = orderHistoryList[idx];
                 setCurrentUser(targetOrder);
                 initAddressState(targetOrder);
@@ -981,40 +983,47 @@
 
                                 {/* 2. 입금 내역 및 계좌 안내 */}
                                 <section className="bg-white rounded-lg p-3.5 border border-gray-200 shadow-sm space-y-2.5">
-                                    <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsDepositHistoryOpen(prev => !prev)}
+                                        className={`w-full flex items-center justify-between text-left transition-colors ${isDepositHistoryOpen ? 'pb-2 border-b border-gray-200' : ''}`}
+                                    >
                                         <span className="text-[14px] font-extrabold text-gray-900">입금 내역</span>
-                                        <span className="text-[13px] font-bold text-gray-600">
-                                            누적 {depositTotal.toLocaleString()}원
+                                        <span className="text-[13px] font-bold text-gray-600 flex items-center gap-1 hover:text-gray-900">
+                                            <span>누적 {depositTotal.toLocaleString()}원</span>
+                                            <Icon name={isDepositHistoryOpen ? "caret-up" : "caret-down"} weight="bold" size={14} className="text-gray-500" />
                                         </span>
-                                    </div>
+                                    </button>
 
-                                    {depositsHistory.length === 0 ? (
-                                        <div className="py-2 text-[13px] text-gray-400 text-center">
-                                            확인된 입금 내역이 없습니다.
-                                        </div>
-                                    ) : (
-                                        <div className="divide-y divide-gray-100">
-                                            {depositsHistory.map((d, index) => (
-                                                <div key={d.id || index} className="py-2.5 flex items-center justify-between gap-2 text-[14px]">
-                                                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                                                        <span className="font-extrabold text-gray-900 truncate">{d.name || currentUser.nickname}</span>
-                                                        {d.time ? (
-                                                            <span className="text-[12px] text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded font-extrabold tabular-nums shrink-0 flex items-center gap-1">
-                                                                <Icon name="clock" weight="bold" size={12} />
-                                                                <span>{formatKstDateString(d.time)}</span>
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-[11.5px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-bold shrink-0">
-                                                                입금확인 완료
-                                                            </span>
-                                                        )}
+                                    {isDepositHistoryOpen && (
+                                        depositsHistory.length === 0 ? (
+                                            <div className="py-2 text-[13px] text-gray-400 text-center">
+                                                확인된 입금 내역이 없습니다.
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y divide-gray-100">
+                                                {depositsHistory.map((d, index) => (
+                                                    <div key={d.id || index} className="py-2.5 flex items-center justify-between gap-2 text-[14px]">
+                                                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                                            <span className="font-extrabold text-gray-900 truncate">{d.name || currentUser.nickname}</span>
+                                                            {d.time ? (
+                                                                <span className="text-[12px] text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded font-extrabold tabular-nums shrink-0 flex items-center gap-1">
+                                                                    <Icon name="clock" weight="bold" size={12} />
+                                                                    <span>{formatKstDateString(d.time)}</span>
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[11.5px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded font-bold shrink-0">
+                                                                    입금확인 완료
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <span className="font-extrabold text-gray-900 tabular-nums shrink-0 text-[15px]">
+                                                            {Number(d.amount).toLocaleString()}원
+                                                        </span>
                                                     </div>
-                                                    <span className="font-extrabold text-gray-900 tabular-nums shrink-0 text-[15px]">
-                                                        {Number(d.amount).toLocaleString()}원
-                                                    </span>
-                                                </div>
-                                            ))}
-                                        </div>
+                                                ))}
+                                            </div>
+                                        )
                                     )}
 
                                     {isUnpaid && (
