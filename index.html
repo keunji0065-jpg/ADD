@@ -63,7 +63,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwRdlzvE-FN9R7mMXGiVSoHXDx1dmbi-XEtviDDsCAAlFr1K1pj2lp_jTkd_pQ4tZ8v/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwC6u5ZjrKYmhiIOMuSxSaNRvTaiphDMIM6w2puihCkkapCpuePrKa4cj8yRfyQMKv1/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -88,11 +88,15 @@
             <i className={`ph ph-${name} ${className}`} data-phosphor-icon-weight={weight} style={{ fontSize: size }}></i>
         );
 
+        const normalizeNick = (str) => {
+            return String(str || "").replace(/[\s\(\)\[\]\{\}\-\_\.\,\/]/g, "").toLowerCase();
+        };
+
         const cleanHandle = (str) => {
             if (!str) return "";
             let s = String(str).trim().replace(/^@+/, "");
-            s = s.replace(/-[a-zA-Z0-9]{2,6}$/, "");
-            return s.replace(/\s+/g, "").toLowerCase();
+            s = s.replace(/-[a-zA-Z0-9]{3,6}$/, "");
+            return s.replace(/[\s\(\)\[\]\{\}\-\_\.\,\/]/g, "").toLowerCase();
         };
 
         const extractKorean = (str) => {
@@ -100,16 +104,77 @@
             return String(str).replace(/[^가-힣]/g, "");
         };
 
-        const isFlexibleNickMatch = (rowNick, inputNick) => {
-            if (!rowNick || !inputNick) return false;
-            const r = cleanHandle(rowNick);
-            const i = cleanHandle(inputNick);
-            if (r === i) return true;
-            const rKo = extractKorean(r);
-            const iKo = extractKorean(i);
-            if (rKo.length >= 2 && iKo.length >= 2 && rKo === iKo) return true;
-            if (r.length >= 2 && i.length >= 2 && (r.startsWith(i) || i.startsWith(r))) return true;
-            return false;
+        // 한글 모음(ㅐ/ㅔ, ㅒ/ㅖ) 혼동 오타 보정용 정규화 함수 (예: 태로맘 === 테로맘)
+        const normalizeKoreanVowel = (str) => {
+            const s = normalizeNick(str);
+            let out = "";
+            for (let i = 0; i < s.length; i++) {
+                const code = s.charCodeAt(i);
+                if (code >= 0xAC00 && code <= 0xD7A3) {
+                    const offset = code - 0xAC00;
+                    const cho = Math.floor(offset / 588);
+                    let jung = Math.floor((offset % 588) / 28);
+                    const jong = offset % 28;
+                    if (jung === 1) jung = 5; // ㅐ -> ㅔ 통일
+                    if (jung === 3) jung = 7; // ㅒ -> ㅖ 통일
+                    out += String.fromCharCode(0xAC00 + cho * 588 + jung * 28 + jong);
+                } else {
+                    out += s[i];
+                }
+            }
+            return out;
+        };
+
+        // 고객이 입력한 닉네임(또는 한글 일부/실명)과 DB의 닉네임/실명 간의 일치 점수를 계산하는 스마트 매칭 함수
+        // 반환값: 3(완전일치), 2(한글 핵심부분 일치 또는 포함), 1(수령인 실명 일치 또는 모음 오타 일치), 0(불일치)
+        const getNickMatchScore = (dbNick, dbRealname, userInput) => {
+            if (!userInput) return 0;
+            const nDb = normalizeNick(dbNick);
+            const nIn = normalizeNick(userInput);
+            if (!nIn) return 0;
+
+            // 1순위(3점): 대소문자/공백 무시 완전 일치 또는 핸들 꼬리표 제거 후 완전 일치
+            if (nDb && nDb === nIn) return 3;
+            const cDb = cleanHandle(dbNick);
+            const cIn = cleanHandle(userInput);
+            if (cDb && cIn && cDb === cIn) return 3;
+
+            // 2순위(2점): 한글 핵심 단어 일치 (예: '깔로AI'에서 '깔로'만 입력, '단발M.FLOWER'에서 '단발'만 입력)
+            const kDb = extractKorean(cDb || nDb);
+            const kIn = extractKorean(cIn || nIn);
+            if (kDb && kIn) {
+                if (kDb === kIn && kIn.length >= 2) return 2;
+                // 입력한 한글(2글자 이상)이 닉네임에 포함되어 있거나 그 반대인 경우
+                if (kIn.length >= 2 && (kDb.includes(kIn) || kIn.includes(kDb))) return 2;
+            }
+            // 영문/숫자 포함 부분 일치 (2글자 이상)
+            if (nIn.length >= 2 && nDb && (nDb.includes(nIn) || nIn.includes(nDb))) return 2;
+
+            // 3순위(1점): 닉네임 대신 수령인 실명(본명)을 입력한 경우 또는 ㅐ/ㅔ 모음 오타인 경우
+            const nReal = normalizeNick(dbRealname);
+            if (nReal && nReal === nIn && nIn.length >= 2) return 1;
+            if (nDb && normalizeKoreanVowel(nDb) === normalizeKoreanVowel(nIn)) return 1;
+            if (kDb && kIn && kIn.length >= 2 && normalizeKoreanVowel(kDb) === normalizeKoreanVowel(kIn)) return 1;
+
+            return 0;
+        };
+
+        const isFlexibleNickMatch = (rowNick, inputNick, rowRealname = "") => {
+            return getNickMatchScore(rowNick, rowRealname, inputNick) > 0;
+        };
+
+        const fixPhoneStr = (p) => {
+            if (!p) return "";
+            let c = String(p).replace(/[^0-9]/g, "");
+            if (c.length === 10 && !c.startsWith("0")) c = "0" + c;
+            return c;
+        };
+
+        const normalizePin4 = (val) => {
+            if (val === undefined || val === null) return "";
+            const digits = String(val).replace(/[^0-9]/g, "");
+            if (!digits) return "";
+            return digits.length < 4 ? digits.padStart(4, "0") : digits.slice(-4);
         };
 
         const maskName = (name) => {
@@ -576,47 +641,174 @@
                 }
                 setTrackingMap({});
 
-                // 1) 샘플 테스트 계정 우선 확인
-                const sampleFound = SAMPLE_DB.find(u => isFlexibleNickMatch(u.nickname, rawNick));
-                if (sampleFound) {
+                const sampleMatch = SAMPLE_DB.find(u => isFlexibleNickMatch(u.nickname, rawNick, u.address?.realname));
+                if (sampleMatch) {
                     setTimeout(() => {
                         setIsLoading(false);
                         setIsRefreshing(false);
-                        if (sampleFound.phoneLast4 !== cleanPin) {
-                            setLoginError("비밀번호 4자리가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
-                            return;
+                        if (normalizePin4(sampleMatch.phoneLast4) === normalizePin4(cleanPin)) {
+                            const hList = Array.isArray(sampleMatch.historyList) && sampleMatch.historyList.length > 0
+                                ? sampleMatch.historyList
+                                : [sampleMatch];
+                            setOrderHistoryList(hList);
+                            const nextIdx = selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
+                            setSelectedBroadcastIdx(nextIdx);
+                            setCurrentUser(hList[nextIdx]);
+                            initAddressState(hList[nextIdx]);
+                            if (isRefreshCall) showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
+                        } else {
+                            setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다.");
                         }
-                        const cloned = JSON.parse(JSON.stringify(sampleFound));
-                        const hList = Array.isArray(cloned.historyList) && cloned.historyList.length > 0 ? cloned.historyList : [cloned];
-                        setOrderHistoryList(hList);
-                        const nextIdx = selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
-                        setSelectedBroadcastIdx(nextIdx);
-                        setCurrentUser(hList[nextIdx]);
-                        initAddressState(hList[nextIdx]);
-                        if (isRefreshCall) {
-                            showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
-                        }
-                    }, isRefreshCall ? 450 : 100);
+                    }, 200);
                     return;
                 }
 
-                // 2) 실시간 구글 시트 연동 조회 (날짜별 방송 주문서 리스트 포함)
                 try {
-                    const fetchOrderWithPin = async (pinToTry) => {
-                        const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick.trim())}&pin=${encodeURIComponent(pinToTry)}${isRefreshCall ? '&nocache=1' : ''}&t=${Date.now()}`;
+                    const fetchOrderWithPin = async (targetPin) => {
+                        const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
                         const r = await fetch(url);
                         return await r.json();
                     };
 
                     let data = await fetchOrderWithPin(cleanPin);
 
-                    // ✨ 구글 시트에서 맨 앞의 '0'이 잘려 3자리/2자리(예: 0998 -> 998, 0025 -> 25)로 저장된 고객을 위한 자동 보정 재시도!
+                    // 시트에 앞자리 0이 잘린 채 저장된 비밀번호(예: 0998 -> 998) 호환을 위한 자동 재검증
                     if (data && data.errorType === "WRONG_PIN" && cleanPin.startsWith("0")) {
-                        const strippedPin = cleanPin.replace(/^0+/, "") || "0";
-                        const retryData = await fetchOrderWithPin(strippedPin);
-                        if (retryData && retryData.status === "success" && retryData.customerData) {
-                            data = retryData;
+                        const strippedPin = cleanPin.replace(/^0+/, "");
+                        if (strippedPin) {
+                            const retryData = await fetchOrderWithPin(strippedPin);
+                            if (retryData && retryData.status === "success") {
+                                data = retryData;
+                            }
                         }
+                    }
+
+                    // ✨ 만약 최근 방송 주문서('주문_' 시트)에는 품목이 없더라도, '찐고객사전'이나 '고객상태관리'에 등록된 고객(예: 깔로AI / 깔로ai / 깔로)이라면
+                    // 또는 백엔드에서 부분 닉네임을 못 찾았더라도, 전화번호 뒷 4자리(PIN)가 일치하는 유일한 고객이면 즉시 열리도록 스마트 매칭 수행!
+                    if (data && data.status === "not_found") {
+                        try {
+                            const dictRes = await fetch(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`);
+                            const dictJson = await dictRes.json();
+                            if (dictJson && dictJson.status === "success") {
+                                const mAddrs = Array.isArray(dictJson.masterAddresses) ? dictJson.masterAddresses : [];
+                                const cDb = Array.isArray(dictJson.customerDb) ? dictJson.customerDb : [];
+                                const normInPin = normalizePin4(cleanPin);
+
+                                // 닉네임별로 찐고객사전 + 고객상태관리 정보를 하나로 통합
+                                const candidateMap = new Map();
+
+                                mAddrs.forEach(a => {
+                                    const n = String(a.nickname || a['닉네임'] || a['주문자'] || a.col_0 || '').trim();
+                                    if (!n || n.toLowerCase() === 'nickname') return;
+                                    const rName = String(a.realname || a['수령인명'] || a.col_1 || '').trim();
+                                    const score = getNickMatchScore(n, rName, rawNick);
+                                    if (score > 0) {
+                                        const ph = fixPhoneStr(a.phone || a['연락처'] || a.col_2);
+                                        const pinFromPh = ph.length >= 4 ? normalizePin4(ph.slice(-4)) : '';
+                                        const key = normalizeNick(n);
+                                        const prev = candidateMap.get(key) || { nick: n, realname: rName, score: 0, pins: new Set(), addrRow: null, custRow: null };
+                                        prev.nick = n;
+                                        if (rName) prev.realname = rName;
+                                        if (score > prev.score) prev.score = score;
+                                        if (pinFromPh) prev.pins.add(pinFromPh);
+                                        prev.addrRow = a;
+                                        candidateMap.set(key, prev);
+                                    }
+                                });
+
+                                cDb.forEach(c => {
+                                    const n = String(c['닉네임'] || '').trim();
+                                    if (!n) return;
+                                    const score = getNickMatchScore(n, '', rawNick);
+                                    if (score > 0) {
+                                        const key = normalizeNick(n);
+                                        const prev = candidateMap.get(key) || { nick: n, realname: '', score: 0, pins: new Set(), addrRow: null, custRow: null };
+                                        if (score > prev.score) prev.score = score;
+                                        if (c['비밀번호']) prev.pins.add(normalizePin4(c['비밀번호']));
+                                        prev.custRow = c;
+                                        candidateMap.set(key, prev);
+                                    }
+                                });
+
+                                const allCandidates = Array.from(candidateMap.values());
+                                // 1차 필터: 입력한 비밀번호 4자리(normInPin)와 일치하는 후보만 추출
+                                const pinMatchedCandidates = allCandidates.filter(cand => cand.pins.has(normInPin));
+
+                                // 가장 높은 매칭 점수 그룹만 추려냄 (완전일치 3점이 있으면 3점만, 없으면 2점 부분일치 등)
+                                const maxScore = pinMatchedCandidates.reduce((m, c) => Math.max(m, c.score), 0);
+                                const bestPinMatched = pinMatchedCandidates.filter(c => c.score === maxScore);
+
+                                if (bestPinMatched.length > 1) {
+                                    // 🚨 동일한 부분 닉네임 + 동일한 전화번호 뒷 4자리를 쓰는 동명이인이 2명 이상인 경우!
+                                    const dupNames = bestPinMatched.map(c => c.nick).join(', ');
+                                    data = {
+                                        status: "error",
+                                        message: `입력하신 이름과 뒷번호가 일치하는 고객님이 ${bestPinMatched.length}명(${dupNames}) 있습니다. 정확한 전체 닉네임을 입력해 주세요!`
+                                    };
+                                } else if (bestPinMatched.length === 1) {
+                                    // ✅ 부분 닉네임(예: '깔로')만 쳤어도 뒷번호 4자리('0065')가 일치하는 유일한 고객('깔로AI') 발견!
+                                    const targetCand = bestPinMatched[0];
+                                    const trueNick = targetCand.nick;
+
+                                    // 실제 닉네임(예: '깔로AI')으로 서버에 주문 내역이 있는지 한 번 더 조회!
+                                    if (normalizeNick(trueNick) !== normalizeNick(rawNick)) {
+                                        const retryTrueNick = await fetchOrderWithPin(cleanPin);
+                                        const urlTrue = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(trueNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`;
+                                        try {
+                                            const rTrue = await fetch(urlTrue);
+                                            const dTrue = await rTrue.json();
+                                            if (dTrue && dTrue.status === "success" && dTrue.customerData) {
+                                                data = dTrue;
+                                            }
+                                        } catch (e) {}
+                                    }
+
+                                    // 주문 시트에 품목이 없더라도 본인 배송지와 함께 정상 접속 허용!
+                                    if (!data || data.status !== "success") {
+                                        const latestAddr = targetCand.addrRow;
+                                        const matchedCust = targetCand.custRow;
+                                        const ph = latestAddr ? fixPhoneStr(latestAddr.phone || latestAddr['연락처'] || latestAddr.col_2) : '';
+                                        const rawAddrStr = latestAddr ? String(latestAddr.address || latestAddr['주소'] || latestAddr.col_3 || '').trim() : '';
+                                        const zipM = rawAddrStr.match(/^\((\d{5})\)\s*(.*)$/);
+                                        const addrObj = latestAddr ? {
+                                            realname: String(latestAddr.realname || latestAddr['수령인명'] || latestAddr.col_1 || '').trim(),
+                                            phone: ph,
+                                            zipcode: zipM ? zipM[1] : String(latestAddr.zipcode || latestAddr.col_4 || '').trim(),
+                                            baseAddress: zipM ? zipM[2] : rawAddrStr,
+                                            detailAddress: '',
+                                            memo: String(latestAddr.memo || latestAddr['배송메모'] || latestAddr.col_5 || '').trim(),
+                                            updatedAt: String(latestAddr.timestamp || latestAddr['저장시간'] || latestAddr.col_6 || '').trim()
+                                        } : null;
+
+                                        const emptyOrderCard = {
+                                            sheetTabName: '메인주문',
+                                            nickname: trueNick,
+                                            phoneLast4: normInPin,
+                                            broadcastName: '최근 주문 내역 없음',
+                                            isVip: matchedCust && String(matchedCust['고객상태'] || '').toLowerCase() === 'vip',
+                                            freeShippingThreshold: 70000,
+                                            cardFeeRate: 10,
+                                            isCard: '',
+                                            shipping: 0,
+                                            depositTotal: 0,
+                                            deposits: [],
+                                            items: [],
+                                            address: addrObj && addrObj.baseAddress ? addrObj : null,
+                                            trackingNumbers: [],
+                                            isConfirmed: false
+                                        };
+                                        data = {
+                                            status: "success",
+                                            customerData: emptyOrderCard,
+                                            historyList: [emptyOrderCard]
+                                        };
+                                    }
+                                } else if (allCandidates.length > 0) {
+                                    // 닉네임은 비슷한 사람이 있는데 비밀번호가 틀린 경우
+                                    data = { status: "error", errorType: "WRONG_PIN" };
+                                }
+                            }
+                        } catch (fallbackErr) {}
                     }
 
                     setIsLoading(false);
