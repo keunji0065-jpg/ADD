@@ -63,7 +63,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzqWEe8-gAiy4O1nHNukhlE1FN1J4KqKD4y7iq90qhHhhmL1WQFcSRxduCV6NgxWw2t/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwRdlzvE-FN9R7mMXGiVSoHXDx1dmbi-XEtviDDsCAAlFr1K1pj2lp_jTkd_pQ4tZ8v/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
@@ -522,11 +522,18 @@
             };
 
             const initAddressState = (userObj) => {
+                const hasTrk = Boolean(
+                    (Array.isArray(userObj?.trackingNumbers) && userObj.trackingNumbers.length > 0) ||
+                    (userObj?.trackingNumber && String(userObj.trackingNumber).trim() !== "")
+                );
                 if (userObj && userObj.address && userObj.address.baseAddress) {
                     setAddrForm(userObj.address);
                     setIsEditingAddress(false);
                     setAgreePrivacy(true);
                     setAgreeThirdParty(true);
+                } else if (hasTrk) {
+                    setAddrForm(userObj?.address || { realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
+                    setIsEditingAddress(false);
                 } else {
                     setAddrForm({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
                     setIsEditingAddress(true);
@@ -654,6 +661,15 @@
 
             const handleSaveAddress = async (e) => {
                 if (e && e.preventDefault) e.preventDefault();
+                const hasTrackingNow = Boolean(
+                    (Array.isArray(currentUser?.trackingNumbers) && currentUser.trackingNumbers.length > 0) ||
+                    (currentUser?.trackingNumber && String(currentUser.trackingNumber).trim() !== "")
+                );
+                if (hasTrackingNow) {
+                    setIsEditingAddress(false);
+                    showToast("이미 송장번호가 등록(출고)된 방송의 배송지는 변경할 수 없습니다.");
+                    return false;
+                }
                 if (!addrForm.realname.trim()) { showToast("수령인 성함을 입력해 주세요."); return false; }
                 const cleanPhone = addrForm.phone.replace(/[^0-9]/g, "");
                 if (cleanPhone.length < 10) { showToast("정확한 휴대폰 번호를 입력해 주세요."); return false; }
@@ -686,11 +702,11 @@
                             nickname: currentUser.nickname,
                             realname: updatedAddr.realname.trim(),
                             phone: "'" + cleanPhone,
-                            zipcode: "",
                             address: fullCombinedAddress,
                             memo: updatedAddr.memo.trim(),
                             sheetTabName: currentUser.sheetTabName || '메인주문',
-                            broadcastName: currentUser.broadcastName || ''
+                            broadcastName: currentUser.broadcastName || '',
+                            isCustomerPortal: true
                         }
                     };
                     const res = await fetch(DEFAULT_GAS_URL, {
@@ -706,6 +722,10 @@
                         setIsEditingAddress(false);
                         showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 안전하게 저장되었습니다!`);
                         return true;
+                    } else if (result.errorType === 'TRACKING_LOCKED') {
+                        setIsEditingAddress(false);
+                        showToast(result.message || "이미 출고(송장등록)된 주문서는 배송지를 변경할 수 없습니다.");
+                        return false;
                     } else {
                         showToast("저장에 실패했습니다. 다시 시도해 주세요.");
                         return false;
@@ -778,7 +798,8 @@
             const baseGrandTotal = productTotal + shippingFee;
             const depositTotal = currentUser ? Number(currentUser.depositTotal || 0) : 0;
             const rawBalance = baseGrandTotal - depositTotal;
-            const isCard = Boolean(currentUser && (currentUser.isCard === true || String(currentUser.isCard || '').toUpperCase().startsWith('O') || String(currentUser.isCard || '').includes('카드')));
+            const isCard = Boolean(currentUser && (currentUser.isCard === true || String(currentUser.isCard || '').toUpperCase().startsWith('O') || String(currentUser.isCard || '').includes('카드') || String(currentUser.isCard || '').includes('완료')));
+            const isCardPaid = Boolean(isCard && String(currentUser?.isCard || '').includes('완료'));
             const parsedFeeFromCardStr = (() => {
                 const m = String(currentUser?.isCard || '').match(/(\d+(?:\.\d+)?)%/);
                 return m ? Number(m[1]) : 0;
@@ -806,7 +827,7 @@
                 }
                 return [];
             })();
-
+            const isAddressLockedByTracking = userTrackingList.length > 0;
             // ✨ 주문서가 열리거나 방송 날짜 탭을 바꿀 때 송장번호가 있으면 클릭할 필요도 없이 그 자리에서 자동으로 배송흐름을 불러옵니다!
             useEffect(() => {
                 if (userTrackingList.length > 0) {
@@ -847,7 +868,7 @@
                                 <div className="bg-white/55 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-white/70">
                                     <div className="flex items-center justify-between mb-3">
                                         <h2 className="text-[16px] font-black text-gray-900 tracking-tight drop-shadow-sm">
-                                            엠버언니 주문&입금확인
+                                            통합주문확인
                                         </h2>
                                         <span className="text-[11px] font-extrabold text-blue-700 flex items-center gap-0.5 drop-shadow-sm">
                                             <Icon name="shield-check" weight="bold" size={14} /> 본인 인증 후 열람가능
@@ -920,7 +941,7 @@
                                             className="w-full py-3 bg-[#FEE500] hover:bg-[#FADA0A] text-gray-900 font-extrabold rounded-lg text-[13px] flex items-center justify-center gap-1.5 shadow-sm transition-all"
                                         >
                                             <Icon name="chat-circle-dots" weight="fill" size={17} />
-                                            <span>첫구매 / 주문서가 열리지 않는분 문의하기</span>
+                                            <span>첫구매/주문서 오류시 문의하기</span>
                                         </a>
                                     </div>
                                 </div>
@@ -936,7 +957,8 @@
                                         {isPaid && <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">완납</span>}
                                         {isUnpaid && <span className="bg-red-50 text-red-600 border border-red-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">미입금</span>}
                                         {isOverpaid && <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">과납</span>}
-                                        {isCard && <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">카드결제</span>}
+                                        {isCard && !isCardPaid && <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">카드요청</span>}
+                                        {isCard && isCardPaid && <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">카드완료</span>}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                         <button 
@@ -1163,30 +1185,56 @@
                                         </div>
                                     )}
 
+                                    {}
                                     {isCard && (
-                                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3.5 space-y-2 text-[14px]">
-                                            <div className="flex justify-between items-center text-gray-700 font-semibold">
+                                        <div className={`${isCardPaid ? 'bg-purple-50 border-purple-300' : 'bg-amber-50 border-amber-300'} border rounded-lg p-3.5 space-y-2 text-[14px]`}>
+                                            <div className="flex items-center justify-between pb-2 border-b border-black/10">
+                                                <span className={`font-extrabold text-[14px] flex items-center gap-1.5 ${isCardPaid ? 'text-purple-900' : 'text-amber-900'}`}>
+                                                    <Icon name="credit-card" weight="fill" size={17} className={isCardPaid ? 'text-purple-600' : 'text-amber-600'} />
+                                                    <span>{isCardPaid ? '카드결제 완료' : '카드결제 요청 (결제 대기중)'}</span>
+                                                </span>
+                                                <span className={`text-[11.5px] font-extrabold px-2 py-0.5 rounded ${isCardPaid ? 'bg-purple-600 text-white' : 'bg-amber-500 text-white'}`}>
+                                                    {isCardPaid ? '결제확인됨' : '요청접수됨'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-gray-700 font-semibold pt-0.5">
                                                 <span>총 주문금액</span>
                                                 <span className="font-bold text-gray-900 tabular-nums">{baseGrandTotal.toLocaleString()}원</span>
                                             </div>
                                             {depositTotal > 0 && (
                                                 <div className="flex justify-between items-center text-gray-700 font-semibold">
-                                                    <span>입금완료 금액</span>
+                                                    <span>선입금 완료 금액</span>
                                                     <span className="font-bold text-emerald-700 tabular-nums">-{depositTotal.toLocaleString()}원</span>
                                                 </div>
                                             )}
-                                            <div className="flex justify-between items-center text-gray-800 font-bold pt-1 border-t border-purple-200/60">
-                                                <span>남은 미납금액 (카드결제 대상)</span>
+                                            <div className="flex justify-between items-center text-gray-800 font-bold pt-1 border-t border-black/10">
+                                                <span>카드결제 대상 금액</span>
                                                 <span className="font-extrabold text-gray-900 tabular-nums">{Math.max(0, rawBalance).toLocaleString()}원</span>
                                             </div>
-                                            <div className="flex justify-between items-center text-purple-700 font-bold">
+                                            <div className={`flex justify-between items-center font-bold ${isCardPaid ? 'text-purple-700' : 'text-amber-800'}`}>
                                                 <span>카드 수수료 (+{cardFeeRate}%)</span>
                                                 <span className="tabular-nums">+{cardFee.toLocaleString()}원</span>
                                             </div>
-                                            <div className="flex justify-between items-center pt-2 border-t border-purple-300 text-purple-900 font-extrabold">
-                                                <span className="text-[15px]">카드결제 예정금액</span>
-                                                <span className="text-[18px] font-black text-purple-700 tabular-nums">{Math.max(0, finalBalance).toLocaleString()}원</span>
+                                            <div className={`flex justify-between items-center pt-2 border-t font-extrabold ${isCardPaid ? 'border-purple-300 text-purple-900' : 'border-amber-300 text-amber-900'}`}>
+                                                <span className="text-[15px]">{isCardPaid ? '최종 카드결제 완료금액' : '최종 카드결제 요청금액'}</span>
+                                                <span className={`text-[18px] font-black tabular-nums ${isCardPaid ? 'text-purple-700' : 'text-amber-700'}`}>{Math.max(0, finalBalance).toLocaleString()}원</span>
                                             </div>
+                                            {isCardPaid ? (
+                                                <div className="bg-purple-600 text-white rounded-lg py-2.5 px-3 text-center text-[14px] font-extrabold flex items-center justify-center gap-1.5 mt-1 shadow-sm">
+                                                    <Icon name="check-circle" weight="fill" size={18} />
+                                                    <span>카드결제가 정상적으로 완료되었습니다</span>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-amber-500 text-white rounded-lg py-2.5 px-3 text-center text-[13px] font-extrabold flex flex-col items-center justify-center gap-0.5 mt-1 shadow-sm">
+                                                    <div className="flex items-center gap-1.5 text-[14px]">
+                                                        <Icon name="clock-countdown" weight="fill" size={17} />
+                                                        <span>카드결제 요청 접수 (결제 확인 대기중)</span>
+                                                    </div>
+                                                    <span className="text-[11.5px] font-semibold text-amber-50">
+                                                        결제 완료 후 직원이 확인하면 [카드결제 완료]로 변경됩니다
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </section>
@@ -1206,29 +1254,36 @@
                                                 </span>
                                             )}
                                         </div>
-                                        {currentUser.address && !isEditingAddress && (
-                                            <button 
-                                                onClick={() => {
-                                                    setAddrForm({
-                                                        realname: "",
-                                                        phone: "",
-                                                        zipcode: "",
-                                                        baseAddress: "",
-                                                        detailAddress: "",
-                                                        memo: ""
-                                                    });
-                                                    setAgreePrivacy(false);
-                                                    setAgreeThirdParty(false);
-                                                    setIsEditingAddress(true);
-                                                }}
-                                                className="text-[12.5px] font-bold text-gray-800 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded border border-gray-300 shrink-0"
-                                            >
-                                                변경
-                                            </button>
+                                        {isAddressLockedByTracking ? (
+                                            <span className="text-[11.5px] font-extrabold text-gray-600 bg-gray-100 px-2.5 py-1 rounded border border-gray-300 shrink-0 flex items-center gap-1">
+                                                <Icon name="lock-key" weight="fill" size={13} className="text-gray-500" />
+                                                <span>출고완료(변경불가)</span>
+                                            </span>
+                                        ) : (
+                                            currentUser.address && !isEditingAddress && (
+                                                <button 
+                                                    onClick={() => {
+                                                        setAddrForm({
+                                                            realname: "",
+                                                            phone: "",
+                                                            zipcode: "",
+                                                            baseAddress: "",
+                                                            detailAddress: "",
+                                                            memo: ""
+                                                        });
+                                                        setAgreePrivacy(false);
+                                                        setAgreeThirdParty(false);
+                                                        setIsEditingAddress(true);
+                                                    }}
+                                                    className="text-[12.5px] font-bold text-gray-800 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded border border-gray-300 shrink-0"
+                                                >
+                                                    변경
+                                                </button>
+                                            )
                                         )}
                                     </div>
 
-                                    {!isEditingAddress && currentUser.address ? (
+                                    {(!isEditingAddress || isAddressLockedByTracking) && currentUser.address ? (
                                         <div className="text-[14px] space-y-1.5 bg-gray-50 p-3 rounded border border-gray-200">
                                             <div className="flex items-center gap-2 font-extrabold text-gray-900 text-[15px]">
                                                 <span>{maskName(currentUser.address.realname)}</span>
@@ -1243,6 +1298,16 @@
                                                     메모: {currentUser.address.memo}
                                                 </div>
                                             )}
+                                            {isAddressLockedByTracking && (
+                                                <div className="text-[11.5px] font-bold text-gray-500 pt-1.5 border-t border-gray-200/80 flex items-center gap-1">
+                                                    <Icon name="info" weight="fill" size={13} className="text-gray-400 shrink-0" />
+                                                    <span>운송장이 등록(출고)된 방송의 배송지는 수정할 수 없습니다.</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : isAddressLockedByTracking ? (
+                                        <div className="text-[13px] text-gray-500 bg-gray-50 p-3 rounded border border-gray-200 font-semibold">
+                                            운송장이 등록(출고)되어 배송지 정보를 변경할 수 없습니다.
                                         </div>
                                     ) : (
                                         <form onSubmit={handleSaveAddress} className="space-y-2.5">
