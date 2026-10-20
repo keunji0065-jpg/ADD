@@ -229,6 +229,40 @@
             return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
         };
 
+        // 방송명/탭이름(예: "주문_10/20 악세사리", "10 18 여성복", "10월 16일")에서 날짜 숫자를 추출해 최신 날짜순(내림차순) 정렬용 점수를 계산하는 함수
+        const extractBroadcastDateScore = (titleOrTab) => {
+            const s = String(titleOrTab || '').replace(/^주문_/, '').trim();
+            if (!s) return 0;
+            // 1) YYYY-MM-DD 또는 YY-MM-DD 형식
+            const fullMatch = s.match(/(?:20)?(\d{2})[./\-\s년]+(\d{1,2})[./\-\s월]+(\d{1,2})/);
+            if (fullMatch) {
+                const yy = parseInt(fullMatch[1], 10);
+                const mm = parseInt(fullMatch[2], 10);
+                const dd = parseInt(fullMatch[3], 10);
+                if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+                    return (2000 + yy) * 10000 + mm * 100 + dd;
+                }
+            }
+            // 2) MM/DD, MM.DD, MM-DD, MM DD, MM월 DD일 형식 (예: "10/20 악세사리", "10 18 여성복", "10 16 여성복")
+            const mdMatch = s.match(/(?:^|[^\d])(1[0-2]|0?[1-9])[./\-\s월]+([0-2]?\d|3[01])(?:일|\b|\s|[^0-9])/);
+            if (mdMatch) {
+                const mm = parseInt(mdMatch[1], 10);
+                const dd = parseInt(mdMatch[2], 10);
+                return 2026 * 10000 + mm * 100 + dd;
+            }
+            return 0;
+        };
+
+        const sortHistoryByNewestDate = (list) => {
+            if (!Array.isArray(list)) return [];
+            return [...list].sort((a, b) => {
+                const scoreA = extractBroadcastDateScore(a?.broadcastName || a?.sheetTabName || '');
+                const scoreB = extractBroadcastDateScore(b?.broadcastName || b?.sheetTabName || '');
+                if (scoreA !== scoreB) return scoreB - scoreA; // 늦은(최신) 날짜가 무조건 맨 앞으로!
+                return 0;
+            });
+        };
+
         // 테스트용 샘플 데이터
         const SAMPLE_DB = [
             {
@@ -647,11 +681,12 @@
                         setIsLoading(false);
                         setIsRefreshing(false);
                         if (normalizePin4(sampleMatch.phoneLast4) === normalizePin4(cleanPin)) {
-                            const hList = Array.isArray(sampleMatch.historyList) && sampleMatch.historyList.length > 0
+                            const rawHList = Array.isArray(sampleMatch.historyList) && sampleMatch.historyList.length > 0
                                 ? sampleMatch.historyList
                                 : [sampleMatch];
+                            const hList = sortHistoryByNewestDate(rawHList);
                             setOrderHistoryList(hList);
-                            const nextIdx = selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
+                            const nextIdx = isRefreshCall && selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
                             setSelectedBroadcastIdx(nextIdx);
                             setCurrentUser(hList[nextIdx]);
                             initAddressState(hList[nextIdx]);
@@ -815,9 +850,10 @@
                     setIsRefreshing(false);
 
                     if (data.status === "success" && data.customerData) {
-                        const hList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
+                        const rawHList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
+                        const hList = sortHistoryByNewestDate(rawHList);
                         setOrderHistoryList(hList);
-                        const nextIdx = selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
+                        const nextIdx = isRefreshCall && selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
                         setSelectedBroadcastIdx(nextIdx);
                         setCurrentUser(hList[nextIdx]);
                         initAddressState(hList[nextIdx]);
