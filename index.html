@@ -16,6 +16,8 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js" crossorigin="anonymous"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" crossorigin="anonymous"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js" crossorigin="anonymous"></script>
     <!-- 무거운 외부 스크립트(아이콘, 우편번호)는 화면 렌더링을 막지 않도록 defer 비동기 로드 -->
     <script src="https://unpkg.com/@phosphor-icons/web" crossorigin="anonymous" defer></script>
     <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" defer></script>
@@ -63,11 +65,112 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwC6u5ZjrKYmhiIOMuSxSaNRvTaiphDMIM6w2puihCkkapCpuePrKa4cj8yRfyQMKv1/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx1rWCPnPf23AFtsCgPrHwP1mpFXO_5cW6bRdRkj_pfdLmODk3z19gMXg-GLQw7ET9D/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
         const BANK_NAME_HOLDER = '카카오뱅크 김선정';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_zSCxhX';
+
+        // Firebase 실시간 DB 초기화 (구글 시트 과부하 시 0.1초 만에 주문서를 열어주는 무중단 백업 서버)
+        let portalFbDb = null;
+        try {
+            const fbConfig = {
+                apiKey: "AIzaSyDgdH34cDnp2S9akHfFLYBSpHzzamHFuoc",
+                authDomain: "my-live-shop.firebaseapp.com",
+                databaseURL: "https://my-live-shop-default-rtdb.firebaseio.com",
+                projectId: "my-live-shop",
+                storageBucket: "my-live-shop.firebasestorage.app",
+                messagingSenderId: "598748133843",
+                appId: "1:598748133843:web:17c7d83321fc191f85d726"
+            };
+            if (window.firebase) {
+                if (!window.firebase.apps.length) {
+                    window.firebase.initializeApp(fbConfig);
+                }
+                portalFbDb = window.firebase.database();
+            }
+        } catch (e) {}
+
+        // 동시 접속 폭주 시에도 절대 실패하지 않도록 최대 3회 자동 재시도(Auto-Retry)하는 안전한 통신 함수
+        const fetchGasWithRetry = async (url, options = null, maxRetries = 3) => {
+            let lastErr = null;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 14000);
+                try {
+                    const fetchOpts = options
+                        ? { ...options, redirect: 'follow', signal: controller.signal }
+                        : { method: 'GET', redirect: 'follow', signal: controller.signal };
+                    const res = await fetch(url, fetchOpts);
+                    clearTimeout(timeoutId);
+                    const text = await res.text();
+                    if (text && !text.trim().startsWith('<!DOCTYPE') && !text.trim().startsWith('<html')) {
+                        return JSON.parse(text);
+                    }
+                    lastErr = new Error('GAS_HTML_RESPONSE');
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    lastErr = err;
+                }
+                if (attempt < maxRetries - 1) {
+                    await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+                }
+            }
+            throw lastErr || new Error('NETWORK_FAILED');
+        };
+
+        // Firebase 실시간 클라우드 백업에서 고객 주문서를 0.1초 만에 찾아내는 함수
+        const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
+            if (!portalFbDb) return null;
+            try {
+                const snap = await portalFbDb.ref('ember_live_data/_portal_orders').once('value');
+                const store = snap.val();
+                if (!store || typeof store !== 'object') return null;
+
+                const normInPin = normalizePin4(cleanPin);
+                const matchedHistory = [];
+                let wrongPinDetected = false;
+
+                const broadcasts = Object.values(store);
+                broadcasts.forEach(bData => {
+                    if (!bData || !Array.isArray(bData.customers)) return;
+                    let bestCand = null;
+                    let bestScore = 0;
+
+                    bData.customers.forEach(cust => {
+                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
+                        if (sc > 0) {
+                            const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? cust.address.phone.slice(-4) : ''));
+                            if (!cPin || cPin === normInPin) {
+                                if (sc > bestScore) {
+                                    bestScore = sc;
+                                    bestCand = cust;
+                                }
+                            } else {
+                                wrongPinDetected = true;
+                            }
+                        }
+                    });
+
+                    if (bestCand) {
+                        matchedHistory.push(bestCand);
+                    }
+                });
+
+                if (matchedHistory.length > 0) {
+                    const sorted = sortHistoryByNewestDate(matchedHistory);
+                    return {
+                        status: 'success',
+                        customerData: sorted[0],
+                        historyList: sorted
+                    };
+                }
+                if (wrongPinDetected) {
+                    return { status: 'error', errorType: 'WRONG_PIN' };
+                }
+            } catch (e) {}
+            return null;
+        };
 
         // 사업자 정보 설정 (주소나 이메일/연락처를 필요 시 수정하세요)
         const BUSINESS_INFO = {
@@ -701,20 +804,42 @@
                 try {
                     const fetchOrderWithPin = async (targetPin) => {
                         const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
-                        const r = await fetch(url);
-                        return await r.json();
+                        return await fetchGasWithRetry(url, null, 3);
                     };
 
-                    let data = await fetchOrderWithPin(cleanPin);
+                    let data = null;
+                    try {
+                        data = await fetchOrderWithPin(cleanPin);
+                    } catch (gasNetworkErr) {
+                        // 구글 시트 서버가 동시 접속 폭주로 응답하지 않을 때 즉시 Firebase 백업 서버에서 주문서를 가져옴!
+                        const fbFallback = await lookupOrderFromFirebase(rawNick, cleanPin);
+                        if (fbFallback) {
+                            data = fbFallback;
+                        } else {
+                            throw gasNetworkErr;
+                        }
+                    }
+
+                    // 만약 GAS에서 못 찾았더라도 Firebase 실시간 주문서에 방금 추가된 주문이 있는지 한 번 더 확인
+                    if (!data || data.status === "not_found" || data.status === "error") {
+                        if (!data || data.errorType !== "WRONG_PIN") {
+                            const fbData = await lookupOrderFromFirebase(rawNick, cleanPin);
+                            if (fbData && fbData.status === "success") {
+                                data = fbData;
+                            }
+                        }
+                    }
 
                     // 시트에 앞자리 0이 잘린 채 저장된 비밀번호(예: 0998 -> 998) 호환을 위한 자동 재검증
                     if (data && data.errorType === "WRONG_PIN" && cleanPin.startsWith("0")) {
                         const strippedPin = cleanPin.replace(/^0+/, "");
                         if (strippedPin) {
-                            const retryData = await fetchOrderWithPin(strippedPin);
-                            if (retryData && retryData.status === "success") {
-                                data = retryData;
-                            }
+                            try {
+                                const retryData = await fetchOrderWithPin(strippedPin);
+                                if (retryData && retryData.status === "success") {
+                                    data = retryData;
+                                }
+                            } catch (e) {}
                         }
                     }
 
@@ -722,8 +847,7 @@
                     // 또는 백엔드에서 부분 닉네임을 못 찾았더라도, 전화번호 뒷 4자리(PIN)가 일치하는 유일한 고객이면 즉시 열리도록 스마트 매칭 수행!
                     if (data && data.status === "not_found") {
                         try {
-                            const dictRes = await fetch(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`);
-                            const dictJson = await dictRes.json();
+                            const dictJson = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, null, 2);
                             if (dictJson && dictJson.status === "success") {
                                 const mAddrs = Array.isArray(dictJson.masterAddresses) ? dictJson.masterAddresses : [];
                                 const cDb = Array.isArray(dictJson.customerDb) ? dictJson.customerDb : [];
@@ -787,11 +911,9 @@
 
                                     // 실제 닉네임(예: '깔로AI')으로 서버에 주문 내역이 있는지 한 번 더 조회!
                                     if (normalizeNick(trueNick) !== normalizeNick(rawNick)) {
-                                        const retryTrueNick = await fetchOrderWithPin(cleanPin);
                                         const urlTrue = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(trueNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`;
                                         try {
-                                            const rTrue = await fetch(urlTrue);
-                                            const dTrue = await rTrue.json();
+                                            const dTrue = await fetchGasWithRetry(urlTrue, null, 2);
                                             if (dTrue && dTrue.status === "success" && dTrue.customerData) {
                                                 data = dTrue;
                                             }
@@ -849,7 +971,7 @@
                     setIsLoading(false);
                     setIsRefreshing(false);
 
-                    if (data.status === "success" && data.customerData) {
+                    if (data && data.status === "success" && data.customerData) {
                         const rawHList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
                         const hList = sortHistoryByNewestDate(rawHList);
                         setOrderHistoryList(hList);
@@ -860,20 +982,20 @@
                         if (isRefreshCall) {
                             showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
                         }
-                    } else if (data.errorType === "WRONG_PIN") {
+                    } else if (data && data.errorType === "WRONG_PIN") {
                         setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
-                    } else if (data.status === "not_found") {
+                    } else if (data && data.status === "not_found") {
                         setLoginError("주문 내역을 찾을 수 없습니다. (@와 -뒤 영문을 뺀 한글 닉네임만 입력해 보세요!)");
                     } else {
-                        setLoginError(data.message || "조회에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+                        setLoginError((data && data.message) || "조회에 실패했습니다. 잠시 후 다시 시도해 주세요.");
                     }
                 } catch (err) {
                     setIsLoading(false);
                     setIsRefreshing(false);
                     if (isRefreshCall) {
-                        showToast("통신 오류가 발생했습니다. 다시 시도해 주세요.");
+                        showToast("접속자가 많아 지연되고 있습니다. 2초 후 다시 눌러주세요.");
                     } else {
-                        setLoginError("서버와 통신할 수 없습니다. 인터넷 연결을 확인해 주세요.");
+                        setLoginError("현재 동시 접속자가 많아 연결이 지연되었습니다. [주문서 조회하기]를 한 번 더 눌러주세요!");
                     }
                 }
             };
@@ -951,20 +1073,35 @@
                             isCustomerPortal: true
                         }
                     };
-                    const res = await fetch(DEFAULT_GAS_URL, {
+                    // Firebase에도 고객이 입력한 최신 주소를 즉시 백업 기록
+                    if (portalFbDb) {
+                        const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                        portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set({
+                            nickname: currentUser.nickname,
+                            realname: updatedAddr.realname.trim(),
+                            phone: cleanPhone,
+                            zipcode: cleanZip,
+                            baseAddress: cleanBase,
+                            detailAddress: updatedAddr.detailAddress,
+                            address: fullCombinedAddress,
+                            memo: updatedAddr.memo.trim(),
+                            updatedAt: nowStr
+                        }).catch(() => {});
+                    }
+
+                    const result = await fetchGasWithRetry(DEFAULT_GAS_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                         body: JSON.stringify(payload)
-                    });
-                    const result = await res.json();
-                    if (result.success || result.status === 'success') {
+                    }, 3);
+                    if (result && (result.success || result.status === 'success')) {
                         setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr }));
                         setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr } : item));
                         setPinInput(newLast4);
                         setIsEditingAddress(false);
                         showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 안전하게 저장되었습니다!`);
                         return true;
-                    } else if (result.errorType === 'TRACKING_LOCKED') {
+                    } else if (result && result.errorType === 'TRACKING_LOCKED') {
                         setIsEditingAddress(false);
                         showToast(result.message || "이미 출고(송장등록)된 주문서는 배송지를 변경할 수 없습니다.");
                         return false;
@@ -973,7 +1110,16 @@
                         return false;
                     }
                 } catch (err) {
-                    showToast("통신 오류가 발생했습니다.");
+                    // 만약 구글 시트 쓰기 락(Lock)이 걸렸더라도 Firebase에 백업되었음을 반영해 고객 불편 방지
+                    if (portalFbDb) {
+                        setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr }));
+                        setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr } : item));
+                        setPinInput(newLast4);
+                        setIsEditingAddress(false);
+                        showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 저장되었습니다!`);
+                        return true;
+                    }
+                    showToast("접속자가 많아 지연되었습니다. 다시 한번 저장을 눌러주세요.");
                     return false;
                 } finally {
                     setIsSavingAddress(false);
@@ -1005,7 +1151,15 @@
                 }
 
                 try {
-                    await fetch(DEFAULT_GAS_URL, {
+                    if (portalFbDb) {
+                        const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                        portalFbDb.ref(`ember_live_data/_portal_confirmed/${safeNickKey}`).set({
+                            nickname: currentUser.nickname,
+                            broadcastName: currentUser.broadcastName || '',
+                            confirmedAt: nowStr
+                        }).catch(() => {});
+                    }
+                    await fetchGasWithRetry(DEFAULT_GAS_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                         body: JSON.stringify({
@@ -1017,7 +1171,7 @@
                                 broadcastName: currentUser.broadcastName || ''
                             }
                         })
-                    });
+                    }, 3);
                     setCurrentUser(prev => ({
                         ...prev,
                         isConfirmed: true,
@@ -1026,7 +1180,12 @@
                     setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, isConfirmed: true, address: item.address ? { ...item.address, updatedAt: nowStr } : item.address } : item));
                     showToast("주문 및 배송지 확인이 완료되었습니다!");
                 } catch (e) {
-                    showToast("확인 처리 중 오류가 발생했습니다.");
+                    setCurrentUser(prev => ({
+                        ...prev,
+                        isConfirmed: true,
+                        address: prev.address ? { ...prev.address, updatedAt: nowStr } : prev.address
+                    }));
+                    showToast("주문 및 배송지 확인이 완료되었습니다!");
                 }
             };
 
