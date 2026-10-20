@@ -43,35 +43,28 @@
         .font-serif {
             font-family: 'Cormorant Garamond', Georgia, serif;
         }
-        .safe-bottom {
-            padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
-        }
-        @keyframes subtleShimmer {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-        }
         .kalo-signature {
-            background: linear-gradient(90deg, #9ca3af 0%, #6b7280 35%, #a18868 50%, #6b7280 65%, #9ca3af 100%);
-            background-size: 220% auto;
+            background: linear-gradient(90deg, #6b7280 0%, #111827 50%, #6b7280 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            animation: subtleShimmer 6s ease-in-out infinite;
+        }
+        .safe-bottom {
+            padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
         }
     </style>
 </head>
-<body class="min-h-screen w-full overflow-y-auto py-0 sm:py-6 sm:px-4">
-    <div id="root" class="w-full flex justify-center"></div>
+<body>
+    <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx1rWCPnPf23AFtsCgPrHwP1mpFXO_5cW6bRdRkj_pfdLmODk3z19gMXg-GLQw7ET9D/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz5wMdAoYwgihXThXfWyVwnEVfI57HhE9MeK4K6FdtEU53s_Sr5LaM6IdlgfgwzvhBU/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
+        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
+        const BANK_NAME_HOLDER = '카카오뱅크 · 김선정';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
-        const BANK_NAME_HOLDER = '카카오뱅크 김선정';
-        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_zSCxhX';
 
-        // Firebase 실시간 DB 초기화 (구글 시트 과부하 시 0.1초 만에 주문서를 열어주는 무중단 백업 서버)
         let portalFbDb = null;
         try {
             const fbConfig = {
@@ -84,78 +77,112 @@
                 appId: "1:598748133843:web:17c7d83321fc191f85d726"
             };
             if (window.firebase) {
-                if (!window.firebase.apps.length) {
-                    window.firebase.initializeApp(fbConfig);
-                }
+                if (!window.firebase.apps.length) window.firebase.initializeApp(fbConfig);
                 portalFbDb = window.firebase.database();
             }
         } catch (e) {}
 
-        // 동시 접속 폭주 시에도 절대 실패하지 않도록 최대 3회 자동 재시도(Auto-Retry)하는 안전한 통신 함수
-        const fetchGasWithRetry = async (url, options = null, maxRetries = 3) => {
+        const fetchGasWithRetry = async (url, options = null, maxRetries = 2, timeoutMs = 15000) => {
             let lastErr = null;
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 14000);
+                const timer = setTimeout(() => controller.abort(), timeoutMs);
                 try {
                     const fetchOpts = options
                         ? { ...options, redirect: 'follow', signal: controller.signal }
                         : { method: 'GET', redirect: 'follow', signal: controller.signal };
                     const res = await fetch(url, fetchOpts);
-                    clearTimeout(timeoutId);
+                    clearTimeout(timer);
                     const text = await res.text();
-                    if (text && !text.trim().startsWith('<!DOCTYPE') && !text.trim().startsWith('<html')) {
-                        return JSON.parse(text);
-                    }
-                    lastErr = new Error('GAS_HTML_RESPONSE');
+                    const parsed = JSON.parse(text);
+                    if (parsed) return parsed;
                 } catch (err) {
-                    clearTimeout(timeoutId);
+                    clearTimeout(timer);
                     lastErr = err;
+                    if (attempt < maxRetries - 1) {
+                        await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+                    }
                 }
-                if (attempt < maxRetries - 1) {
-                    await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
-                }
+            }
+            if (options && options.method === 'POST') {
+                return null;
             }
             throw lastErr || new Error('NETWORK_FAILED');
         };
 
-        // Firebase 실시간 클라우드 백업에서 고객 주문서를 0.1초 만에 찾아내는 함수
+        // Firebase 실시간 클라우드 백업 및 찐고객사전 캐시에서 고객 주문서를 0.1초 만에 찾아내는 초고속 엔진
         const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
             if (!portalFbDb) return null;
             try {
-                const snap = await portalFbDb.ref('ember_live_data/_portal_orders').once('value');
-                const store = snap.val();
-                if (!store || typeof store !== 'object') return null;
-
+                const [ordersSnap, addrsSnap] = await Promise.all([
+                    portalFbDb.ref('ember_live_data/_portal_orders').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_master_addrs').once('value')
+                ]);
+                const store = ordersSnap.val();
+                const masterAddrMap = addrsSnap.val() || {};
                 const normInPin = normalizePin4(cleanPin);
-                const matchedHistory = [];
-                let wrongPinDetected = false;
 
-                const broadcasts = Object.values(store);
-                broadcasts.forEach(bData => {
-                    if (!bData || !Array.isArray(bData.customers)) return;
-                    let bestCand = null;
-                    let bestScore = 0;
-
-                    bData.customers.forEach(cust => {
-                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
-                        if (sc > 0) {
-                            const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? cust.address.phone.slice(-4) : ''));
-                            if (!cPin || cPin === normInPin) {
-                                if (sc > bestScore) {
-                                    bestScore = sc;
-                                    bestCand = cust;
-                                }
-                            } else {
-                                wrongPinDetected = true;
-                            }
+                // 1) 찐고객사전 클라우드 캐시에서 본인 주소 및 전화번호 뒷4자리 탐색
+                let matchedMasterAddr = null;
+                let masterPin = '';
+                let bestAddrScore = 0;
+                Object.values(masterAddrMap).forEach(a => {
+                    if (!a || !a.nickname) return;
+                    const sc = getNickMatchScore(a.nickname, a.realname || '', rawNick);
+                    if (sc > 0) {
+                        const aPin = a.phone && String(a.phone).length >= 4 ? normalizePin4(String(a.phone).slice(-4)) : '';
+                        if (sc > bestAddrScore || (sc === bestAddrScore && aPin === normInPin)) {
+                            bestAddrScore = sc;
+                            matchedMasterAddr = a;
+                            if (aPin) masterPin = aPin;
                         }
-                    });
-
-                    if (bestCand) {
-                        matchedHistory.push(bestCand);
                     }
                 });
+
+                const matchedHistory = [];
+                let exactNickWrongPin = false;
+
+                if (store && typeof store === 'object') {
+                    const broadcasts = Object.values(store);
+                    broadcasts.forEach(bData => {
+                        if (!bData || !Array.isArray(bData.customers)) return;
+                        let bestCand = null;
+                        let bestScore = 0;
+
+                        bData.customers.forEach(cust => {
+                            const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
+                            if (sc <= 0) return;
+
+                            const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? cust.address.phone.slice(-4) : ''));
+
+                            // 주문서에 아직 연락처/비밀번호가 없는(빈칸인) 고객이거나, 비밀번호가 일치하는 경우 통과!
+                            if (!cPin || cPin === normInPin || (sc === 3 && masterPin === normInPin)) {
+                                if (sc > bestScore || (sc === bestScore && cPin === normInPin)) {
+                                    bestScore = sc;
+                                    bestCand = {
+                                        ...cust,
+                                        phoneLast4: cPin || normInPin,
+                                        address: cust.address || (matchedMasterAddr && bestAddrScore >= 2 ? {
+                                            realname: matchedMasterAddr.realname || '',
+                                            phone: fixPhoneStr(matchedMasterAddr.phone || ''),
+                                            zipcode: matchedMasterAddr.zipcode || '',
+                                            baseAddress: matchedMasterAddr.address || '',
+                                            detailAddress: '',
+                                            memo: matchedMasterAddr.memo || '',
+                                            updatedAt: ''
+                                        } : null)
+                                    };
+                                }
+                            } else if (sc === 3) {
+                                exactNickWrongPin = true;
+                            }
+                        });
+
+                        if (bestCand) {
+                            matchedHistory.push(bestCand);
+                        }
+                    });
+                }
 
                 if (matchedHistory.length > 0) {
                     const sorted = sortHistoryByNewestDate(matchedHistory);
@@ -165,7 +192,42 @@
                         historyList: sorted
                     };
                 }
-                if (wrongPinDetected) {
+
+                // 주문 내역은 없지만 찐고객사전에 등록된 단골 고객이고 비밀번호가 일치하면 빈 주문서로 즉시 접속 허용
+                if (matchedMasterAddr && bestAddrScore >= 2 && (!masterPin || masterPin === normInPin)) {
+                    const emptyCard = {
+                        sheetTabName: '메인주문',
+                        nickname: matchedMasterAddr.nickname,
+                        phoneLast4: normInPin,
+                        broadcastName: '최근 주문 내역 없음',
+                        isVip: false,
+                        freeShippingThreshold: 70000,
+                        cardFeeRate: 10,
+                        isCard: '',
+                        shipping: 0,
+                        depositTotal: 0,
+                        deposits: [],
+                        items: [],
+                        address: {
+                            realname: matchedMasterAddr.realname || '',
+                            phone: fixPhoneStr(matchedMasterAddr.phone || ''),
+                            zipcode: matchedMasterAddr.zipcode || '',
+                            baseAddress: matchedMasterAddr.address || '',
+                            detailAddress: '',
+                            memo: matchedMasterAddr.memo || '',
+                            updatedAt: ''
+                        },
+                        trackingNumbers: [],
+                        isConfirmed: false
+                    };
+                    return {
+                        status: 'success',
+                        customerData: emptyCard,
+                        historyList: [emptyCard]
+                    };
+                }
+
+                if (exactNickWrongPin) {
                     return { status: 'error', errorType: 'WRONG_PIN' };
                 }
             } catch (e) {}
@@ -804,29 +866,45 @@
                 try {
                     const fetchOrderWithPin = async (targetPin) => {
                         const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
-                        return await fetchGasWithRetry(url, null, 3);
+                        return await fetchGasWithRetry(url, null, 2);
                     };
 
+                    // 🚀 1단계: 구글 시트 서버를 기다리지 않고 0.1초 걸리는 Firebase 실시간 클라우드부터 즉시 확인!
+                    let fbInstantData = await lookupOrderFromFirebase(rawNick, cleanPin);
+                    if (fbInstantData && fbInstantData.status === "success" && fbInstantData.customerData && !isRefreshCall) {
+                        const hList = sortHistoryByNewestDate(fbInstantData.historyList || [fbInstantData.customerData]);
+                        setOrderHistoryList(hList);
+                        setSelectedBroadcastIdx(0);
+                        setCurrentUser(hList[0]);
+                        initAddressState(hList[0]);
+                        setIsLoading(false);
+                        setIsRefreshing(false);
+
+                        // 백그라운드에서 조용히 구글 시트(이전 방송 이력 포함)도 확인하여 추가 이력이 있으면 합쳐줌
+                        fetchOrderWithPin(cleanPin).then(gasRes => {
+                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > hList.length) {
+                                const merged = sortHistoryByNewestDate(gasRes.historyList);
+                                setOrderHistoryList(merged);
+                            }
+                        }).catch(() => {});
+                        return;
+                    }
+
+                    // 🚀 2단계: Firebase에 아직 없거나 새로고침을 누른 경우 구글 시트 조회 (실패 시 Firebase 폴백)
                     let data = null;
                     try {
                         data = await fetchOrderWithPin(cleanPin);
                     } catch (gasNetworkErr) {
-                        // 구글 시트 서버가 동시 접속 폭주로 응답하지 않을 때 즉시 Firebase 백업 서버에서 주문서를 가져옴!
-                        const fbFallback = await lookupOrderFromFirebase(rawNick, cleanPin);
-                        if (fbFallback) {
-                            data = fbFallback;
+                        if (fbInstantData) {
+                            data = fbInstantData;
                         } else {
                             throw gasNetworkErr;
                         }
                     }
 
-                    // 만약 GAS에서 못 찾았더라도 Firebase 실시간 주문서에 방금 추가된 주문이 있는지 한 번 더 확인
                     if (!data || data.status === "not_found" || data.status === "error") {
-                        if (!data || data.errorType !== "WRONG_PIN") {
-                            const fbData = await lookupOrderFromFirebase(rawNick, cleanPin);
-                            if (fbData && fbData.status === "success") {
-                                data = fbData;
-                            }
+                        if (fbInstantData && fbInstantData.status === "success") {
+                            data = fbInstantData;
                         }
                     }
 
