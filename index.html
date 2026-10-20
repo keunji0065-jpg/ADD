@@ -122,20 +122,24 @@
                 const masterAddrMap = addrsSnap.val() || {};
                 const normInPin = normalizePin4(cleanPin);
 
-                // 1) 찐고객사전 클라우드 캐시에서 본인 주소 및 전화번호 뒷4자리 탐색
+                // 1) 찐고객사전 클라우드 캐시에서 본인 주소 탐색
+                // ⚠️ 중요: 다른 사람의 주소가 엉뚱하게 연결되지 않도록, 반드시 '닉네임 완전 일치(3점)'이거나 '전화번호 뒷 4자리(PIN)가 정확히 일치'할 때만 인정!
                 let matchedMasterAddr = null;
                 let masterPin = '';
                 let bestAddrScore = 0;
                 Object.values(masterAddrMap).forEach(a => {
                     if (!a || !a.nickname) return;
                     const sc = getNickMatchScore(a.nickname, a.realname || '', rawNick);
-                    if (sc > 0) {
-                        const aPin = a.phone && String(a.phone).length >= 4 ? normalizePin4(String(a.phone).slice(-4)) : '';
-                        if (sc > bestAddrScore || (sc === bestAddrScore && aPin === normInPin)) {
-                            bestAddrScore = sc;
-                            matchedMasterAddr = a;
-                            if (aPin) masterPin = aPin;
-                        }
+                    if (sc <= 0) return;
+                    const aPin = a.phone && String(a.phone).length >= 4 ? normalizePin4(String(a.phone).slice(-4)) : '';
+                    // 부분 일치(sc < 3)인데 전화번호 뒷 4자리조차 다르면 절대 남의 주소를 가져오지 않음!
+                    if (sc < 3 && aPin !== normInPin) return;
+                    if (sc === 3 && aPin && normInPin && aPin !== normInPin) return;
+
+                    if (sc > bestAddrScore || (sc === bestAddrScore && aPin === normInPin)) {
+                        bestAddrScore = sc;
+                        matchedMasterAddr = a;
+                        if (aPin) masterPin = aPin;
                     }
                 });
 
@@ -155,14 +159,23 @@
 
                             const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? cust.address.phone.slice(-4) : ''));
 
-                            // 주문서에 아직 연락처/비밀번호가 없는(빈칸인) 고객이거나, 비밀번호가 일치하는 경우 통과!
-                            if (!cPin || cPin === normInPin || (sc === 3 && masterPin === normInPin)) {
+                            // ⚠️ 중요: 부분 일치(sc < 3)인 경우에는 반드시 해당 주문서의 비밀번호(cPin)가 입력한 번호(normInPin)와 정확히 일치할 때만 허용! (비슷한 닉네임의 다른 사람 주문서/주소 오연결 완벽 차단)
+                            const isAllowed = sc === 3
+                                ? (!cPin || cPin === normInPin || (masterPin && masterPin === normInPin))
+                                : Boolean(cPin && cPin === normInPin);
+
+                            if (isAllowed) {
+                                // 이 고객 본인의 찐고객사전 주소인지 최종 확인 (닉네임이 똑같고 전화번호 뒷4자리도 맞을 때만 fallback 주소 연결)
+                                const canUseFallbackMaster = matchedMasterAddr &&
+                                    normalizeNick(matchedMasterAddr.nickname) === normalizeNick(cust.nickname) &&
+                                    (!masterPin || masterPin === normInPin);
+
                                 if (sc > bestScore || (sc === bestScore && cPin === normInPin)) {
                                     bestScore = sc;
                                     bestCand = {
                                         ...cust,
                                         phoneLast4: cPin || normInPin,
-                                        address: cust.address || (matchedMasterAddr && bestAddrScore >= 2 ? {
+                                        address: cust.address || (canUseFallbackMaster ? {
                                             realname: matchedMasterAddr.realname || '',
                                             phone: fixPhoneStr(matchedMasterAddr.phone || ''),
                                             zipcode: matchedMasterAddr.zipcode || '',
@@ -193,8 +206,8 @@
                     };
                 }
 
-                // 주문 내역은 없지만 찐고객사전에 등록된 단골 고객이고 비밀번호가 일치하면 빈 주문서로 즉시 접속 허용
-                if (matchedMasterAddr && bestAddrScore >= 2 && (!masterPin || masterPin === normInPin)) {
+                // 주문 내역은 없지만 찐고객사전에 등록된 단골 고객이고 비밀번호(뒷 4자리)가 정확히 일치할 때만 빈 주문서로 접속 허용
+                if (matchedMasterAddr && bestAddrScore >= 2 && masterPin && masterPin === normInPin) {
                     const emptyCard = {
                         sheetTabName: '메인주문',
                         nickname: matchedMasterAddr.nickname,
@@ -869,7 +882,7 @@
                         return await fetchGasWithRetry(url, null, 2);
                     };
 
-                    // 🚀 1단계: 구글 시트 서버를 기다리지 않고 0.1초 걸리는 Firebase 실시간 클라우드부터 즉시 확인!
+                    // 🚀 1단계: Firebase 실시간 클라우드(0.1초)와 구글 시트를 스마트하게 병합하여 입금내역이 가장 최신인 데이터를 즉시 표시!
                     let fbInstantData = await lookupOrderFromFirebase(rawNick, cleanPin);
                     if (fbInstantData && fbInstantData.status === "success" && fbInstantData.customerData && !isRefreshCall) {
                         const hList = sortHistoryByNewestDate(fbInstantData.historyList || [fbInstantData.customerData]);
@@ -880,20 +893,72 @@
                         setIsLoading(false);
                         setIsRefreshing(false);
 
-                        // 백그라운드에서 조용히 구글 시트(이전 방송 이력 포함)도 확인하여 추가 이력이 있으면 합쳐줌
+                        // 백그라운드에서 구글 시트 데이터도 즉시 가져와서 입금액(depositTotal)이나 이전 방송 내역이 더 최신이면 화면을 자동 업데이트!
                         fetchOrderWithPin(cleanPin).then(gasRes => {
-                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > hList.length) {
-                                const merged = sortHistoryByNewestDate(gasRes.historyList);
-                                setOrderHistoryList(merged);
+                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
+                                const gasList = sortHistoryByNewestDate(gasRes.historyList);
+                                const mergedMap = new Map();
+                                hList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
+                                gasList.forEach(gItem => {
+                                    const key = gItem.sheetTabName || gItem.broadcastName;
+                                    const existing = mergedMap.get(key);
+                                    if (!existing) {
+                                        mergedMap.set(key, gItem);
+                                    } else {
+                                        // 둘 중 입금액(depositTotal)이 더 크거나 주소가 있는 쪽으로 최신 데이터 병합!
+                                        const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
+                                        const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
+                                        mergedMap.set(key, {
+                                            ...gItem,
+                                            ...existing,
+                                            depositTotal: bestDep,
+                                            deposits: bestDepsArr,
+                                            address: existing.address || gItem.address,
+                                            isConfirmed: existing.isConfirmed || gItem.isConfirmed
+                                        });
+                                    }
+                                });
+                                const finalMerged = sortHistoryByNewestDate(Array.from(mergedMap.values()));
+                                setOrderHistoryList(finalMerged);
+                                setCurrentUser(finalMerged[0]);
                             }
                         }).catch(() => {});
                         return;
                     }
 
-                    // 🚀 2단계: Firebase에 아직 없거나 새로고침을 누른 경우 구글 시트 조회 (실패 시 Firebase 폴백)
+                    // 🚀 2단계: 새로고침을 눌렀거나 Firebase에 아직 없을 때는 구글 시트와 Firebase를 모두 비교해 입금액이 최신인 쪽을 반영!
                     let data = null;
                     try {
                         data = await fetchOrderWithPin(cleanPin);
+                        if (data && data.status === "success" && fbInstantData && fbInstantData.status === "success") {
+                            const gasList = Array.isArray(data.historyList) ? data.historyList : [data.customerData];
+                            const fbList = Array.isArray(fbInstantData.historyList) ? fbInstantData.historyList : [fbInstantData.customerData];
+                            const mergedMap = new Map();
+                            gasList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
+                            fbList.forEach(fItem => {
+                                const key = fItem.sheetTabName || fItem.broadcastName;
+                                const existing = mergedMap.get(key);
+                                if (!existing) {
+                                    mergedMap.set(key, fItem);
+                                } else {
+                                    const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(fItem.depositTotal) || 0);
+                                    const bestDepsArr = (Array.isArray(fItem.deposits) && fItem.deposits.length > (existing.deposits?.length || 0)) ? fItem.deposits : (existing.deposits || []);
+                                    mergedMap.set(key, {
+                                        ...existing,
+                                        depositTotal: bestDep,
+                                        deposits: bestDepsArr,
+                                        address: fItem.address || existing.address,
+                                        isConfirmed: fItem.isConfirmed || existing.isConfirmed
+                                    });
+                                }
+                            });
+                            const mergedArr = sortHistoryByNewestDate(Array.from(mergedMap.values()));
+                            data = {
+                                status: "success",
+                                customerData: mergedArr[0],
+                                historyList: mergedArr
+                            };
+                        }
                     } catch (gasNetworkErr) {
                         if (fbInstantData) {
                             data = fbInstantData;
