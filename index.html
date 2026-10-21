@@ -114,87 +114,179 @@
         const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
             if (!portalFbDb) return null;
             try {
-                const [ordersSnap, addrsSnap] = await Promise.all([
+                const [ordersSnap, addrsSnap, portalAddrsSnap, portalConfSnap, creditsSnap] = await Promise.all([
                     portalFbDb.ref('ember_live_data/_portal_orders').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_master_addrs').once('value')
+                    portalFbDb.ref('ember_live_data/_portal_master_addrs').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_addresses').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_confirmed').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_credits').once('value')
                 ]);
                 const store = ordersSnap.val();
-                const masterAddrMap = addrsSnap.val() || {};
+                const masterAddrMap = Object.assign({}, addrsSnap.val() || {}, portalAddrsSnap.val() || {});
+                const portalConfMap = portalConfSnap.val() || {};
+                const creditsMap = creditsSnap.val() || {};
                 const normInPin = normalizePin4(cleanPin);
 
+                const findCreditForNick = (targetNick) => {
+                    if (!targetNick) return 0;
+                    const tNorm = normalizeNick(targetNick);
+                    const tClean = cleanHandle(targetNick);
+                    // 1순위: 직접 키 조회
+                    const safeKey = String(targetNick).replace(/[.#$\[\]\/]/g, '_');
+                    if (creditsMap[safeKey] && Number(creditsMap[safeKey].credit) > 0) {
+                        return Number(creditsMap[safeKey].credit);
+                    }
+                    // 2순위: 정규화 닉네임 및 핸들 꼬리표 제거 후 일치 조회
+                    for (const k in creditsMap) {
+                        const item = creditsMap[k];
+                        if (!item) continue;
+                        const itemNick = item.nickname || k;
+                        if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
+                            return Number(item.credit) || 0;
+                        }
+                    }
+                    return 0;
+                };
+
                 // 1) 찐고객사전 클라우드 캐시에서 본인 주소 탐색
-                // ⚠️ 중요: 다른 사람의 주소가 엉뚱하게 연결되지 않도록, 반드시 '닉네임 완전 일치(3점)'이거나 '전화번호 뒷 4자리(PIN)가 정확히 일치'할 때만 인정!
-                let matchedMasterAddr = null;
-                let masterPin = '';
-                let bestAddrScore = 0;
+                const matchedMasterMap = {};
+                const handleCountMap = {};
                 Object.values(masterAddrMap).forEach(a => {
                     if (!a || !a.nickname) return;
+                    const hk = cleanHandle(a.nickname);
+                    if (hk) handleCountMap[hk] = (handleCountMap[hk] || 0) + 1;
+                });
+
+                let bestMasterAddr = null;
+                let bestAddrScore = 0;
+
+                Object.values(masterAddrMap).forEach(a => {
+                    if (!a || !a.nickname) return;
+                    const aPin = a.phone && String(a.phone).length >= 4 ? normalizePin4(String(a.phone).slice(-4)) : '';
+                    const normNickKey = normalizeNick(a.nickname);
+                    const cleanHandleKey = cleanHandle(a.nickname);
+                    if (aPin) {
+                        const entryObj = { addr: a, pin: aPin };
+                        if (normNickKey) matchedMasterMap[normNickKey] = entryObj;
+                        // 핸들을 뗀 이름이 찐고객사전 내에서 유일한 1명일 때만 보조 키로 등록 (동명이인 번호 혼선 방지)
+                        if (cleanHandleKey && handleCountMap[cleanHandleKey] === 1) {
+                            matchedMasterMap[cleanHandleKey] = entryObj;
+                        }
+                    }
+
                     const sc = getNickMatchScore(a.nickname, a.realname || '', rawNick);
                     if (sc <= 0) return;
-                    const aPin = a.phone && String(a.phone).length >= 4 ? normalizePin4(String(a.phone).slice(-4)) : '';
-                    // 부분 일치(sc < 3)인데 전화번호 뒷 4자리조차 다르면 절대 남의 주소를 가져오지 않음!
-                    if (sc < 3 && aPin !== normInPin) return;
-                    if (sc === 3 && aPin && normInPin && aPin !== normInPin) return;
 
-                    if (sc > bestAddrScore || (sc === bestAddrScore && aPin === normInPin)) {
-                        bestAddrScore = sc;
-                        matchedMasterAddr = a;
-                        if (aPin) masterPin = aPin;
+                    // 비밀번호(전화번호 뒷 4자리)가 완벽히 같으면 부분 닉네임(sc >= 1)이어도 100% 본인 인정!
+                    if (aPin && normInPin && aPin === normInPin) {
+                        if (sc > bestAddrScore) {
+                            bestAddrScore = sc;
+                            bestMasterAddr = a;
+                        }
                     }
                 });
 
-                const matchedHistory = [];
-                let exactNickWrongPin = false;
+                const pinVerifiedMatches = [];
+                const unpinnedExactMatches = [];
+                let pinMismatchFound = false;
 
                 if (store && typeof store === 'object') {
                     const broadcasts = Object.values(store);
                     broadcasts.forEach(bData => {
                         if (!bData || !Array.isArray(bData.customers)) return;
-                        let bestCand = null;
-                        let bestScore = 0;
+                        let bestPinCand = null;
+                        let bestPinScore = 0;
+                        let bestUnpinnedCand = null;
 
                         bData.customers.forEach(cust => {
                             const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
                             if (sc <= 0) return;
 
-                            const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? cust.address.phone.slice(-4) : ''));
+                            const cNormKey = normalizeNick(cust.nickname);
+                            const cHandleKey = cleanHandle(cust.nickname);
+                            const masterEntry = matchedMasterMap[cNormKey] || (handleCountMap[cHandleKey] === 1 ? matchedMasterMap[cHandleKey] : null);
+                            const cPin = normalizePin4(
+                                cust.phoneLast4 ||
+                                (cust.address?.phone ? cust.address.phone.slice(-4) : '') ||
+                                (masterEntry ? masterEntry.pin : '')
+                            );
 
-                            // ⚠️ 중요: 부분 일치(sc < 3)인 경우에는 반드시 해당 주문서의 비밀번호(cPin)가 입력한 번호(normInPin)와 정확히 일치할 때만 허용! (비슷한 닉네임의 다른 사람 주문서/주소 오연결 완벽 차단)
-                            const isAllowed = sc === 3
-                                ? (!cPin || cPin === normInPin || (masterPin && masterPin === normInPin))
-                                : Boolean(cPin && cPin === normInPin);
+                            const fbCredit = findCreditForNick(cust.nickname) || Number(cust.credit) || 0;
+                            const safeCustKey = String(cust.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                            const isPortalConfirmed = Boolean(cust.isConfirmed || portalConfMap[safeCustKey]);
 
-                            if (isAllowed) {
-                                // 이 고객 본인의 찐고객사전 주소인지 최종 확인 (닉네임이 똑같고 전화번호 뒷4자리도 맞을 때만 fallback 주소 연결)
-                                const canUseFallbackMaster = matchedMasterAddr &&
-                                    normalizeNick(matchedMasterAddr.nickname) === normalizeNick(cust.nickname) &&
-                                    (!masterPin || masterPin === normInPin);
+                            if (cPin && normInPin && cPin === normInPin) {
+                                // 1) 비밀번호(뒷 4자리)가 등록되어 있고 완벽히 일치하는 경우: 부분 닉네임(깔로, 깔로다, 주세요 등 sc >= 1) 모두 허용!
+                                const effectiveScore = sc + 10;
+                                if (effectiveScore > bestPinScore) {
+                                    bestPinScore = effectiveScore;
+                                    const fallbackAddrObj = cust.address || (masterEntry ? {
+                                        realname: masterEntry.addr.realname || '',
+                                        phone: fixPhoneStr(masterEntry.addr.phone || ''),
+                                        zipcode: masterEntry.addr.zipcode || '',
+                                        baseAddress: masterEntry.addr.address || '',
+                                        detailAddress: '',
+                                        memo: masterEntry.addr.memo || '',
+                                        updatedAt: ''
+                                    } : (bestMasterAddr && cleanHandle(bestMasterAddr.nickname) === cHandleKey ? {
+                                        realname: bestMasterAddr.realname || '',
+                                        phone: fixPhoneStr(bestMasterAddr.phone || ''),
+                                        zipcode: bestMasterAddr.zipcode || '',
+                                        baseAddress: bestMasterAddr.address || '',
+                                        detailAddress: '',
+                                        memo: bestMasterAddr.memo || '',
+                                        updatedAt: ''
+                                    } : null));
 
-                                if (sc > bestScore || (sc === bestScore && cPin === normInPin)) {
-                                    bestScore = sc;
-                                    bestCand = {
+                                    bestPinCand = {
                                         ...cust,
-                                        phoneLast4: cPin || normInPin,
-                                        address: cust.address || (canUseFallbackMaster ? {
-                                            realname: matchedMasterAddr.realname || '',
-                                            phone: fixPhoneStr(matchedMasterAddr.phone || ''),
-                                            zipcode: matchedMasterAddr.zipcode || '',
-                                            baseAddress: matchedMasterAddr.address || '',
-                                            detailAddress: '',
-                                            memo: matchedMasterAddr.memo || '',
-                                            updatedAt: ''
-                                        } : null)
+                                        _matchScore: effectiveScore,
+                                        credit: fbCredit,
+                                        phoneLast4: cPin,
+                                        address: fallbackAddrObj,
+                                        isConfirmed: isPortalConfirmed
                                     };
                                 }
-                            } else if (sc === 3) {
-                                exactNickWrongPin = true;
+                            } else if (!cPin && sc === 3) {
+                                // 2) 아직 전화번호(비밀번호)가 전혀 없는 신규 고객 주문서:
+                                // 남의 미입력 주문서가 끌려오지 않도록 부분 포함(sc=2)은 제외하고, 핸들/영어를 뺀 한글 이름이 100% 일치(sc=3)할 때만 후보 등록
+                                bestUnpinnedCand = {
+                                    ...cust,
+                                    _matchScore: 3,
+                                    credit: fbCredit,
+                                    phoneLast4: normInPin,
+                                    address: cust.address || null,
+                                    isConfirmed: isPortalConfirmed
+                                };
+                            } else if (cPin && normInPin && cPin !== normInPin) {
+                                pinMismatchFound = true;
                             }
                         });
 
-                        if (bestCand) {
-                            matchedHistory.push(bestCand);
+                        if (bestPinCand) {
+                            pinVerifiedMatches.push(bestPinCand);
+                        } else if (bestUnpinnedCand) {
+                            unpinnedExactMatches.push(bestUnpinnedCand);
                         }
                     });
+                }
+
+                // 비밀번호로 검증된 주문서가 하나라도 있으면, 해당 고객의 고유 닉네임(lockedNick)과 일치하는 방송만 표시 (다른 사람의 미입력 주문서 혼입 완벽 차단!)
+                let matchedHistory = [];
+                if (pinVerifiedMatches.length > 0) {
+                    pinVerifiedMatches.sort((a, b) => (b._matchScore || 0) - (a._matchScore || 0));
+                    const primaryNick = pinVerifiedMatches[0].nickname;
+                    const primaryNorm = normalizeNick(primaryNick);
+                    const primaryHandle = cleanHandle(primaryNick);
+
+                    matchedHistory = pinVerifiedMatches.filter(item =>
+                        normalizeNick(item.nickname) === primaryNorm ||
+                        (primaryHandle && cleanHandle(item.nickname) === primaryHandle)
+                    );
+                } else if (!bestMasterAddr && unpinnedExactMatches.length > 0 && !pinMismatchFound) {
+                    const primaryNick = unpinnedExactMatches[0].nickname;
+                    const primaryNorm = normalizeNick(primaryNick);
+                    matchedHistory = unpinnedExactMatches.filter(item => normalizeNick(item.nickname) === primaryNorm);
                 }
 
                 if (matchedHistory.length > 0) {
@@ -206,41 +298,45 @@
                     };
                 }
 
-                // 주문 내역은 없지만 찐고객사전에 등록된 단골 고객이고 비밀번호(뒷 4자리)가 정확히 일치할 때만 빈 주문서로 접속 허용
-                if (matchedMasterAddr && bestAddrScore >= 2 && masterPin && masterPin === normInPin) {
-                    const emptyCard = {
-                        sheetTabName: '메인주문',
-                        nickname: matchedMasterAddr.nickname,
-                        phoneLast4: normInPin,
-                        broadcastName: '최근 주문 내역 없음',
-                        isVip: false,
-                        freeShippingThreshold: 70000,
-                        cardFeeRate: 10,
-                        isCard: '',
-                        shipping: 0,
-                        depositTotal: 0,
-                        deposits: [],
-                        items: [],
-                        address: {
-                            realname: matchedMasterAddr.realname || '',
-                            phone: fixPhoneStr(matchedMasterAddr.phone || ''),
-                            zipcode: matchedMasterAddr.zipcode || '',
-                            baseAddress: matchedMasterAddr.address || '',
-                            detailAddress: '',
-                            memo: matchedMasterAddr.memo || '',
-                            updatedAt: ''
-                        },
-                        trackingNumbers: [],
-                        isConfirmed: false
-                    };
-                    return {
-                        status: 'success',
-                        customerData: emptyCard,
-                        historyList: [emptyCard]
-                    };
+                // 주문 내역은 없지만 찐고객사전에 등록된 고객이고 비밀번호(뒷 4자리)가 정확히 일치하면 어떤 부분 닉네임을 쳤든 빈 주문서로 접속 허용
+                if (bestMasterAddr && bestAddrScore >= 1) {
+                    const aPin = bestMasterAddr.phone && String(bestMasterAddr.phone).length >= 4 ? normalizePin4(String(bestMasterAddr.phone).slice(-4)) : '';
+                    if (aPin && aPin === normInPin) {
+                        const emptyCard = {
+                            sheetTabName: '메인주문',
+                            nickname: bestMasterAddr.nickname,
+                            phoneLast4: normInPin,
+                            broadcastName: '최근 주문 내역 없음',
+                            isVip: false,
+                            credit: findCreditForNick(bestMasterAddr.nickname),
+                            freeShippingThreshold: 70000,
+                            cardFeeRate: 10,
+                            isCard: '',
+                            shipping: 0,
+                            depositTotal: 0,
+                            deposits: [],
+                            items: [],
+                            address: {
+                                realname: bestMasterAddr.realname || '',
+                                phone: fixPhoneStr(bestMasterAddr.phone || ''),
+                                zipcode: bestMasterAddr.zipcode || '',
+                                baseAddress: bestMasterAddr.address || '',
+                                detailAddress: '',
+                                memo: bestMasterAddr.memo || '',
+                                updatedAt: ''
+                            },
+                            trackingNumbers: [],
+                            isConfirmed: false
+                        };
+                        return {
+                            status: 'success',
+                            customerData: emptyCard,
+                            historyList: [emptyCard]
+                        };
+                    }
                 }
 
-                if (exactNickWrongPin) {
+                if (pinMismatchFound) {
                     return { status: 'error', errorType: 'WRONG_PIN' };
                 }
             } catch (e) {}
@@ -272,8 +368,9 @@
 
         const cleanHandle = (str) => {
             if (!str) return "";
-            let s = String(str).trim().replace(/^@+/, "");
-            s = s.replace(/-[a-zA-Z0-9]{3,6}$/, "");
+            let s = String(str).trim();
+            // 뒤에 붙은 유튜브 핸들 꼬리표(-SD2 등 -영문숫자 2~8자) 제거
+            s = s.replace(/-[a-zA-Z0-9]{2,8}$/, "");
             return s.replace(/[\s\(\)\[\]\{\}\-\_\.\,\/]/g, "").toLowerCase();
         };
 
@@ -304,35 +401,42 @@
         };
 
         // 고객이 입력한 닉네임(또는 한글 일부/실명)과 DB의 닉네임/실명 간의 일치 점수를 계산하는 스마트 매칭 함수
-        // 반환값: 3(완전일치), 2(한글 핵심부분 일치 또는 포함), 1(수령인 실명 일치 또는 모음 오타 일치), 0(불일치)
+        // 사장님 주문서에는 핸들/영어가 다 포함되어 있고(예: 깔로다주세요-SD2),
+        // 고객은 영어/핸들을 빼고 '깔로', '깔로다', '깔로다주', '주세요' 등 일부만 입력하므로 DB닉네임이 고객입력값을 포함하는 경우만 인정합니다!
         const getNickMatchScore = (dbNick, dbRealname, userInput) => {
-            if (!userInput) return 0;
+            if (!userInput || !dbNick) return 0;
             const nDb = normalizeNick(dbNick);
             const nIn = normalizeNick(userInput);
-            if (!nIn) return 0;
+            if (!nIn || !nDb) return 0;
 
-            // 1순위(3점): 대소문자/공백 무시 완전 일치 또는 핸들 꼬리표 제거 후 완전 일치
-            if (nDb && nDb === nIn) return 3;
+            // 1순위(3점): 대소문자/공백 무시 완전 일치 또는 핸들 꼬리표(-SD2 등) 제거 후 완전 일치
+            if (nDb === nIn) return 3;
             const cDb = cleanHandle(dbNick);
             const cIn = cleanHandle(userInput);
             if (cDb && cIn && cDb === cIn) return 3;
 
-            // 2순위(2점): 한글 핵심 단어 일치 (예: '깔로AI'에서 '깔로'만 입력, '단발M.FLOWER'에서 '단발'만 입력)
+            // 2순위: 주문서 아이디에서 영어/숫자/기호를 뺀 순수 한글 비교
+            // 예: DB '깔로다주세요-SD2' -> 순수 한글 '깔로다주세요'
+            // 고객 입력: '깔로다주세요'(3점), '깔로', '깔로다', '깔로다주', '주세요'(2점)
+            // 주의: 반드시 DB의 한글 닉네임(kDb)이 고객 입력 한글(kIn)을 포함(kDb.includes(kIn))해야 하며, 반대로 1글자짜리 kDb('영')가 '하이영'에 포함되는 역방향 매칭은 절대 금지!
             const kDb = extractKorean(cDb || nDb);
             const kIn = extractKorean(cIn || nIn);
             if (kDb && kIn) {
-                if (kDb === kIn && kIn.length >= 2) return 2;
-                // 입력한 한글(2글자 이상)이 닉네임에 포함되어 있거나 그 반대인 경우
-                if (kIn.length >= 2 && (kDb.includes(kIn) || kIn.includes(kDb))) return 2;
+                if (kDb.length >= 2 && kDb === kIn) return 3;
+                if (kIn.length >= 2 && kDb.length >= 2 && kDb.includes(kIn)) return 2;
+                const vDb = normalizeKoreanVowel(kDb);
+                const vIn = normalizeKoreanVowel(kIn);
+                if (vDb.length >= 2 && vDb === vIn) return 2;
+                if (vIn.length >= 2 && vDb.length >= 2 && vDb.includes(vIn)) return 2;
             }
-            // 영문/숫자 포함 부분 일치 (2글자 이상)
-            if (nIn.length >= 2 && nDb && (nDb.includes(nIn) || nIn.includes(nDb))) return 2;
 
-            // 3순위(1점): 닉네임 대신 수령인 실명(본명)을 입력한 경우 또는 ㅐ/ㅔ 모음 오타인 경우
+            // 영문/숫자 포함 부분 일치 (반드시 DB 닉네임이 고객 입력값(2자 이상)을 포함할 때만 인정)
+            if (nIn.length >= 2 && nDb.length >= 2 && nDb.includes(nIn)) return 2;
+            if (cIn.length >= 2 && cDb.length >= 2 && cDb.includes(cIn)) return 2;
+
+            // 3순위(1점): 닉네임 대신 수령인 실명(본명) 전체를 정확히 입력한 경우만 인정
             const nReal = normalizeNick(dbRealname);
-            if (nReal && nReal === nIn && nIn.length >= 2) return 1;
-            if (nDb && normalizeKoreanVowel(nDb) === normalizeKoreanVowel(nIn)) return 1;
-            if (kDb && kIn && kIn.length >= 2 && normalizeKoreanVowel(kDb) === normalizeKoreanVowel(kIn)) return 1;
+            if (nReal && nIn.length >= 2 && nReal === nIn) return 1;
 
             return 0;
         };
@@ -373,11 +477,35 @@
         const maskAddress = (baseAddr, detailAddr, zipcode) => {
             const cleanZip = String(zipcode || "").replace(/[^0-9]/g, "");
             const cleanBase = String(baseAddr || "").replace(/^\(\d{5}\)\s*/, "").trim();
-            const zipPart = cleanZip ? `(${cleanZip}) ` : "";
             const d = String(detailAddr || "").trim();
-            if (!d) return `${zipPart}${cleanBase}`;
-            const maskedDetail = d.replace(/\d+/g, (m) => (m.length > 1 ? m[0] + "*".repeat(m.length - 1) : "*"));
-            return `${zipPart}${cleanBase} ${maskedDetail}`;
+            const full = `${cleanBase} ${d}`.trim();
+            if (!full) return "";
+
+            const zipPart = cleanZip ? `(${cleanZip.slice(0, 3)}**) ` : "";
+
+            // 1) 괄호 안 아파트/건물명 마스킹: (연산동, 연산엘지아파트) -> (연산동, *****)
+            let masked = full.replace(/\(([^)]+)\)/g, (match, inner) => {
+                if (inner.includes(",")) {
+                    const parts = inner.split(",");
+                    return `(${parts[0].trim()}, *****)`;
+                }
+                return inner.length > 2 ? `(${inner.slice(0, 2)}***)` : `(${inner})`;
+            });
+
+            // 2) 동·호·층·번지 숫자 확실히 마스킹: 115동1704호 -> ***동****호
+            masked = masked.replace(/(\d+)\s*(동|호|층|번지|길|로\s*\d*)/g, (m, num, unit) => {
+                if (unit.startsWith("길") || unit.startsWith("로")) return m;
+                return `${"*".repeat(Math.max(2, num.length))}${unit}`;
+            });
+
+            // 3) 도로명/지번 본번·부번 및 남은 상세 숫자 마스킹 (예: 고분로 200 -> 고분로 ***, 101-1204 -> ***-****)
+            masked = masked.replace(/\d+-\d+/g, "***-****");
+            masked = masked.replace(/([가-힣]+(?:로|길|동|읍|면|리))\s+(\d+)(-\d+)?/g, "$1 ***");
+
+            // 4) 그 외 뒤에 남은 2자리 이상 숫자도 모두 마스킹
+            masked = masked.replace(/\d{2,}/g, (n) => "*".repeat(n.length));
+
+            return `${zipPart}${masked}`;
         };
 
         const formatKstDateString = (val) => {
@@ -439,6 +567,58 @@
                 if (scoreA !== scoreB) return scoreB - scoreA; // 늦은(최신) 날짜가 무조건 맨 앞으로!
                 return 0;
             });
+        };
+
+        // 🛡️ 서버(GAS 또는 Firebase)에서 넘어온 주문 목록 중 비밀번호가 다르거나 다른 사람의 주문서가 섞여 있으면 화면 표시 전에 100% 제거하는 보안 필터
+        const filterVerifiedHistoryList = (rawList, rawNickInput, cleanPinInput, lockedFullNick = "") => {
+            if (!Array.isArray(rawList) || rawList.length === 0) return [];
+            const normInPin = normalizePin4(cleanPinInput);
+
+            // 1차 필터: 입력한 닉네임과 매칭 점수가 0점이거나, 주문서에 적힌 비밀번호가 입력한 비밀번호와 다른 항목은 무조건 즉시 제거!
+            const step1 = rawList.filter(item => {
+                if (!item || !item.nickname) return false;
+                const itemPin = normalizePin4(
+                    item.phoneLast4 ||
+                    (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
+                );
+                // 다른 비밀번호가 등록된 주문서는 어떤 경우에도 절대 표시 불가!
+                if (itemPin && normInPin && itemPin !== normInPin) {
+                    return false;
+                }
+                const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput);
+                const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick) : 0;
+                if (sc <= 0 && lockedSc <= 0) {
+                    return false;
+                }
+                // 비밀번호가 일치하는 주문서는 부분 닉네임(sc >= 1)도 허용하되, 비밀번호가 아예 없는 미입력 주문서는 정확히 이름이 일치(sc === 3)할 때만 허용
+                if (!itemPin && sc < 3 && lockedSc < 3) {
+                    return false;
+                }
+                return true;
+            });
+
+            if (step1.length === 0) return [];
+
+            // 2차 필터: 확인된 본인 대표 닉네임(primaryNick)과 동일한 계정의 주문서만 남김 (다른 사람의 다른 방송 주문서 혼입 완벽 차단)
+            const sortedByConfidence = [...step1].sort((a, b) => {
+                const aPin = normalizePin4(a.phoneLast4 || (a.address?.phone ? String(a.address.phone).slice(-4) : ""));
+                const bPin = normalizePin4(b.phoneLast4 || (b.address?.phone ? String(b.address.phone).slice(-4) : ""));
+                const aHasPin = (aPin && aPin === normInPin) ? 1 : 0;
+                const bHasPin = (bPin && bPin === normInPin) ? 1 : 0;
+                if (aHasPin !== bHasPin) return bHasPin - aHasPin;
+                const scA = getNickMatchScore(a.nickname, a.address?.realname || "", rawNickInput);
+                const scB = getNickMatchScore(b.nickname, b.address?.realname || "", rawNickInput);
+                return scB - scA;
+            });
+
+            const targetNick = lockedFullNick || sortedByConfidence[0].nickname;
+            const targetNorm = normalizeNick(targetNick);
+            const targetHandle = cleanHandle(targetNick);
+
+            return sortHistoryByNewestDate(step1.filter(item =>
+                normalizeNick(item.nickname) === targetNorm ||
+                (targetHandle && cleanHandle(item.nickname) === targetHandle)
+            ));
         };
 
         // 테스트용 샘플 데이터
@@ -533,6 +713,7 @@
                 phoneLast4: "1234",
                 broadcastName: "10/18 여성복 주문목록",
                 isVip: true,
+                credit: 15000,
                 freeShippingThreshold: 200000,
                 cardFeeRate: 10,
                 isCard: true,
@@ -681,6 +862,33 @@
             useEffect(() => {
                 fetch(`${DEFAULT_GAS_URL}?action=warmup&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, { mode: 'no-cors' }).catch(() => {});
             }, []);
+
+            // ✨ 실시간 적립금 동기화 센서: 고객이 주문서를 열어둔 상태에서 사장님이 [적립금전환]을 누르면 새로고침 없이 0.1초 만에 화면에 적립금이 뜹니다!
+            useEffect(() => {
+                if (!portalFbDb || !currentUser || !currentUser.nickname) return;
+                const creditsRef = portalFbDb.ref('ember_live_data/_portal_credits');
+                const handleCreditUpdate = (snap) => {
+                    const creditsMap = snap.val() || {};
+                    const tNorm = normalizeNick(currentUser.nickname);
+                    const tClean = cleanHandle(currentUser.nickname);
+                    let foundCredit = null;
+                    for (const k in creditsMap) {
+                        const item = creditsMap[k];
+                        if (!item) continue;
+                        const itemNick = item.nickname || k;
+                        if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
+                            foundCredit = Number(item.credit) || 0;
+                            break;
+                        }
+                    }
+                    if (foundCredit !== null && foundCredit !== (Number(currentUser.credit) || 0)) {
+                        setCurrentUser(prev => prev ? { ...prev, credit: foundCredit } : prev);
+                        setOrderHistoryList(prev => prev.map(item => ({ ...item, credit: foundCredit })));
+                    }
+                };
+                creditsRef.on('value', handleCreditUpdate);
+                return () => creditsRef.off('value', handleCreditUpdate);
+            }, [currentUser?.nickname, currentUser?.credit]);
 
             const formatTrackingDisplay = (raw) => {
                 const digits = String(raw || '').replace(/[^0-9]/g, '');
@@ -877,126 +1085,97 @@
                 }
 
                 try {
-                    const fetchOrderWithPin = async (targetPin) => {
-                        const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
+                    const fetchOrderWithPin = async (targetPin, targetNickOverride) => {
+                        const queryNick = targetNickOverride !== undefined ? targetNickOverride : rawNick;
+                        const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(queryNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
                         return await fetchGasWithRetry(url, null, 2);
                     };
 
                     // 🚀 1단계: Firebase 실시간 클라우드(0.1초)와 구글 시트를 스마트하게 병합하여 입금내역이 가장 최신인 데이터를 즉시 표시!
                     let fbInstantData = await lookupOrderFromFirebase(rawNick, cleanPin);
                     if (fbInstantData && fbInstantData.status === "success" && fbInstantData.customerData && !isRefreshCall) {
-                        const hList = sortHistoryByNewestDate(fbInstantData.historyList || [fbInstantData.customerData]);
-                        setOrderHistoryList(hList);
-                        setSelectedBroadcastIdx(0);
-                        setCurrentUser(hList[0]);
-                        initAddressState(hList[0]);
-                        setIsLoading(false);
-                        setIsRefreshing(false);
+                        const verifiedFbList = filterVerifiedHistoryList(fbInstantData.historyList || [fbInstantData.customerData], rawNick, cleanPin);
+                        if (verifiedFbList.length > 0) {
+                            const hList = sortHistoryByNewestDate(verifiedFbList);
+                            setOrderHistoryList(hList);
+                            setSelectedBroadcastIdx(0);
+                            setCurrentUser(hList[0]);
+                            initAddressState(hList[0]);
+                            setIsLoading(false);
+                            setIsRefreshing(false);
 
-                        // 백그라운드에서 구글 시트 데이터도 즉시 가져와서 입금액(depositTotal)이나 이전 방송 내역이 더 최신이면 화면을 자동 업데이트!
-                        fetchOrderWithPin(cleanPin).then(gasRes => {
-                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
-                                const gasList = sortHistoryByNewestDate(gasRes.historyList);
-                                const mergedMap = new Map();
-                                hList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
-                                gasList.forEach(gItem => {
-                                    const key = gItem.sheetTabName || gItem.broadcastName;
-                                    const existing = mergedMap.get(key);
-                                    if (!existing) {
-                                        mergedMap.set(key, gItem);
-                                    } else {
-                                        // 둘 중 입금액(depositTotal)이 더 크거나 주소가 있는 쪽으로 최신 데이터 병합!
-                                        const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
-                                        const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
-                                        mergedMap.set(key, {
-                                            ...gItem,
-                                            ...existing,
-                                            depositTotal: bestDep,
-                                            deposits: bestDepsArr,
-                                            address: existing.address || gItem.address,
-                                            isConfirmed: existing.isConfirmed || gItem.isConfirmed
-                                        });
-                                    }
-                                });
-                                const finalMerged = sortHistoryByNewestDate(Array.from(mergedMap.values()));
-                                setOrderHistoryList(finalMerged);
-                                setCurrentUser(finalMerged[0]);
-                            }
-                        }).catch(() => {});
-                        return;
-                    }
-
-                    // 🚀 2단계: 새로고침을 눌렀거나 Firebase에 아직 없을 때는 구글 시트와 Firebase를 모두 비교해 입금액이 최신인 쪽을 반영!
-                    let data = null;
-                    try {
-                        data = await fetchOrderWithPin(cleanPin);
-                        if (data && data.status === "success" && fbInstantData && fbInstantData.status === "success") {
-                            const gasList = Array.isArray(data.historyList) ? data.historyList : [data.customerData];
-                            const fbList = Array.isArray(fbInstantData.historyList) ? fbInstantData.historyList : [fbInstantData.customerData];
-                            const mergedMap = new Map();
-                            gasList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
-                            fbList.forEach(fItem => {
-                                const key = fItem.sheetTabName || fItem.broadcastName;
-                                const existing = mergedMap.get(key);
-                                if (!existing) {
-                                    mergedMap.set(key, fItem);
-                                } else {
-                                    const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(fItem.depositTotal) || 0);
-                                    const bestDepsArr = (Array.isArray(fItem.deposits) && fItem.deposits.length > (existing.deposits?.length || 0)) ? fItem.deposits : (existing.deposits || []);
-                                    mergedMap.set(key, {
-                                        ...existing,
-                                        depositTotal: bestDep,
-                                        deposits: bestDepsArr,
-                                        address: fItem.address || existing.address,
-                                        isConfirmed: fItem.isConfirmed || existing.isConfirmed
+                            // 백그라운드에서 구글 시트 데이터도 가져오되, 반드시 본인 닉네임 및 비밀번호 검증 필터(filterVerifiedHistoryList)를 통과한 주문서만 병합!
+                            const resolvedFullNick = hList[0]?.nickname || rawNick;
+                            fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
+                                if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
+                                    const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
+                                    if (gasList.length === 0) return;
+                                    const mergedMap = new Map();
+                                    hList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
+                                    gasList.forEach(gItem => {
+                                        const key = gItem.sheetTabName || gItem.broadcastName;
+                                        const existing = mergedMap.get(key);
+                                        if (!existing) {
+                                            mergedMap.set(key, gItem);
+                                        } else {
+                                            const bestCredit = Math.max(Number(existing.credit) || 0, Number(gItem.credit) || 0);
+                                            const bestDep = (Number(existing.credit) > Number(gItem.credit) && Number(existing.depositTotal) > 0)
+                                                ? Number(existing.depositTotal)
+                                                : Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
+                                            const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
+                                            mergedMap.set(key, {
+                                                ...gItem,
+                                                ...existing,
+                                                depositTotal: bestDep,
+                                                credit: bestCredit,
+                                                deposits: bestDepsArr,
+                                                address: existing.address || gItem.address,
+                                                isConfirmed: existing.isConfirmed || gItem.isConfirmed
+                                            });
+                                        }
                                     });
+                                    const finalMerged = sortHistoryByNewestDate(Array.from(mergedMap.values()));
+                                    setOrderHistoryList(finalMerged);
+                                    setCurrentUser(finalMerged[0]);
                                 }
-                            });
-                            const mergedArr = sortHistoryByNewestDate(Array.from(mergedMap.values()));
+                            }).catch(() => {});
+                            return;
+                        }
+                    }
+
+                    let data = await fetchOrderWithPin(cleanPin);
+                    if (data && data.status === "success") {
+                        const rawGasList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : (data.customerData ? [data.customerData] : []);
+                        const verifiedGasList = filterVerifiedHistoryList(rawGasList, rawNick, cleanPin);
+                        if (verifiedGasList.length > 0) {
                             data = {
-                                status: "success",
-                                customerData: mergedArr[0],
-                                historyList: mergedArr
+                                ...data,
+                                customerData: verifiedGasList[0],
+                                historyList: verifiedGasList
                             };
-                        }
-                    } catch (gasNetworkErr) {
-                        if (fbInstantData) {
-                            data = fbInstantData;
                         } else {
-                            throw gasNetworkErr;
+                            data = { status: "not_found" };
                         }
                     }
-
-                    if (!data || data.status === "not_found" || data.status === "error") {
-                        if (fbInstantData && fbInstantData.status === "success") {
-                            data = fbInstantData;
-                        }
+                    if (fbInstantData && fbInstantData.errorType === "WRONG_PIN" && (!data || data.status === "not_found")) {
+                        data = fbInstantData;
                     }
 
-                    // 시트에 앞자리 0이 잘린 채 저장된 비밀번호(예: 0998 -> 998) 호환을 위한 자동 재검증
-                    if (data && data.errorType === "WRONG_PIN" && cleanPin.startsWith("0")) {
-                        const strippedPin = cleanPin.replace(/^0+/, "");
-                        if (strippedPin) {
-                            try {
-                                const retryData = await fetchOrderWithPin(strippedPin);
-                                if (retryData && retryData.status === "success") {
-                                    data = retryData;
-                                }
-                            } catch (e) {}
-                        }
-                    }
-
-                    // ✨ 만약 최근 방송 주문서('주문_' 시트)에는 품목이 없더라도, '찐고객사전'이나 '고객상태관리'에 등록된 고객(예: 깔로AI / 깔로ai / 깔로)이라면
-                    // 또는 백엔드에서 부분 닉네임을 못 찾았더라도, 전화번호 뒷 4자리(PIN)가 일치하는 유일한 고객이면 즉시 열리도록 스마트 매칭 수행!
+                    // ✨ 만약 최근 방송 주문서('주문_' 시트)에서 부분 닉네임을 바로 못 찾았더라도, '찐고객사전', '고객상태관리', 또는 '메인주문'에서
+                    // 한글 부분 일치('깔로', '깔로다', '깔로다주', '주세요' 등) + 전화번호 뒷 4자리(PIN)가 일치하는 고객을 찾아 즉시 열어줍니다!
                     if (data && data.status === "not_found") {
                         try {
-                            const dictJson = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, null, 2);
+                            const [dictJson, mainOrderJson] = await Promise.all([
+                                fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, null, 2).catch(() => null),
+                                fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_MASTER_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, null, 2).catch(() => null)
+                            ]);
                             if (dictJson && dictJson.status === "success") {
                                 const mAddrs = Array.isArray(dictJson.masterAddresses) ? dictJson.masterAddresses : [];
                                 const cDb = Array.isArray(dictJson.customerDb) ? dictJson.customerDb : [];
+                                const mainRows = (mainOrderJson && Array.isArray(mainOrderJson.data)) ? mainOrderJson.data : [];
                                 const normInPin = normalizePin4(cleanPin);
 
-                                // 닉네임별로 찐고객사전 + 고객상태관리 정보를 하나로 통합
+                                // 닉네임별로 찐고객사전 + 고객상태관리 + 메인주문 정보를 하나로 통합
                                 const candidateMap = new Map();
 
                                 mAddrs.forEach(a => {
@@ -1007,8 +1186,8 @@
                                     if (score > 0) {
                                         const ph = fixPhoneStr(a.phone || a['연락처'] || a.col_2);
                                         const pinFromPh = ph.length >= 4 ? normalizePin4(ph.slice(-4)) : '';
-                                        const key = normalizeNick(n);
-                                        const prev = candidateMap.get(key) || { nick: n, realname: rName, score: 0, pins: new Set(), addrRow: null, custRow: null };
+                                        const key = cleanHandle(n) || normalizeNick(n);
+                                        const prev = candidateMap.get(key) || { nick: n, sheetNick: '', realname: rName, score: 0, pins: new Set(), addrRow: null, custRow: null };
                                         prev.nick = n;
                                         if (rName) prev.realname = rName;
                                         if (score > prev.score) prev.score = score;
@@ -1023,11 +1202,30 @@
                                     if (!n) return;
                                     const score = getNickMatchScore(n, '', rawNick);
                                     if (score > 0) {
-                                        const key = normalizeNick(n);
-                                        const prev = candidateMap.get(key) || { nick: n, realname: '', score: 0, pins: new Set(), addrRow: null, custRow: null };
+                                        const key = cleanHandle(n) || normalizeNick(n);
+                                        const prev = candidateMap.get(key) || { nick: n, sheetNick: '', realname: '', score: 0, pins: new Set(), addrRow: null, custRow: null };
+                                        if (n.includes('-')) prev.sheetNick = n;
                                         if (score > prev.score) prev.score = score;
                                         if (c['비밀번호']) prev.pins.add(normalizePin4(c['비밀번호']));
                                         prev.custRow = c;
+                                        candidateMap.set(key, prev);
+                                    }
+                                });
+
+                                mainRows.forEach(r => {
+                                    const n = String(r['닉네임'] || r['주문자'] || '').trim();
+                                    if (!n || n === '___WORKSPACE_META___') return;
+                                    const rName = String(r['수령인명'] || '').trim();
+                                    const score = getNickMatchScore(n, rName, rawNick);
+                                    if (score > 0) {
+                                        const key = cleanHandle(n) || normalizeNick(n);
+                                        const prev = candidateMap.get(key) || { nick: n, sheetNick: n, realname: rName, score: 0, pins: new Set(), addrRow: null, custRow: null };
+                                        prev.sheetNick = n;
+                                        if (score > prev.score) prev.score = score;
+                                        const rPin = normalizePin4(r['비밀번호']);
+                                        const rPh = fixPhoneStr(r['연락처']);
+                                        if (rPin) prev.pins.add(rPin);
+                                        if (rPh.length >= 4) prev.pins.add(normalizePin4(rPh.slice(-4)));
                                         candidateMap.set(key, prev);
                                     }
                                 });
@@ -1042,25 +1240,35 @@
 
                                 if (bestPinMatched.length > 1) {
                                     // 🚨 동일한 부분 닉네임 + 동일한 전화번호 뒷 4자리를 쓰는 동명이인이 2명 이상인 경우!
-                                    const dupNames = bestPinMatched.map(c => c.nick).join(', ');
+                                    const dupNames = bestPinMatched.map(c => c.sheetNick || c.nick).join(', ');
                                     data = {
                                         status: "error",
-                                        message: `입력하신 이름과 뒷번호가 일치하는 고객님이 ${bestPinMatched.length}명(${dupNames}) 있습니다. 정확한 전체 닉네임을 입력해 주세요!`
+                                        message: `입력하신 이름과 뒷번호가 일치하는 고객님이 ${bestPinMatched.length}명(${dupNames}) 있습니다. 조금 더 정확한 닉네임을 입력해 주세요!`
                                     };
                                 } else if (bestPinMatched.length === 1) {
-                                    // ✅ 부분 닉네임(예: '깔로')만 쳤어도 뒷번호 4자리('0065')가 일치하는 유일한 고객('깔로AI') 발견!
+                                    // ✅ 부분 닉네임(예: '깔로', '깔로다', '주세요')만 쳤어도 뒷번호 4자리가 일치하는 유일한 고객('깔로다주세요-SD2') 발견!
                                     const targetCand = bestPinMatched[0];
-                                    const trueNick = targetCand.nick;
+                                    const trueNick = targetCand.sheetNick || targetCand.nick;
 
-                                    // 실제 닉네임(예: '깔로AI')으로 서버에 주문 내역이 있는지 한 번 더 조회!
-                                    if (normalizeNick(trueNick) !== normalizeNick(rawNick)) {
-                                        const urlTrue = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(trueNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`;
-                                        try {
-                                            const dTrue = await fetchGasWithRetry(urlTrue, null, 2);
-                                            if (dTrue && dTrue.status === "success" && dTrue.customerData) {
-                                                data = dTrue;
-                                            }
-                                        } catch (e) {}
+                                    // 실제 풀네임(예: '깔로다주세요-SD2' 또는 '깔로다주세요')으로 서버에 주문 내역 재조회!
+                                    const tryNicks = Array.from(new Set([targetCand.sheetNick, targetCand.nick].filter(Boolean)));
+                                    for (const tNick of tryNicks) {
+                                        if (normalizeNick(tNick) !== normalizeNick(rawNick)) {
+                                            try {
+                                                const dTrue = await fetchOrderWithPin(cleanPin, tNick);
+                                                if (dTrue && dTrue.status === "success" && dTrue.customerData) {
+                                                    const vList = filterVerifiedHistoryList(dTrue.historyList || [dTrue.customerData], rawNick, cleanPin, trueNick);
+                                                    if (vList.length > 0) {
+                                                        data = {
+                                                            ...dTrue,
+                                                            customerData: vList[0],
+                                                            historyList: vList
+                                                        };
+                                                        break;
+                                                    }
+                                                }
+                                            } catch (e) {}
+                                        }
                                     }
 
                                     // 주문 시트에 품목이 없더라도 본인 배송지와 함께 정상 접속 허용!
@@ -1116,7 +1324,8 @@
 
                     if (data && data.status === "success" && data.customerData) {
                         const rawHList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
-                        const hList = sortHistoryByNewestDate(rawHList);
+                        const verifiedFinalList = filterVerifiedHistoryList(rawHList, rawNick, cleanPin, data.customerData.nickname);
+                        const hList = sortHistoryByNewestDate(verifiedFinalList.length > 0 ? verifiedFinalList : [data.customerData]);
                         setOrderHistoryList(hList);
                         const nextIdx = isRefreshCall && selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
                         setSelectedBroadcastIdx(nextIdx);
@@ -1128,7 +1337,7 @@
                     } else if (data && data.errorType === "WRONG_PIN") {
                         setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
                     } else if (data && data.status === "not_found") {
-                        setLoginError("주문 내역을 찾을 수 없습니다. (@와 -뒤 영문을 뺀 한글 닉네임만 입력해 보세요!)");
+                        setLoginError("주문 내역을 찾을 수 없습니다. (뒤쪽 -영문숫자 핸들을 뺀 한글 닉네임만 입력해 보세요!)");
                     } else {
                         setLoginError((data && data.message) || "조회에 실패했습니다. 잠시 후 다시 시도해 주세요.");
                     }
@@ -1356,6 +1565,7 @@
             const isPaid = activeItems.length > 0 && finalBalance === 0 && !isCard;
             const isOverpaid = finalBalance < 0 && !isCard;
             const isUnpaid = finalBalance > 0 && !isCard;
+            const customerCredit = currentUser ? (Number(currentUser.credit) || 0) : 0;
 
             const depositsHistory = currentUser && Array.isArray(currentUser.deposits) && currentUser.deposits.length > 0
                 ? currentUser.deposits
@@ -1430,7 +1640,7 @@
                                                         type="text"
                                                         value={nickInput}
                                                         onChange={(e) => setNickInput(e.target.value)}
-                                                        placeholder="예) @깔로-k3j ➔ 깔로"
+                                                        placeholder="예) 깔로-SD2 ➔ 깔로"
                                                         className="flex-1 min-w-0 px-3 py-2.5 bg-white/85 border border-white/90 rounded-lg text-[14px] font-bold text-gray-900 placeholder:text-gray-500 placeholder:font-normal focus:bg-white focus:border-blue-600 outline-none shadow-sm"
                                                     />
                                                 </div>
@@ -1496,13 +1706,18 @@
                             {/* 상단 헤더 (아래 카드들과 똑같이 둥근 독립 박스 형태로 통일) */}
                             <div className="sticky top-0 z-30 bg-gray-100/95 backdrop-blur-sm px-3 pt-3 pb-0.5">
                                 <header className="bg-white text-gray-900 px-3.5 py-3 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
-                                    <div className="flex items-center gap-2 min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                         <span className="font-extrabold text-[16px] text-gray-900 truncate">{currentUser.nickname} 님</span>
                                         {isPaid && <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">완납</span>}
                                         {isUnpaid && <span className="bg-red-50 text-red-600 border border-red-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">미입금</span>}
                                         {isOverpaid && <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">과납</span>}
                                         {isCard && !isCardPaid && <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">카드요청</span>}
                                         {isCard && isCardPaid && <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">카드완료</span>}
+                                        {customerCredit > 0 && (
+                                            <span className="bg-teal-600 text-white text-[11.5px] font-extrabold px-2 py-0.5 rounded-md shadow-sm flex items-center gap-1">
+                                                <span>💰 적립금 {customerCredit.toLocaleString()}원</span>
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                         <button 
@@ -1726,6 +1941,13 @@
                                         <div className="bg-blue-50 border border-blue-300 rounded-lg p-3 flex justify-between items-center text-[14px] font-extrabold text-blue-800">
                                             <span>과납 금액 (환불/적립 카톡문의)</span>
                                             <span className="text-[16px] font-black text-blue-600">+{Math.abs(finalBalance).toLocaleString()}원</span>
+                                        </div>
+                                    )}
+
+                                    {customerCredit > 0 && (
+                                        <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex justify-between items-center text-[14px] font-extrabold text-teal-800">
+                                            <span>현재 적립금</span>
+                                            <span className="text-[16px] font-black text-teal-700 tabular-nums">{customerCredit.toLocaleString()}원</span>
                                         </div>
                                     )}
 
@@ -2071,17 +2293,17 @@
                                 {/* 4. 하단 최종 확인 버튼 & 카톡 채널 문의 */}
                                 <section className="pt-0.5 space-y-2 safe-bottom">
                                     {currentUser.isConfirmed ? (
-                                        <div className="w-full py-3.5 bg-green-600 text-white font-extrabold rounded-lg text-center text-[15px] flex items-center justify-center gap-1.5 shadow-sm">
-                                            <Icon name="check-circle" weight="fill" size={18} />
-                                            <span>주문 및 배송지 확인 완료</span>
+                                        <div className="w-full py-3 bg-green-600 text-white font-extrabold rounded-lg text-center text-[14px] flex items-center justify-center gap-1.5 shadow-sm">
+                                            <Icon name="check-circle" weight="fill" size={17} />
+                                            <span>주문 및 배송지 확정 완료</span>
                                         </div>
                                     ) : (
                                         <button 
                                             onClick={handleConfirmOrder}
-                                            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-lg text-[15px] shadow-sm flex items-center justify-center gap-1.5 transition-all"
+                                            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-extrabold rounded-lg text-[14px] shadow-sm flex items-center justify-center gap-1.5 transition-all"
                                         >
-                                            <Icon name="hand-Pointing" weight="fill" size={18} />
-                                            <span>네, 주문내역과 배송지가 모두 맞습니다</span>
+                                            <Icon name="check-circle" weight="bold" size={17} />
+                                            <span>주문내역·배송지 확정 (터치해야 발송됩니다)</span>
                                         </button>
                                     )}
 
