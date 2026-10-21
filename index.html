@@ -87,6 +87,8 @@
         const portalSheetCache = {
             staffOrderRows: null,
             staffCsRows: null,
+            isLiveActive: false,
+            activeBroadcastName: '',
             lastFetchedAt: 0,
             fetchingPromise: null
         };
@@ -176,10 +178,22 @@
             }
             portalSheetCache.fetchingPromise = (async () => {
                 try {
-                    const [ordRows, csRows] = await Promise.all([
+                    const liveModePromise = portalFbDb
+                        ? Promise.race([
+                            portalFbDb.ref('ember_live_data/_portal_live_mode').once('value').then(s => s.val()).catch(() => null),
+                            new Promise(r => setTimeout(() => r(null), 1500))
+                        ])
+                        : Promise.resolve(null);
+
+                    const [ordRows, csRows, liveModeVal] = await Promise.all([
                         fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '주문', 3000).then(r => (Array.isArray(r) && r.length > 0) ? r : fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, null, 2500)),
-                        fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 3000)
+                        fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 3000),
+                        liveModePromise
                     ]);
+                    if (liveModeVal && typeof liveModeVal.isLive === 'boolean') {
+                        portalSheetCache.isLiveActive = liveModeVal.isLive;
+                        portalSheetCache.activeBroadcastName = String(liveModeVal.activeBroadcastName || '').replace(/^주문_/, '').trim();
+                    }
                     if (Array.isArray(ordRows) && ordRows.length > 0) {
                         portalSheetCache.staffOrderRows = ordRows;
                         portalSheetCache.lastFetchedAt = Date.now();
@@ -645,7 +659,8 @@
                     portalFbDb.ref('ember_live_data/_portal_master_addrs').once('value'),
                     portalFbDb.ref('ember_live_data/_portal_credits').once('value'),
                     portalFbDb.ref('ember_live_data/_portal_confirmed').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_broadcast_addresses').once('value')
+                    portalFbDb.ref('ember_live_data/_portal_broadcast_addresses').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_live_mode').once('value')
                 ]);
                 // Firebase 응답이 2.2초 이상 지연되면 즉시 통과하여 시트 직통 리더가 처리하도록 안전 타임아웃 적용
                 const snaps = await Promise.race([
@@ -653,12 +668,17 @@
                     new Promise(r => setTimeout(() => r(null), 2200))
                 ]);
                 if (!snaps) return null;
-                const [ordersSnap, masterAddrSnap, creditsSnap, confSnap, bcastAddrSnap] = snaps;
+                const [ordersSnap, masterAddrSnap, creditsSnap, confSnap, bcastAddrSnap, liveModeSnap] = snaps;
                 const store = ordersSnap.val() || {};
                 const masterAddrMap = masterAddrSnap.val() || {};
                 const creditsMap = creditsSnap.val() || {};
                 const portalConfMap = confSnap.val() || {};
                 const bcastAddrMap = bcastAddrSnap.val() || {};
+                const liveModeVal = liveModeSnap ? liveModeSnap.val() : null;
+                if (liveModeVal && typeof liveModeVal.isLive === 'boolean') {
+                    portalSheetCache.isLiveActive = liveModeVal.isLive;
+                    portalSheetCache.activeBroadcastName = String(liveModeVal.activeBroadcastName || '').replace(/^주문_/, '').trim();
+                }
 
                 const findCreditForNick = (targetNick) => {
                     if (!targetNick) return 0;
@@ -1771,47 +1791,50 @@
                             if (Array.isArray(csRes)) setCustomerCsList(csRes);
                         }).catch(() => {});
 
-                        // 백그라운드에서 사장님 라이브 시트(현재 방송) 데이터도 조용히 확인하여 있으면 병합
-                        fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
-                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
-                                const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
-                                if (gasList.length === 0) return;
-                                setOrderHistoryList(prevList => {
-                                    const mergedMap = new Map();
-                                    prevList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
-                                    gasList.forEach(gItem => {
-                                        if (gItem.broadcastName === '최근 주문 내역 없음' && mergedMap.size > 0) return;
-                                        const key = gItem.sheetTabName || gItem.broadcastName;
-                                        const existing = mergedMap.get(key);
-                                        if (!existing) {
-                                            mergedMap.set(key, gItem);
-                                        } else {
-                                            const bestCredit = Math.max(Number(existing.credit) || 0, Number(gItem.credit) || 0);
-                                            const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
-                                            const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
-                                            mergedMap.set(key, {
-                                                ...gItem,
-                                                ...existing,
-                                                depositTotal: bestDep,
-                                                credit: bestCredit,
-                                                deposits: bestDepsArr,
-                                                address: existing._hasBcastCustomAddr ? existing.address : (existing.address || gItem.address),
-                                                isConfirmed: existing.isConfirmed || gItem.isConfirmed
-                                            });
-                                        }
+                        // 🔴 중요: 오직 사장님이 [생방송 시작(isLiveActive === true)]을 켜두었을 때만 백그라운드에서 사장님 라이브 시트(GAS)를 추가 확인!
+                        // 마감 상태(isLiveActive === false)일 때는 무거운 사장님 GAS 시트를 아예 호출하지 않아 서버 과부하를 100% 차단합니다!
+                        if (portalSheetCache.isLiveActive) {
+                            fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
+                                if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
+                                    const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
+                                    if (gasList.length === 0) return;
+                                    setOrderHistoryList(prevList => {
+                                        const mergedMap = new Map();
+                                        prevList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
+                                        gasList.forEach(gItem => {
+                                            if (gItem.broadcastName === '최근 주문 내역 없음' && mergedMap.size > 0) return;
+                                            const key = gItem.sheetTabName || gItem.broadcastName;
+                                            const existing = mergedMap.get(key);
+                                            if (!existing) {
+                                                mergedMap.set(key, gItem);
+                                            } else {
+                                                const bestCredit = Math.max(Number(existing.credit) || 0, Number(gItem.credit) || 0);
+                                                const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
+                                                const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
+                                                mergedMap.set(key, {
+                                                    ...gItem,
+                                                    ...existing,
+                                                    depositTotal: bestDep,
+                                                    credit: bestCredit,
+                                                    deposits: bestDepsArr,
+                                                    address: existing._hasBcastCustomAddr ? existing.address : (existing.address || gItem.address),
+                                                    isConfirmed: existing.isConfirmed || gItem.isConfirmed
+                                                });
+                                            }
+                                        });
+                                        const finalMerged = sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists(Array.from(mergedMap.values())));
+                                        setCurrentUser(cur => finalMerged[nextIdx] || finalMerged[0] || cur);
+                                        return finalMerged;
                                     });
-                                    const finalMerged = sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists(Array.from(mergedMap.values())));
-                                    setCurrentUser(cur => finalMerged[nextIdx] || finalMerged[0] || cur);
-                                    return finalMerged;
-                                });
-                            }
-                        }).catch(() => {});
+                                }
+                            }).catch(() => {});
+                        }
 
                         return true;
                     };
 
-                    // 🚀 1단계(0.05초~0.3초): 프리로드된 직원용 시트(gviz CDN)와 Firebase 클라우드를 동시에 시작하되,
-                    // 둘 중 어느 하나라도 먼저 결과를 찾으면 기다리지 않고 0.1초 만에 즉시 화면을 엽니다!
+                    // 🚀 1단계(0.05초~0.3초): 프리로드된 직원용 시트(gviz CDN)와 Firebase 클라우드를 동시에 조회!
+                    // (사장님이 생방송 중일 때 입력한 실시간 주문도 1.2초마다 Firebase _portal_orders에 미러링되므로 여기서 0.1초 만에 같이 잡힙니다!)
                     const staffPromise = lookupOrderFromStaffSheetDirect(rawNick, cleanPin, isRefreshCall);
                     const fbPromise = lookupOrderFromFirebase(rawNick, cleanPin);
 
@@ -1854,9 +1877,11 @@
                         return;
                     }
 
-                    // 🚀 2단계: 직원용 시트/클라우드에 없는 신규 당일 첫구매 고객인 경우에만 사장님 시트(GAS) 및 CS 내역 조회 (최대 3.5초 타임아웃)
+                    // 🚀 2단계: 1단계(직원용 시트 + 클라우드)에 없는 고객일 때:
+                    // 오직 사장님이 [🔴 생방송 시작(isLiveActive === true)]을 켜두었을 때만 사장님 시트(GAS)를 조회하고,
+                    // 마감 상태일 때는 CS 내역만 확인 후 즉시 결과를 안내합니다! (마감 후 GAS 뻗음 현상 100% 방지)
                     const [gasData, csOnlyCheck] = await Promise.all([
-                        fetchOrderWithPin(cleanPin).catch(() => null),
+                        portalSheetCache.isLiveActive ? fetchOrderWithPin(cleanPin).catch(() => null) : Promise.resolve(null),
                         lookupCustomerCsRecords([rawNick], cleanPin).catch(() => [])
                     ]);
 
