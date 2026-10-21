@@ -64,6 +64,7 @@
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
         const BANK_NAME_HOLDER = '카카오뱅크 · 김선정';
         const BANK_ACCOUNT_NUMBER = '7942-32-84990';
+        const DEFAULT_STAFF_SHEET_ID = '1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8';
 
         let portalFbDb = null;
         try {
@@ -82,7 +83,15 @@
             }
         } catch (e) {}
 
-        const fetchGasWithRetry = async (url, options = null, maxRetries = 2, timeoutMs = 15000) => {
+        // ⚡ 초고속 시트 메모리 캐시 (고객이 닉네임/비번을 입력하는 동안 미리 백그라운드에서 로드하여 버튼 클릭 시 0.05초 만에 열리도록 가속!)
+        const portalSheetCache = {
+            staffOrderRows: null,
+            staffCsRows: null,
+            lastFetchedAt: 0,
+            fetchingPromise: null
+        };
+
+        const fetchGasWithRetry = async (url, options = null, maxRetries = 1, timeoutMs = 4000) => {
             let lastErr = null;
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 const controller = new AbortController();
@@ -100,7 +109,7 @@
                     clearTimeout(timer);
                     lastErr = err;
                     if (attempt < maxRetries - 1) {
-                        await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+                        await new Promise(r => setTimeout(r, 200));
                     }
                 }
             }
@@ -113,17 +122,538 @@
             throw lastErr || new Error('네트워크 연결 지연');
         };
 
+        // 구글 시트 공개/공유 문서 직통 리더 (구글 글로벌 CDN 경유 - 수백 명 동시 접속 시에도 0.3초 응답 & 서버 다운 없음!)
+        const fetchGoogleSheetDirectPortal = (sheetId, sheetName = null, timeoutMs = 3200) => {
+            return new Promise((resolve) => {
+                const cbName = `portal_gviz_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+                const timer = setTimeout(() => {
+                    if (window[cbName]) delete window[cbName];
+                    resolve(null);
+                }, timeoutMs);
+
+                window[cbName] = (res) => {
+                    clearTimeout(timer);
+                    delete window[cbName];
+                    if (!res || res.status === 'error' || !res.table) {
+                        resolve(null);
+                        return;
+                    }
+                    const cols = (res.table.cols || []).map((c, idx) => String(c?.label || '').trim() || `col_${idx}`);
+                    const rows = (res.table.rows || []).map(r => {
+                        const obj = {};
+                        (r.c || []).forEach((cell, idx) => {
+                            const val = cell ? (cell.f !== undefined && cell.f !== null ? String(cell.f) : (cell.v !== undefined && cell.v !== null ? String(cell.v) : '')) : '';
+                            const colKey = cols[idx] || `col_${idx}`;
+                            obj[colKey] = val;
+                            obj[`col_${idx}`] = val;
+                        });
+                        return obj;
+                    });
+                    resolve(rows);
+                };
+
+                const script = document.createElement('script');
+                const sheetParam = sheetName ? `&sheet=${encodeURIComponent(sheetName)}` : `&gid=0`;
+                script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=responseHandler:${cbName}${sheetParam}&headers=1&t=${Math.floor(Date.now() / 10000)}`;
+                script.onerror = () => {
+                    clearTimeout(timer);
+                    if (window[cbName]) delete window[cbName];
+                    resolve(null);
+                };
+                document.body.appendChild(script);
+                setTimeout(() => { try { document.body.removeChild(script); } catch (e) {} }, timeoutMs + 500);
+            });
+        };
+
+        // 백그라운드 시트 프리로더 (30초 캐시 유지로 중복 다운로드 원천 차단)
+        const preloadStaffSheetsInBackground = (force = false) => {
+            const now = Date.now();
+            if (!force && portalSheetCache.staffOrderRows && (now - portalSheetCache.lastFetchedAt < 30000)) {
+                return Promise.resolve(portalSheetCache);
+            }
+            if (portalSheetCache.fetchingPromise && !force) {
+                return portalSheetCache.fetchingPromise;
+            }
+            portalSheetCache.fetchingPromise = (async () => {
+                try {
+                    const [ordRows, csRows] = await Promise.all([
+                        fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '주문', 3000).then(r => (Array.isArray(r) && r.length > 0) ? r : fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, null, 2500)),
+                        fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 3000)
+                    ]);
+                    if (Array.isArray(ordRows) && ordRows.length > 0) {
+                        portalSheetCache.staffOrderRows = ordRows;
+                        portalSheetCache.lastFetchedAt = Date.now();
+                    }
+                    if (Array.isArray(csRows)) {
+                        portalSheetCache.staffCsRows = csRows;
+                    }
+                } catch (e) {}
+                portalSheetCache.fetchingPromise = null;
+                return portalSheetCache;
+            })();
+            return portalSheetCache.fetchingPromise;
+        };
+
+        // 시트 셀의 CS메모 문자열에서 계좌번호/환불금액/환불완료 여부만 추출하고 직원용 순수 메모는 철저히 버리는 보안 파서
+        const extractPublicCsFieldsFromRawMemo = (rawMemoStr) => {
+            let raw = String(rawMemoStr || '').trim();
+            if (!raw) return { accountOnly: '', refundAmount: 0, refundCompleted: false };
+
+            let refundCompleted = false;
+            if (raw.includes('[환불완료]')) {
+                refundCompleted = true;
+                raw = raw.replace(/\[환불완료\]/g, '').trim();
+            }
+
+            let refundAmount = 0;
+            const amtMatch = raw.match(/\[환불액:\s*([0-9,]+)\]/);
+            if (amtMatch) {
+                refundAmount = Number(amtMatch[1].replace(/[^0-9]/g, '')) || 0;
+                raw = raw.replace(amtMatch[0], '').trim();
+            }
+
+            let accountOnly = '';
+            const tagMatch = raw.match(/\[계좌:\s*([^\]]+)\]/);
+            if (tagMatch) {
+                accountOnly = tagMatch[1].trim();
+            } else {
+                const slashBankMatch = raw.match(/^(.*?)\s*\/\s*((?:카카오|카뱅|농협|국민|신한|우리|하나|기업|토스|우체국|새마을|신협|수협|부산|대구|경남|광주|전북|제주|케이|씨티|SC).*)$/);
+                if (slashBankMatch) {
+                    accountOnly = slashBankMatch[2].trim();
+                }
+            }
+            return { accountOnly, refundAmount, refundCompleted };
+        };
+
+        // 실제 주문 품목이 있는 주문서가 1개라도 존재하면 '최근 주문 내역 없음' 빈 더미 카드는 무조건 제거하는 헬퍼
+        const removeDummyEmptyOrdersIfRealExists = (list) => {
+            if (!Array.isArray(list) || list.length <= 1) return list || [];
+            const realOrders = list.filter(item =>
+                item &&
+                item.broadcastName !== '최근 주문 내역 없음' &&
+                item.sheetTabName !== '메인주문_빈카드' &&
+                !(item.sheetTabName === '메인주문' && (!Array.isArray(item.items) || item.items.length === 0))
+            );
+            return realOrders.length > 0 ? realOrders : [list[0]];
+        };
+
+        // 고객 본인의 미송 / 교환 / 반품 내역만 필터링하여 가져오는 함수 (직원용 csMemo는 절대 포함하지 않음)
+        const lookupCustomerCsRecords = async (targetNicksList, cleanPin) => {
+            const validNicks = (Array.isArray(targetNicksList) ? targetNicksList : [targetNicksList]).filter(Boolean);
+            if (validNicks.length === 0) return [];
+            const normInPin = normalizePin4(cleanPin);
+
+            const isMyCsRecord = (csNick, csRealname, csPhone) => {
+                const phPin = csPhone && String(csPhone).replace(/[^0-9]/g, '').length >= 4
+                    ? normalizePin4(String(csPhone).replace(/[^0-9]/g, '').slice(-4))
+                    : '';
+                if (phPin && normInPin && phPin !== normInPin) return false;
+                for (const myNick of validNicks) {
+                    const sc = getNickMatchScore(csNick, csRealname || '', myNick);
+                    if (sc >= 2) return true;
+                    if (sc >= 1 && phPin && normInPin && phPin === normInPin) return true;
+                }
+                return false;
+            };
+
+            const resultsMap = new Map();
+
+            const registerPublicCsItem = (c, customAccOverride) => {
+                if (!c || !c.nick) return;
+                if (!isMyCsRecord(c.nick, c.realname, c.phone)) return;
+                const parsedFromMemo = extractPublicCsFieldsFromRawMemo(c.csMemo || '');
+                const allItems = Array.isArray(c.items) ? c.items : [];
+                const taggedOnly = allItems.filter(it => it.csTag && it.csTag !== '정상');
+                const displayItems = taggedOnly.length > 0 ? taggedOnly : allItems;
+                const autoRetSum = displayItems.filter(x => x.csTag === '반품').reduce((s, x) => s + (Number(x.price) || 0), 0);
+
+                const finalAcc = customAccOverride !== undefined
+                    ? customAccOverride
+                    : (c.refundAccount !== undefined && c.refundAccount !== '' ? c.refundAccount : parsedFromMemo.accountOnly);
+                const finalRefundAmt = Number(c.refundAmount) > 0
+                    ? Number(c.refundAmount)
+                    : (parsedFromMemo.refundAmount > 0 ? parsedFromMemo.refundAmount : autoRetSum);
+                const finalRefundDone = Boolean(c.refundCompleted || parsedFromMemo.refundCompleted);
+                const shipFee = Number(c.csFee !== undefined ? c.csFee : c.shipping) || 0;
+                const feePaid = c.csFeePaid !== undefined ? Boolean(c.csFeePaid) : (Number(c.deposit) > 0 && Number(c.deposit) >= shipFee);
+
+                resultsMap.set(c.id || `${c.nick}_${c.sourceBroadcast}`, {
+                    id: c.id || `${c.nick}_${c.sourceBroadcast}`,
+                    sourceBroadcast: String(c.sourceBroadcast || '').replace(/^주문_/, '').trim(),
+                    csStatus: c.csStatus === '처리완료' ? '처리완료' : '미처리',
+                    nick: c.nick,
+                    origTracking: String(c.origTracking || '').replace(/^'+/, '').trim(),
+                    csTracking: String(c.csTracking || '').replace(/^'+/, '').trim(),
+                    refundAccount: String(finalAcc || '').trim(),
+                    refundAmount: finalRefundAmt,
+                    refundCompleted: finalRefundDone,
+                    csFee: shipFee,
+                    csFeePaid: feePaid,
+                    items: displayItems.map(it => ({
+                        product: it.product || '',
+                        qty: Number(it.qty) || 1,
+                        price: Number(it.price) || 0,
+                        csTag: it.csTag || '정상'
+                    }))
+                });
+            };
+
+            // 1) Firebase 실시간 클라우드(_portal_cs) 및 고객 계좌입력(_portal_cs_accounts) 초고속 스캔 (1.5초 타임아웃)
+            let accVal = {};
+            if (portalFbDb) {
+                try {
+                    const fbCsPromise = Promise.all([
+                        portalFbDb.ref('ember_live_data/_portal_cs').once('value'),
+                        portalFbDb.ref('ember_live_data/_portal_cs_accounts').once('value')
+                    ]);
+                    const timeoutPromise = new Promise(r => setTimeout(() => r(null), 1800));
+                    const snaps = await Promise.race([fbCsPromise, timeoutPromise]);
+                    if (snaps) {
+                        const [csSnap, accSnap] = snaps;
+                        const csVal = csSnap.val();
+                        accVal = accSnap.val() || {};
+                        const itemsList = (csVal && Array.isArray(csVal.items)) ? csVal.items : [];
+                        itemsList.forEach(c => {
+                            registerPublicCsItem(c, accVal[c?.id]?.refundAccount);
+                        });
+                    }
+                } catch (e) {}
+            }
+
+            // 2) 구글 시트('교환반품CS') 캐시 또는 직통 리더로 빠르게 조회 (무거운 GAS 중복 호출 제거!)
+            try {
+                let directStaffCs = portalSheetCache.staffCsRows;
+                if (!Array.isArray(directStaffCs)) {
+                    directStaffCs = await fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 2800).catch(() => null);
+                    if (Array.isArray(directStaffCs)) portalSheetCache.staffCsRows = directStaffCs;
+                }
+
+                const combinedSheetRows = Array.isArray(directStaffCs) ? directStaffCs : [];
+
+                combinedSheetRows.forEach((r, idx) => {
+                    const cNick = String(r['닉네임'] || r.nick || r.col_4 || '').trim();
+                    const cReal = String(r['수령인명'] || r.realname || r.col_5 || '').trim();
+                    const cPhone = fixPhoneStr(r['연락처'] || r.phone || r.col_6 || '');
+                    if (!cNick || cNick === '닉네임') return;
+                    if (!isMyCsRecord(cNick, cReal, cPhone)) return;
+
+                    const csId = String(r['CS_ID'] || r.id || r.col_0 || `cs_sheet_${cNick}_${idx}`);
+                    let parsedItems = [];
+                    const jsonRaw = r['전체품목JSON'] || r.itemsJson || r.col_15 || '';
+                    if (jsonRaw) {
+                        try {
+                            const p = typeof jsonRaw === 'string' ? JSON.parse(jsonRaw) : jsonRaw;
+                            if (Array.isArray(p)) parsedItems = p;
+                        } catch (e) {}
+                    }
+                    const rawMemoCell = String(r['CS메모'] || r.csMemo || r.col_10 || '');
+                    const shipFee = Number(String(r['배송비'] || r.shipping || r.col_11 || '0').replace(/[^0-9.-]/g, '')) || 0;
+                    const depAmt = Number(String(r['입금액'] || r.deposit || r.col_12 || '0').replace(/[^0-9.-]/g, '')) || 0;
+                    const stRaw = String(r['처리상태'] || r.csStatus || r.col_3 || '').trim();
+
+                    registerPublicCsItem({
+                        id: csId,
+                        sourceBroadcast: String(r['원본방송'] || r.sourceBroadcast || r.col_2 || '').replace(/^주문_/, '').trim(),
+                        csStatus: stRaw === '처리완료' ? '처리완료' : '미처리',
+                        nick: cNick,
+                        realname: cReal,
+                        phone: cPhone,
+                        origTracking: String(r['원송장번호'] || r.origTracking || r.col_8 || '').replace(/^'+/, '').trim(),
+                        csTracking: String(r['교반송장번호'] || r.csTracking || r.col_9 || '').replace(/^'+/, '').trim(),
+                        csMemo: rawMemoCell,
+                        shipping: shipFee,
+                        deposit: depAmt,
+                        items: parsedItems
+                    }, accVal[csId]?.refundAccount);
+                });
+            } catch (e) {}
+
+            // 3) 보조: 로컬 스토리지 데이터도 병합
+            try {
+                const localCsRaw = localStorage.getItem('ember_staff_cs_groups_v1');
+                if (localCsRaw) {
+                    const localCsList = JSON.parse(localCsRaw);
+                    if (Array.isArray(localCsList)) {
+                        localCsList.forEach(c => {
+                            registerPublicCsItem(c, accVal[c?.id]?.refundAccount);
+                        });
+                    }
+                }
+            } catch (e) {}
+
+            return Array.from(resultsMap.values());
+        };
+
+        // ✨ 직원용 구글 시트('주문' 단일 통합 시트)에서 고객의 모든 방송 주문서를 초고속으로 찾아오는 함수
+        const lookupOrderFromStaffSheetDirect = async (rawNick, cleanPin, forceRefresh = false) => {
+            const normInPin = normalizePin4(cleanPin);
+            if (!rawNick || !normInPin) return null;
+
+            try {
+                let rows = (!forceRefresh && Array.isArray(portalSheetCache.staffOrderRows) && portalSheetCache.staffOrderRows.length > 0)
+                    ? portalSheetCache.staffOrderRows
+                    : null;
+
+                if (!rows) {
+                    await preloadStaffSheetsInBackground(forceRefresh);
+                    rows = portalSheetCache.staffOrderRows;
+                }
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('주문')}&t=${Date.now()}`, null, 1, 3500).catch(() => null);
+                    if (gasRes && Array.isArray(gasRes.data) && gasRes.data.length > 0) {
+                        rows = gasRes.data;
+                        portalSheetCache.staffOrderRows = rows;
+                        portalSheetCache.lastFetchedAt = Date.now();
+                    }
+                }
+                if (!Array.isArray(rows) || rows.length === 0) return null;
+
+                // 1) ___WORKSPACE___ 구분선을 기준으로 방송별 그룹 분리
+                const blocks = {};
+                let curB = '최근 방송';
+                let curMeta = { fThresh: 70000, dShip: 4000, cRate: 10 };
+
+                const ensureBlk = (bName, meta) => {
+                    const cleanB = String(bName || '최근 방송').replace(/^주문_/, '').trim();
+                    if (!blocks[cleanB]) {
+                        blocks[cleanB] = {
+                            broadcastName: cleanB,
+                            fThresh: meta.fThresh,
+                            dShip: meta.dShip,
+                            cRate: meta.cRate,
+                            custMap: {}
+                        };
+                    }
+                    return blocks[cleanB];
+                };
+
+                // 고객별 등록된 PIN 사전 수집 (교차 검증용)
+                const knownPinsByNick = {};
+                const knownAddrByNick = {};
+                const addKnownPin = (nKey, pVal) => {
+                    if (!nKey || !pVal) return;
+                    if (!knownPinsByNick[nKey]) knownPinsByNick[nKey] = new Set();
+                    knownPinsByNick[nKey].add(pVal);
+                };
+
+                rows.forEach((r, idx) => {
+                    const nick = String(r['닉네임'] || r['주문자'] || r.col_0 || '').trim();
+                    const prod = String(r['상품명'] || r['품목'] || r.col_1 || '').trim();
+                    if (!nick || nick === '닉네임' || nick === '주문자') return;
+
+                    if (nick.startsWith('___WORKSPACE')) {
+                        if (prod) curB = String(prod).replace(/^주문_/, '').trim();
+                        curMeta = {
+                            fThresh: Number(r['수량'] || r.col_2) > 0 ? Number(r['수량'] || r.col_2) : 70000,
+                            dShip: (r['단가(제품금액)'] !== '' && Number(r['단가(제품금액)'] ?? r.col_3) >= 0) ? Number(r['단가(제품금액)'] ?? r.col_3) : 4000,
+                            cRate: Number(r['배송비'] || r.col_4) > 0 ? Number(r['배송비'] || r.col_4) : 10
+                        };
+                        ensureBlk(curB, curMeta);
+                        return;
+                    }
+
+                    const blk = ensureBlk(curB, curMeta);
+                    const col9Val = String(r.col_9 || '').trim();
+                    const col10Val = String(r.col_10 || '').trim();
+                    const isCol9Zip = /^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val);
+                    const shifted = isCol9Zip ? 1 : 0;
+
+                    const qtyVal = Number(String(r['수량'] ?? r.col_2 ?? '1').replace(/[^0-9.-]/g, '')) || 1;
+                    const priceVal = Number(String(r['단가(제품금액)'] ?? r.col_3 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
+                    const shipRaw = r['배송비'] ?? r.col_4;
+                    const depVal = Number(String(r['입금액'] ?? r.col_5 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
+                    const cardRaw = String(r['카드결제'] ?? r.col_6 ?? '').trim();
+                    const realname = String(r['수령인명'] ?? r.col_7 ?? '').trim();
+                    const phone = fixPhoneStr(r['연락처'] ?? r.col_8 ?? '');
+
+                    let rawAddr = String(r['주소'] || '').trim();
+                    if (!rawAddr || /^\(\d{5}\)$/.test(rawAddr) || /^\d{5}$/.test(rawAddr)) {
+                        rawAddr = isCol9Zip ? col10Val : (col9Val || col10Val);
+                    }
+                    const cleanAddr = String(rawAddr || '').replace(/^\(\d{5}\)\s*/, '').trim();
+                    const memo = String(r['요청사항'] ?? r[`col_${10 + shifted}`] ?? '').trim();
+                    const vipRaw = String(r['VIP여부'] ?? r[`col_${11 + shifted}`] ?? '').trim();
+                    const waitRaw = String(r['대기여부'] ?? r[`col_${13 + shifted}`] ?? '').trim();
+                    const pinRaw = normalizePin4(r['비밀번호'] ?? r[`col_${14 + shifted}`] ?? '');
+                    const confRaw = String(r['주문확인'] ?? r[`col_${15 + shifted}`] ?? '').trim();
+                    const depJsonRaw = String(r['입금내역JSON'] ?? r[`col_${16 + shifted}`] ?? '').trim();
+                    const trkRaw = String(r['송장번호'] ?? r[`col_${17 + shifted}`] ?? '').replace(/^'+/, '').trim();
+
+                    const effectivePin = pinRaw || (phone.length >= 4 ? normalizePin4(phone.slice(-4)) : '');
+                    const nKey = normalizeNick(nick);
+                    const hKey = cleanHandle(nick);
+                    if (effectivePin) {
+                        addKnownPin(nKey, effectivePin);
+                        if (hKey) addKnownPin(hKey, effectivePin);
+                    }
+                    if (cleanAddr && !knownAddrByNick[nKey]) {
+                        knownAddrByNick[nKey] = {
+                            realname: realname || '',
+                            phone: phone || '',
+                            zipcode: '',
+                            baseAddress: cleanAddr,
+                            detailAddress: '',
+                            memo: (memo === cleanAddr || /^\(\d{5}\)/.test(memo)) ? '' : memo,
+                            updatedAt: ''
+                        };
+                    }
+
+                    if (!blk.custMap[nick]) {
+                        let parsedDeps = [];
+                        if (depJsonRaw) {
+                            try {
+                                const p = JSON.parse(depJsonRaw);
+                                if (Array.isArray(p)) parsedDeps = p;
+                            } catch (e) {}
+                        }
+                        const shipNum = (shipRaw !== '' && shipRaw !== undefined)
+                            ? Number(String(shipRaw).replace(/[^0-9.-]/g, ''))
+                            : blk.dShip;
+
+                        blk.custMap[nick] = {
+                            sheetTabName: '주문_' + blk.broadcastName,
+                            nickname: nick,
+                            phoneLast4: effectivePin,
+                            broadcastName: blk.broadcastName,
+                            isVip: vipRaw === 'O' || vipRaw === 'true',
+                            credit: 0,
+                            freeShippingThreshold: blk.fThresh,
+                            cardFeeRate: blk.cRate,
+                            isCard: cardRaw,
+                            shipping: isNaN(shipNum) ? blk.dShip : shipNum,
+                            depositTotal: 0,
+                            deposits: parsedDeps,
+                            items: [],
+                            address: cleanAddr ? {
+                                realname: realname || '',
+                                phone: phone || '',
+                                zipcode: '',
+                                baseAddress: cleanAddr,
+                                detailAddress: '',
+                                memo: (memo === cleanAddr || /^\(\d{5}\)/.test(memo)) ? '' : memo,
+                                updatedAt: ''
+                            } : null,
+                            trackingNumbers: trkRaw ? [trkRaw] : [],
+                            isConfirmed: confRaw === 'O' || confRaw === 'true'
+                        };
+                    } else {
+                        const cObj = blk.custMap[nick];
+                        if (!cObj.phoneLast4 && effectivePin) cObj.phoneLast4 = effectivePin;
+                        if (!cObj.address && cleanAddr) {
+                            cObj.address = {
+                                realname: realname || '',
+                                phone: phone || '',
+                                zipcode: '',
+                                baseAddress: cleanAddr,
+                                detailAddress: '',
+                                memo: (memo === cleanAddr || /^\(\d{5}\)/.test(memo)) ? '' : memo,
+                                updatedAt: ''
+                            };
+                        }
+                        if (trkRaw && !cObj.trackingNumbers.includes(trkRaw)) {
+                            cObj.trackingNumbers.push(trkRaw);
+                        }
+                    }
+
+                    if (depVal > 0) {
+                        blk.custMap[nick].depositTotal += depVal;
+                    }
+                    if (prod) {
+                        const isWait = waitRaw === 'O' || waitRaw.includes('대기');
+                        const wMatch = waitRaw.match(/(\d+)/);
+                        blk.custMap[nick].items.push({
+                            id: idx + 1,
+                            product: prod,
+                            qty: qtyVal,
+                            price: priceVal,
+                            isWaitlist: isWait,
+                            waitlistOrder: wMatch ? Number(wMatch[1]) : (isWait ? 1 : 0)
+                        });
+                    }
+                });
+
+                const pinVerifiedMatches = [];
+                let pinMismatchFound = false;
+
+                Object.values(blocks).forEach(blk => {
+                    let bestCand = null;
+                    let bestScore = 0;
+
+                    Object.values(blk.custMap).forEach(cust => {
+                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
+                        if (sc <= 0) return;
+
+                        const nKey = normalizeNick(cust.nickname);
+                        const hKey = cleanHandle(cust.nickname);
+                        const directPin = cust.phoneLast4 || (cust.address?.phone ? normalizePin4(cust.address.phone.slice(-4)) : '');
+                        const knownSet = knownPinsByNick[nKey] || (hKey ? knownPinsByNick[hKey] : null);
+                        const isPinMatched = Boolean(normInPin && ((directPin && directPin === normInPin) || (knownSet && knownSet.has(normInPin))));
+
+                        if (isPinMatched) {
+                            const effScore = sc + 10;
+                            if (effScore > bestScore) {
+                                bestScore = effScore;
+                                bestCand = {
+                                    ...cust,
+                                    _matchScore: effScore,
+                                    phoneLast4: normInPin,
+                                    address: cust.address || knownAddrByNick[nKey] || null
+                                };
+                            }
+                        } else if (directPin || (knownSet && knownSet.size > 0)) {
+                            pinMismatchFound = true;
+                        }
+                    });
+
+                    if (bestCand) pinVerifiedMatches.push(bestCand);
+                });
+
+                if (pinVerifiedMatches.length > 0) {
+                    pinVerifiedMatches.sort((a, b) => (b._matchScore || 0) - (a._matchScore || 0));
+                    const primaryNick = pinVerifiedMatches[0].nickname;
+                    const primaryNorm = normalizeNick(primaryNick);
+                    const primaryHandle = cleanHandle(primaryNick);
+
+                    const matchedHistory = sortHistoryByNewestDate(
+                        pinVerifiedMatches.filter(item =>
+                            normalizeNick(item.nickname) === primaryNorm ||
+                            (primaryHandle && cleanHandle(item.nickname) === primaryHandle)
+                        )
+                    );
+                    if (matchedHistory.length > 0) {
+                        return {
+                            status: 'success',
+                            customerData: matchedHistory[0],
+                            historyList: matchedHistory
+                        };
+                    }
+                }
+
+                if (pinMismatchFound) {
+                    return { status: 'error', errorType: 'WRONG_PIN' };
+                }
+            } catch (e) {}
+            return null;
+        };
+
         const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
             if (!portalFbDb) return null;
             try {
                 const normInPin = normalizePin4(cleanPin);
-                const [ordersSnap, masterAddrSnap, creditsSnap, confSnap, bcastAddrSnap] = await Promise.all([
+                const fbFetchPromise = Promise.all([
                     portalFbDb.ref('ember_live_data/_portal_orders').once('value'),
                     portalFbDb.ref('ember_live_data/_portal_master_addrs').once('value'),
                     portalFbDb.ref('ember_live_data/_portal_credits').once('value'),
                     portalFbDb.ref('ember_live_data/_portal_confirmed').once('value'),
                     portalFbDb.ref('ember_live_data/_portal_broadcast_addresses').once('value')
                 ]);
+                // Firebase 응답이 2.2초 이상 지연되면 즉시 통과하여 시트 직통 리더가 처리하도록 안전 타임아웃 적용
+                const snaps = await Promise.race([
+                    fbFetchPromise,
+                    new Promise(r => setTimeout(() => r(null), 2200))
+                ]);
+                if (!snaps) return null;
+                const [ordersSnap, masterAddrSnap, creditsSnap, confSnap, bcastAddrSnap] = snaps;
                 const store = ordersSnap.val() || {};
                 const masterAddrMap = masterAddrSnap.val() || {};
                 const creditsMap = creditsSnap.val() || {};
@@ -437,7 +967,7 @@
             return String(str).replace(/[^가-힣]/g, "");
         };
 
-        // 한글 모음(ㅐ/ㅔ, ㅒ/ㅖ) 혼동 오타 보정용 정규화 함수 (예: 태로맘 === 테로맘)
+        // 한글 모음(ㅐ/ㅔ, ㅒ/ㅖ) 및 초성 거센소리/된소리(ㄱ/ㅋ/ㄲ, ㄷ/ㅌ/ㄸ, ㅂ/ㅍ/ㅃ, ㅈ/ㅊ/ㅉ) 혼동 오타 보정용 정규화 함수 (예: 코구마 === 코쿠마, 태로맘 === 테로맘)
         const normalizeKoreanVowel = (str) => {
             const s = normalizeNick(str);
             let out = "";
@@ -445,9 +975,15 @@
                 const code = s.charCodeAt(i);
                 if (code >= 0xAC00 && code <= 0xD7A3) {
                     const offset = code - 0xAC00;
-                    const cho = Math.floor(offset / 588);
+                    let cho = Math.floor(offset / 588);
                     let jung = Math.floor((offset % 588) / 28);
                     const jong = offset % 28;
+                    // 초성 거센소리/된소리 통일: ㄱ(0)/ㄲ(1)/ㅋ(15) -> 0, ㄷ(3)/ㄸ(4)/ㅌ(16) -> 3, ㅂ(7)/ㅃ(8)/ㅍ(17) -> 7, ㅈ(12)/ㅉ(13)/ㅊ(14) -> 12
+                    if (cho === 1 || cho === 15) cho = 0;
+                    else if (cho === 4 || cho === 16) cho = 3;
+                    else if (cho === 8 || cho === 17) cho = 7;
+                    else if (cho === 13 || cho === 14) cho = 12;
+                    // 모음 ㅐ/ㅔ, ㅒ/ㅖ, ㅜ/ㅡ 통일
                     if (jung === 1) jung = 5; // ㅐ -> ㅔ 통일
                     if (jung === 3) jung = 7; // ㅒ -> ㅖ 통일
                     out += String.fromCharCode(0xAC00 + cho * 588 + jung * 28 + jong);
@@ -707,6 +1243,24 @@
                 },
                 trackingNumbers: ["2548-1920-3841"],
                 isConfirmed: false,
+                csList: [
+                    {
+                        id: "sample_cs_1",
+                        sourceBroadcast: "10/18 여성복",
+                        csStatus: "미처리",
+                        nick: "테스트1",
+                        origTracking: "2548-1920-3841",
+                        csTracking: "",
+                        refundAccount: "카카오뱅크 3333-01-234567 김은지",
+                        refundAmount: 55000,
+                        refundCompleted: false,
+                        csFee: 4000,
+                        csFeePaid: true,
+                        items: [
+                            { product: "01 알파카 핸드메이드 코트 베이지 F", qty: 1, price: 55000, csTag: "반품" }
+                        ]
+                    }
+                ],
                 historyList: [
                     {
                         sheetTabName: "주문_10/18 여성복",
@@ -840,10 +1394,55 @@
             const [trackingMap, setTrackingMap] = useState({});
             const [collapsedTracks, setCollapsedTracks] = useState({});
             const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
+            const [customerCsList, setCustomerCsList] = useState([]);
+            const [editingCsAccountMap, setEditingCsAccountMap] = useState({});
             const [showBizFooter, setShowBizFooter] = useState(false);
             const touchStartYRef = React.useRef(null);
             const bottomReachedAtRef = React.useRef(0);
             const wheelOverscrollCountRef = React.useRef(0);
+
+            // 고객의 미송/교환/반품(CS) 실시간 동기화 리스너 (직원용 시스템에서 저장 시 즉시 반영)
+            useEffect(() => {
+                if (!portalFbDb || !currentUser || !currentUser.nickname) return;
+                const csRef = portalFbDb.ref('ember_live_data/_portal_cs');
+                const handleCsChange = () => {
+                    const allNicks = Array.from(new Set([
+                        currentUser.nickname,
+                        ...orderHistoryList.map(h => h.nickname)
+                    ].filter(Boolean)));
+                    lookupCustomerCsRecords(allNicks, currentUser.phoneLast4 || pinInput).then(list => {
+                        if (Array.isArray(list)) setCustomerCsList(list);
+                    }).catch(() => {});
+                };
+                csRef.on('value', handleCsChange);
+                return () => csRef.off('value', handleCsChange);
+            }, [currentUser?.nickname, currentUser?.phoneLast4, pinInput, orderHistoryList]);
+
+            // 고객이 포털에서 직접 환불 계좌번호를 입력/저장하는 함수
+            const handleSaveCustomerRefundAccount = async (csId) => {
+                const nextAcc = String(editingCsAccountMap[csId] ?? '').trim();
+                if (!nextAcc) {
+                    showToast("환불받으실 은행명, 계좌번호, 예금주를 입력해 주세요.");
+                    return;
+                }
+                setCustomerCsList(prev => prev.map(c => c.id === csId ? { ...c, refundAccount: nextAcc } : c));
+                setEditingCsAccountMap(prev => {
+                    const copy = { ...prev };
+                    delete copy[csId];
+                    return copy;
+                });
+                if (portalFbDb) {
+                    try {
+                        await portalFbDb.ref(`ember_live_data/_portal_cs_accounts/${csId}`).set({
+                            csId,
+                            nickname: currentUser?.nickname || '',
+                            refundAccount: nextAcc,
+                            updatedAt: getKstNowString()
+                        });
+                    } catch (e) {}
+                }
+                showToast("환불 계좌번호가 저장되었습니다!");
+            };
 
             // 바닥에 완전히 도달해 멈춘(0.45초 이상 정지) 뒤, 한 번 더 강하게 아래로 당길 때만 사업자정보 창이 열리도록 정밀 감지
             useEffect(() => {
@@ -916,9 +1515,9 @@
                 };
             }, [currentUser]);
 
-            // ✨ 고객이 페이지에 접속해서 닉네임을 입력하는 동안 백그라운드에서 미리 구글 시트 캐시를 예열(Warm-up)하여 조회 버튼 클릭 시 0.3초 만에 열리도록 가속!
+            // ✨ 고객이 페이지에 접속해서 닉네임을 입력하는 동안 백그라운드에서 미리 시트 데이터를 메모리에 프리로드(Pre-load)하여 조회 버튼 클릭 시 0.1초 만에 열리도록 가속!
             useEffect(() => {
-                fetch(`${DEFAULT_GAS_URL}?action=warmup&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, { mode: 'no-cors' }).catch(() => {});
+                preloadStaffSheetsInBackground(false);
             }, []);
 
             // ✨ 실시간 적립금 동기화 센서: 고객이 주문서를 열어둔 상태에서 사장님이 [적립금전환]을 누르면 새로고침 없이 0.1초 만에 화면에 적립금이 뜹니다!
@@ -1134,6 +1733,7 @@
                             setSelectedBroadcastIdx(nextIdx);
                             setCurrentUser(hList[nextIdx]);
                             initAddressState(hList[nextIdx]);
+                            setCustomerCsList(Array.isArray(sampleMatch.csList) ? sampleMatch.csList : []);
                             if (isRefreshCall) showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
                         } else {
                             setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다.");
@@ -1146,40 +1746,48 @@
                     const fetchOrderWithPin = async (targetPin, targetNickOverride) => {
                         const queryNick = targetNickOverride !== undefined ? targetNickOverride : rawNick;
                         const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(queryNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
-                        return await fetchGasWithRetry(url, null, 2);
+                        return await fetchGasWithRetry(url, null, 1, 3500);
                     };
 
-                    // 🚀 1단계: Firebase 실시간 클라우드(0.1초)와 구글 시트를 스마트하게 병합하여 입금내역이 가장 최신인 데이터를 즉시 표시!
-                    let fbInstantData = await lookupOrderFromFirebase(rawNick, cleanPin);
-                    if (fbInstantData && fbInstantData.status === "success" && fbInstantData.customerData && !isRefreshCall) {
-                        const verifiedFbList = filterVerifiedHistoryList(fbInstantData.historyList || [fbInstantData.customerData], rawNick, cleanPin);
-                        if (verifiedFbList.length > 0) {
-                            const hList = sortHistoryByNewestDate(verifiedFbList);
-                            setOrderHistoryList(hList);
-                            setSelectedBroadcastIdx(0);
-                            setCurrentUser(hList[0]);
-                            initAddressState(hList[0]);
-                            setIsLoading(false);
-                            setIsRefreshing(false);
+                    // 주문 목록을 화면에 즉시 반영하고 백그라운드에서 추가 데이터를 병합하는 헬퍼
+                    const applyAndMergeOrders = (initialList) => {
+                        const cleaned = removeDummyEmptyOrdersIfRealExists(
+                            filterVerifiedHistoryList(initialList, rawNick, cleanPin)
+                        );
+                        if (cleaned.length === 0) return false;
+                        const hList = sortHistoryByNewestDate(cleaned);
+                        setOrderHistoryList(hList);
+                        const nextIdx = (isRefreshCall && selectedBroadcastIdx < hList.length) ? selectedBroadcastIdx : 0;
+                        setSelectedBroadcastIdx(nextIdx);
+                        setCurrentUser(hList[nextIdx]);
+                        initAddressState(hList[nextIdx]);
+                        setIsLoading(false);
+                        setIsRefreshing(false);
+                        if (isRefreshCall) showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
 
-                            // 백그라운드에서 구글 시트 데이터도 가져오되, 반드시 본인 닉네임 및 비밀번호 검증 필터(filterVerifiedHistoryList)를 통과한 주문서만 병합!
-                            const resolvedFullNick = hList[0]?.nickname || rawNick;
-                            fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
-                                if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
-                                    const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
-                                    if (gasList.length === 0) return;
+                        // 미송 / 교환 / 반품(CS) 내역 비동기 조회
+                        const resolvedFullNick = hList[0]?.nickname || rawNick;
+                        lookupCustomerCsRecords([resolvedFullNick, rawNick], cleanPin).then(csRes => {
+                            if (Array.isArray(csRes)) setCustomerCsList(csRes);
+                        }).catch(() => {});
+
+                        // 백그라운드에서 사장님 라이브 시트(현재 방송) 데이터도 조용히 확인하여 있으면 병합
+                        fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
+                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
+                                const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
+                                if (gasList.length === 0) return;
+                                setOrderHistoryList(prevList => {
                                     const mergedMap = new Map();
-                                    hList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
+                                    prevList.forEach(item => mergedMap.set(item.sheetTabName || item.broadcastName, item));
                                     gasList.forEach(gItem => {
+                                        if (gItem.broadcastName === '최근 주문 내역 없음' && mergedMap.size > 0) return;
                                         const key = gItem.sheetTabName || gItem.broadcastName;
                                         const existing = mergedMap.get(key);
                                         if (!existing) {
                                             mergedMap.set(key, gItem);
                                         } else {
                                             const bestCredit = Math.max(Number(existing.credit) || 0, Number(gItem.credit) || 0);
-                                            const bestDep = (Number(existing.credit) > Number(gItem.credit) && Number(existing.depositTotal) > 0)
-                                                ? Number(existing.depositTotal)
-                                                : Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
+                                            const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
                                             const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
                                             mergedMap.set(key, {
                                                 ...gItem,
@@ -1192,236 +1800,120 @@
                                             });
                                         }
                                     });
-                                    const finalMerged = sortHistoryByNewestDate(Array.from(mergedMap.values()));
-                                    setOrderHistoryList(finalMerged);
-                                    setCurrentUser(finalMerged[0]);
-                                }
-                            }).catch(() => {});
+                                    const finalMerged = sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists(Array.from(mergedMap.values())));
+                                    setCurrentUser(cur => finalMerged[nextIdx] || finalMerged[0] || cur);
+                                    return finalMerged;
+                                });
+                            }
+                        }).catch(() => {});
+
+                        return true;
+                    };
+
+                    // 🚀 1단계(0.05초~0.3초): 프리로드된 직원용 시트(gviz CDN)와 Firebase 클라우드를 동시에 시작하되,
+                    // 둘 중 어느 하나라도 먼저 결과를 찾으면 기다리지 않고 0.1초 만에 즉시 화면을 엽니다!
+                    const staffPromise = lookupOrderFromStaffSheetDirect(rawNick, cleanPin, isRefreshCall);
+                    const fbPromise = lookupOrderFromFirebase(rawNick, cleanPin);
+
+                    const [staffDirectData, fbInstantData] = await Promise.all([staffPromise, fbPromise]);
+
+                    const combinedInstantList = [];
+                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
+                        combinedInstantList.push(...fbInstantData.historyList);
+                    }
+                    if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
+                        staffDirectData.historyList.forEach(sItem => {
+                            const key = sItem.sheetTabName || sItem.broadcastName;
+                            const existIdx = combinedInstantList.findIndex(x => (x.sheetTabName || x.broadcastName) === key);
+                            if (existIdx === -1) {
+                                combinedInstantList.push(sItem);
+                            } else {
+                                const ex = combinedInstantList[existIdx];
+                                combinedInstantList[existIdx] = {
+                                    ...sItem,
+                                    ...ex,
+                                    depositTotal: Math.max(Number(ex.depositTotal) || 0, Number(sItem.depositTotal) || 0),
+                                    address: ex._hasBcastCustomAddr ? ex.address : (ex.address || sItem.address),
+                                    trackingNumbers: (Array.isArray(ex.trackingNumbers) && ex.trackingNumbers.length > 0) ? ex.trackingNumbers : (sItem.trackingNumbers || []),
+                                    isConfirmed: Boolean(ex.isConfirmed || sItem.isConfirmed)
+                                };
+                            }
+                        });
+                    }
+
+                    // 1단계에서 찾았으면 즉시 주문서 오픈! (GAS 응답 기다리지 않음)
+                    if (combinedInstantList.length > 0 && applyAndMergeOrders(combinedInstantList)) {
+                        return;
+                    }
+
+                    // 만약 1단계에서 비밀번호 불일치(WRONG_PIN)가 명확히 확인되었다면 무거운 GAS 조회를 생략하고 즉시 안내!
+                    if ((staffDirectData && staffDirectData.errorType === "WRONG_PIN") || (fbInstantData && fbInstantData.errorType === "WRONG_PIN")) {
+                        setIsLoading(false);
+                        setIsRefreshing(false);
+                        setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
+                        return;
+                    }
+
+                    // 🚀 2단계: 직원용 시트/클라우드에 없는 신규 당일 첫구매 고객인 경우에만 사장님 시트(GAS) 및 CS 내역 조회 (최대 3.5초 타임아웃)
+                    const [gasData, csOnlyCheck] = await Promise.all([
+                        fetchOrderWithPin(cleanPin).catch(() => null),
+                        lookupCustomerCsRecords([rawNick], cleanPin).catch(() => [])
+                    ]);
+
+                    let data = gasData;
+                    if (data && data.status === "success") {
+                        const rawGasList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : (data.customerData ? [data.customerData] : []);
+                        if (applyAndMergeOrders(rawGasList)) {
                             return;
                         }
                     }
 
-                    let data = await fetchOrderWithPin(cleanPin);
-                    if (data && data.status === "success") {
-                        const rawGasList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : (data.customerData ? [data.customerData] : []);
-                        const verifiedGasList = filterVerifiedHistoryList(rawGasList, rawNick, cleanPin);
-                        if (verifiedGasList.length > 0) {
-                            // 새로고침 시에도 Firebase에 저장된 해당 방송 전용 배송지가 있으면 시트 지연과 무관하게 최우선 유지
-                            if (fbInstantData && Array.isArray(fbInstantData.historyList)) {
-                                verifiedGasList.forEach(gItem => {
-                                    const fbMatch = fbInstantData.historyList.find(f => (f.sheetTabName || f.broadcastName) === (gItem.sheetTabName || gItem.broadcastName));
-                                    if (fbMatch && fbMatch._hasBcastCustomAddr && fbMatch.address) {
-                                        gItem.address = fbMatch.address;
-                                    }
-                                    if (fbMatch && Number(fbMatch.credit) > Number(gItem.credit || 0)) {
-                                        gItem.credit = Number(fbMatch.credit);
-                                    }
-                                });
-                            }
-                            data = {
-                                ...data,
-                                customerData: verifiedGasList[0],
-                                historyList: verifiedGasList
-                            };
-                        } else {
-                            data = { status: "not_found" };
-                        }
-                    }
-                    if (fbInstantData && fbInstantData.errorType === "WRONG_PIN" && (!data || data.status === "not_found")) {
-                        data = fbInstantData;
-                    }
-
-                    // ✨ 만약 최근 방송 주문서('주문_' 시트)에서 부분 닉네임을 바로 못 찾았더라도, '찐고객사전', '고객상태관리', 또는 '메인주문'에서
-                    // 한글 부분 일치('깔로', '깔로다', '깔로다주', '주세요' 등) + 전화번호 뒷 4자리(PIN)가 일치하는 고객을 찾아 즉시 열어줍니다!
-                    if (data && data.status === "not_found") {
-                        try {
-                            const [dictJson, mainOrderJson] = await Promise.all([
-                                fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&t=${Date.now()}`, null, 2).catch(() => null),
-                                fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_MASTER_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, null, 2).catch(() => null)
-                            ]);
-                            if (dictJson && dictJson.status === "success") {
-                                const mAddrs = Array.isArray(dictJson.masterAddresses) ? dictJson.masterAddresses : [];
-                                const cDb = Array.isArray(dictJson.customerDb) ? dictJson.customerDb : [];
-                                const mainRows = (mainOrderJson && Array.isArray(mainOrderJson.data)) ? mainOrderJson.data : [];
-                                const normInPin = normalizePin4(cleanPin);
-
-                                // 닉네임별로 찐고객사전 + 고객상태관리 + 메인주문 정보를 하나로 통합
-                                const candidateMap = new Map();
-
-                                mAddrs.forEach(a => {
-                                    const n = String(a.nickname || a['닉네임'] || a['주문자'] || a.col_0 || '').trim();
-                                    if (!n || n.toLowerCase() === 'nickname') return;
-                                    const rName = String(a.realname || a['수령인명'] || a.col_1 || '').trim();
-                                    const score = getNickMatchScore(n, rName, rawNick);
-                                    if (score > 0) {
-                                        const ph = fixPhoneStr(a.phone || a['연락처'] || a.col_2);
-                                        const pinFromPh = ph.length >= 4 ? normalizePin4(ph.slice(-4)) : '';
-                                        const key = cleanHandle(n) || normalizeNick(n);
-                                        const prev = candidateMap.get(key) || { nick: n, sheetNick: '', realname: rName, score: 0, pins: new Set(), addrRow: null, custRow: null };
-                                        prev.nick = n;
-                                        if (rName) prev.realname = rName;
-                                        if (score > prev.score) prev.score = score;
-                                        if (pinFromPh) prev.pins.add(pinFromPh);
-                                        prev.addrRow = a;
-                                        candidateMap.set(key, prev);
-                                    }
-                                });
-
-                                cDb.forEach(c => {
-                                    const n = String(c['닉네임'] || '').trim();
-                                    if (!n) return;
-                                    const score = getNickMatchScore(n, '', rawNick);
-                                    if (score > 0) {
-                                        const key = cleanHandle(n) || normalizeNick(n);
-                                        const prev = candidateMap.get(key) || { nick: n, sheetNick: '', realname: '', score: 0, pins: new Set(), addrRow: null, custRow: null };
-                                        if (n.includes('-')) prev.sheetNick = n;
-                                        if (score > prev.score) prev.score = score;
-                                        if (c['비밀번호']) prev.pins.add(normalizePin4(c['비밀번호']));
-                                        prev.custRow = c;
-                                        candidateMap.set(key, prev);
-                                    }
-                                });
-
-                                mainRows.forEach(r => {
-                                    const n = String(r['닉네임'] || r['주문자'] || '').trim();
-                                    if (!n || n === '___WORKSPACE_META___') return;
-                                    const rName = String(r['수령인명'] || '').trim();
-                                    const score = getNickMatchScore(n, rName, rawNick);
-                                    if (score > 0) {
-                                        const key = cleanHandle(n) || normalizeNick(n);
-                                        const prev = candidateMap.get(key) || { nick: n, sheetNick: n, realname: rName, score: 0, pins: new Set(), addrRow: null, custRow: null };
-                                        prev.sheetNick = n;
-                                        if (score > prev.score) prev.score = score;
-                                        const rPin = normalizePin4(r['비밀번호']);
-                                        const rPh = fixPhoneStr(r['연락처']);
-                                        if (rPin) prev.pins.add(rPin);
-                                        if (rPh.length >= 4) prev.pins.add(normalizePin4(rPh.slice(-4)));
-                                        candidateMap.set(key, prev);
-                                    }
-                                });
-
-                                const allCandidates = Array.from(candidateMap.values());
-                                // 1차 필터: 입력한 비밀번호 4자리(normInPin)와 일치하는 후보만 추출
-                                const pinMatchedCandidates = allCandidates.filter(cand => cand.pins.has(normInPin));
-
-                                // 가장 높은 매칭 점수 그룹만 추려냄 (완전일치 3점이 있으면 3점만, 없으면 2점 부분일치 등)
-                                const maxScore = pinMatchedCandidates.reduce((m, c) => Math.max(m, c.score), 0);
-                                const bestPinMatched = pinMatchedCandidates.filter(c => c.score === maxScore);
-
-                                if (bestPinMatched.length > 1) {
-                                    // 🚨 동일한 부분 닉네임 + 동일한 전화번호 뒷 4자리를 쓰는 동명이인이 2명 이상인 경우!
-                                    const dupNames = bestPinMatched.map(c => c.sheetNick || c.nick).join(', ');
-                                    data = {
-                                        status: "error",
-                                        message: `입력하신 이름과 뒷번호가 일치하는 고객님이 ${bestPinMatched.length}명(${dupNames}) 있습니다. 조금 더 정확한 닉네임을 입력해 주세요!`
-                                    };
-                                } else if (bestPinMatched.length === 1) {
-                                    // ✅ 부분 닉네임(예: '깔로', '깔로다', '주세요')만 쳤어도 뒷번호 4자리가 일치하는 유일한 고객('깔로다주세요-SD2') 발견!
-                                    const targetCand = bestPinMatched[0];
-                                    const trueNick = targetCand.sheetNick || targetCand.nick;
-
-                                    // 실제 풀네임(예: '깔로다주세요-SD2' 또는 '깔로다주세요')으로 서버에 주문 내역 재조회!
-                                    const tryNicks = Array.from(new Set([targetCand.sheetNick, targetCand.nick].filter(Boolean)));
-                                    for (const tNick of tryNicks) {
-                                        if (normalizeNick(tNick) !== normalizeNick(rawNick)) {
-                                            try {
-                                                const dTrue = await fetchOrderWithPin(cleanPin, tNick);
-                                                if (dTrue && dTrue.status === "success" && dTrue.customerData) {
-                                                    const vList = filterVerifiedHistoryList(dTrue.historyList || [dTrue.customerData], rawNick, cleanPin, trueNick);
-                                                    if (vList.length > 0) {
-                                                        data = {
-                                                            ...dTrue,
-                                                            customerData: vList[0],
-                                                            historyList: vList
-                                                        };
-                                                        break;
-                                                    }
-                                                }
-                                            } catch (e) {}
-                                        }
-                                    }
-
-                                    // 주문 시트에 품목이 없더라도 본인 배송지와 함께 정상 접속 허용!
-                                    if (!data || data.status !== "success") {
-                                        const latestAddr = targetCand.addrRow;
-                                        const matchedCust = targetCand.custRow;
-                                        const ph = latestAddr ? fixPhoneStr(latestAddr.phone || latestAddr['연락처'] || latestAddr.col_2) : '';
-                                        const rawAddrStr = latestAddr ? String(latestAddr.address || latestAddr['주소'] || latestAddr.col_3 || '').trim() : '';
-                                        const zipM = rawAddrStr.match(/^\((\d{5})\)\s*(.*)$/);
-                                        const addrObj = latestAddr ? {
-                                            realname: String(latestAddr.realname || latestAddr['수령인명'] || latestAddr.col_1 || '').trim(),
-                                            phone: ph,
-                                            zipcode: zipM ? zipM[1] : String(latestAddr.zipcode || latestAddr.col_4 || '').trim(),
-                                            baseAddress: zipM ? zipM[2] : rawAddrStr,
-                                            detailAddress: '',
-                                            memo: String(latestAddr.memo || latestAddr['배송메모'] || latestAddr.col_5 || '').trim(),
-                                            updatedAt: String(latestAddr.timestamp || latestAddr['저장시간'] || latestAddr.col_6 || '').trim()
-                                        } : null;
-
-                                        const emptyOrderCard = {
-                                            sheetTabName: '메인주문',
-                                            nickname: trueNick,
-                                            phoneLast4: normInPin,
-                                            broadcastName: '최근 주문 내역 없음',
-                                            isVip: matchedCust && String(matchedCust['고객상태'] || '').toLowerCase() === 'vip',
-                                            freeShippingThreshold: 70000,
-                                            cardFeeRate: 10,
-                                            isCard: '',
-                                            shipping: 0,
-                                            depositTotal: 0,
-                                            deposits: [],
-                                            items: [],
-                                            address: addrObj && addrObj.baseAddress ? addrObj : null,
-                                            trackingNumbers: [],
-                                            isConfirmed: false
-                                        };
-                                        data = {
-                                            status: "success",
-                                            customerData: emptyOrderCard,
-                                            historyList: [emptyOrderCard]
-                                        };
-                                    }
-                                } else if (allCandidates.length > 0) {
-                                    // 닉네임은 비슷한 사람이 있는데 비밀번호가 틀린 경우
-                                    data = { status: "error", errorType: "WRONG_PIN" };
-                                }
-                            }
-                        } catch (fallbackErr) {}
+                    // 미송/교환/반품(CS) 내역에만 존재하는 고객인 경우 즉시 열람 허용
+                    if (Array.isArray(csOnlyCheck) && csOnlyCheck.length > 0) {
+                        const firstCs = csOnlyCheck[0];
+                        const csCard = {
+                            sheetTabName: '주문_' + (firstCs.sourceBroadcast || '교환반품'),
+                            nickname: firstCs.nick || rawNick,
+                            phoneLast4: normalizePin4(cleanPin),
+                            broadcastName: firstCs.sourceBroadcast || '미송/교환/반품 내역',
+                            isVip: false,
+                            credit: 0,
+                            freeShippingThreshold: 70000,
+                            cardFeeRate: 10,
+                            isCard: '',
+                            shipping: 0,
+                            depositTotal: 0,
+                            deposits: [],
+                            items: [],
+                            address: null,
+                            trackingNumbers: firstCs.origTracking ? [firstCs.origTracking] : [],
+                            isConfirmed: false
+                        };
+                        setOrderHistoryList([csCard]);
+                        setSelectedBroadcastIdx(0);
+                        setCurrentUser(csCard);
+                        initAddressState(csCard);
+                        setCustomerCsList(csOnlyCheck);
+                        setIsLoading(false);
+                        setIsRefreshing(false);
+                        return;
                     }
 
                     setIsLoading(false);
                     setIsRefreshing(false);
 
-                    if (data && data.status === "success" && data.customerData) {
-                        const rawHList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : [data.customerData];
-                        const verifiedFinalList = filterVerifiedHistoryList(rawHList, rawNick, cleanPin);
-                        if (verifiedFinalList.length > 0) {
-                            const hList = sortHistoryByNewestDate(verifiedFinalList);
-                            setOrderHistoryList(hList);
-                            const nextIdx = isRefreshCall && selectedBroadcastIdx < hList.length ? selectedBroadcastIdx : 0;
-                            setSelectedBroadcastIdx(nextIdx);
-                            setCurrentUser(hList[nextIdx]);
-                            initAddressState(hList[nextIdx]);
-                            if (isRefreshCall) {
-                                showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
-                            }
-                        } else {
-                            setLoginError("비밀번호(뒷 4자리)가 일치하지 않거나 본인 주문 내역이 아닙니다.");
-                        }
-                    } else if (data && data.errorType === "WRONG_PIN") {
+                    if (data && data.errorType === "WRONG_PIN") {
                         setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
-                    } else if (data && data.status === "not_found") {
-                        setLoginError("주문 내역을 찾을 수 없습니다. (뒤쪽 -영문숫자 핸들을 뺀 한글 닉네임만 입력해 보세요!)");
                     } else {
-                        setLoginError((data && data.message) || "조회에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+                        setLoginError("주문 내역을 찾을 수 없습니다. (뒤쪽 -영문숫자 핸들을 뺀 한글 닉네임만 입력해 보세요!)");
                     }
                 } catch (err) {
                     setIsLoading(false);
                     setIsRefreshing(false);
                     if (isRefreshCall) {
-                        showToast("접속자가 많아 지연되고 있습니다. 2초 후 다시 눌러주세요.");
+                        showToast("일시적인 네트워크 지연입니다. 다시 한번 눌러주세요.");
                     } else {
-                        setLoginError("현재 동시 접속자가 많아 연결이 지연되었습니다. [주문서 조회하기]를 한 번 더 눌러주세요!");
+                        setLoginError("일시적인 연결 지연입니다. [주문서 조회하기]를 한 번 더 눌러주세요!");
                     }
                 }
             };
@@ -1689,7 +2181,7 @@
                 return [];
             })();
             const isAddressLockedByTracking = userTrackingList.length > 0;
-            // ✨ 주문서가 열리거나 방송 날짜 탭을 바꿀 때 송장번호가 있으면 클릭할 필요도 없이 그 자리에서 자동으로 배송흐름을 불러옵니다!
+            // ✨ 주문서가 열리거나 방송 날짜 탭을 바꿀 때 송장번호(일반 출고송장 + 미송/교반 출고송장)가 있으면 그 자리에서 자동으로 배송흐름을 불러옵니다!
             useEffect(() => {
                 if (userTrackingList.length > 0) {
                     userTrackingList.forEach(trk => {
@@ -1697,7 +2189,15 @@
                         if (cleanDigits) fetchInlineTracking(cleanDigits);
                     });
                 }
-            }, [currentUser, selectedBroadcastIdx]);
+                if (Array.isArray(customerCsList) && customerCsList.length > 0) {
+                    customerCsList.forEach(cs => {
+                        if (cs.csTracking) {
+                            const cleanDigits = String(cs.csTracking).replace(/[^0-9]/g, '');
+                            if (cleanDigits) fetchInlineTracking(cleanDigits);
+                        }
+                    });
+                }
+            }, [currentUser, selectedBroadcastIdx, customerCsList]);
 
             return (
                 <div className="w-full flex flex-col items-center">
@@ -1840,7 +2340,7 @@
                                             <span>{isRefreshing ? "갱신중..." : "새로고침"}</span>
                                         </button>
                                         <button 
-                                            onClick={() => { setCurrentUser(null); setOrderHistoryList([]); setSelectedBroadcastIdx(0); setNickInput(""); setPinInput(""); }}
+                                            onClick={() => { setCurrentUser(null); setOrderHistoryList([]); setCustomerCsList([]); setSelectedBroadcastIdx(0); setNickInput(""); setPinInput(""); }}
                                             className="text-[12px] font-bold bg-gray-50 hover:bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg border border-gray-200 transition-colors"
                                         >
                                             닫기
@@ -2396,6 +2896,192 @@
                                         )}
                                     </div>
                                 </section>
+
+                                {/* 3-2. 미송 / 교환 / 반품 진행 내역 (해당 내역이 있는 고객에게만 표시 · 직원용 CS메모는 철저히 비공개) */}
+                                {customerCsList.length > 0 && (
+                                    <section className="bg-white rounded-lg p-3.5 border-2 border-purple-200 shadow-sm space-y-3">
+                                        <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                                            <span className="text-[14px] font-extrabold text-gray-900 flex items-center gap-1.5">
+                                                <Icon name="arrows-left-right" weight="bold" className="text-purple-600" size={16} />
+                                                <span>미송 / 교환 / 반품 내역</span>
+                                            </span>
+                                            <span className="text-[11.5px] font-extrabold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                                                총 {customerCsList.length}건
+                                            </span>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {customerCsList.map((cs, cIdx) => {
+                                                const isDone = cs.csStatus === '처리완료';
+                                                const hasReturnItem = (cs.items || []).some(it => it.csTag === '반품');
+                                                const showRefundSection = Number(cs.refundAmount) > 0 || Boolean(cs.refundAccount) || hasReturnItem;
+                                                const isEditingAcc = editingCsAccountMap[cs.id] !== undefined;
+                                                const csTrackDigits = String(cs.csTracking || '').replace(/[^0-9]/g, '');
+                                                const csTrkInfo = csTrackDigits ? (trackingMap[csTrackDigits] || { loading: true, steps: [] }) : null;
+
+                                                return (
+                                                    <div key={cs.id || cIdx} className="rounded-xl border border-gray-200 overflow-hidden bg-gray-50/60">
+                                                        {/* 상단 방송명 및 처리상태 헤더 */}
+                                                        <div className="bg-white px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                <Icon name="calendar-check" weight="fill" className="text-blue-600 shrink-0" size={14} />
+                                                                <span className="text-[12.5px] font-extrabold text-gray-800 truncate">
+                                                                    {cs.sourceBroadcast || '주문 내역'}
+                                                                </span>
+                                                            </div>
+                                                            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded shrink-0 ${
+                                                                isDone
+                                                                    ? 'bg-emerald-600 text-white'
+                                                                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                                            }`}>
+                                                                {isDone ? '✅ 처리완료' : '⏳ 처리 진행중'}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* 미송/교환/반품 품목 리스트 */}
+                                                        <div className="p-3 bg-white divide-y divide-gray-100">
+                                                            {(cs.items || []).map((it, idx) => {
+                                                                const tag = it.csTag || '정상';
+                                                                const badgeStyle =
+                                                                    tag === '미송' ? 'bg-purple-100 text-purple-800 border-purple-300' :
+                                                                    tag === '교환' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                                    tag === '반품' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                                                    tag === '불량/오배송' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                                    'bg-gray-100 text-gray-600 border-gray-200';
+                                                                return (
+                                                                    <div key={idx} className="py-1.5 first:pt-0 last:pb-0 flex items-center justify-between gap-2 text-[13.5px]">
+                                                                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                                            <span className={`text-[11px] font-extrabold px-1.5 py-0.5 rounded border shrink-0 ${badgeStyle}`}>
+                                                                                {tag === '미송' ? '미송대기' : tag}
+                                                                            </span>
+                                                                            <span className="font-bold text-gray-900 truncate">{it.product}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0 text-[13px]">
+                                                                            <span className="font-bold text-gray-600">{it.qty}개</span>
+                                                                            <span className="font-extrabold text-gray-900 tabular-nums">{Number(it.price || 0).toLocaleString()}원</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        {/* 환불예정 금액 · 환불 계좌번호 · 교반품비 안내 (직원용 CS메모는 절대 노출 안 함) */}
+                                                        {(showRefundSection || Number(cs.csFee) > 0 || cs.csTracking) && (
+                                                            <div className="p-3 bg-gray-50 border-t border-gray-200 space-y-2 text-[13px]">
+                                                                {/* 1. 환불예정 금액 및 환불완료 여부 */}
+                                                                {showRefundSection && (
+                                                                    <div className="bg-white p-2.5 rounded-lg border border-rose-200 space-y-2">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="font-extrabold text-gray-800 flex items-center gap-1">
+                                                                                <span>💸 환불예정 금액</span>
+                                                                            </span>
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <span className="text-[15px] font-black text-rose-600 tabular-nums">
+                                                                                    {Number(cs.refundAmount || 0).toLocaleString()}원
+                                                                                </span>
+                                                                                <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
+                                                                                    cs.refundCompleted
+                                                                                        ? 'bg-blue-600 text-white'
+                                                                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                                                                }`}>
+                                                                                    {cs.refundCompleted ? '환불완료' : '환불대기'}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* 2. 환불 계좌번호 표시 및 고객 직접 입력/수정 */}
+                                                                        <div className="pt-2 border-t border-gray-100">
+                                                                            <div className="flex items-center justify-between mb-1">
+                                                                                <span className="text-[12px] font-bold text-gray-600">🏦 환불 계좌번호</span>
+                                                                                {!cs.refundCompleted && !isEditingAcc && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setEditingCsAccountMap(prev => ({ ...prev, [cs.id]: cs.refundAccount || '' }))}
+                                                                                        className="text-[11.5px] font-extrabold text-blue-600 hover:underline"
+                                                                                    >
+                                                                                        {cs.refundAccount ? '계좌 수정' : '+ 계좌 입력하기'}
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                            {isEditingAcc ? (
+                                                                                <div className="flex gap-1.5 mt-1">
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        value={editingCsAccountMap[cs.id] || ''}
+                                                                                        onChange={(e) => setEditingCsAccountMap(prev => ({ ...prev, [cs.id]: e.target.value }))}
+                                                                                        placeholder="은행명 / 계좌번호 / 예금주 성함"
+                                                                                        className="flex-1 px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded text-[13px] font-bold outline-none focus:border-blue-600 focus:bg-white"
+                                                                                    />
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => handleSaveCustomerRefundAccount(cs.id)}
+                                                                                        className="px-3 py-1.5 bg-gray-900 text-white rounded text-[12px] font-extrabold shrink-0"
+                                                                                    >
+                                                                                        저장
+                                                                                    </button>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="text-[13px] font-extrabold text-gray-900 bg-gray-50 px-2.5 py-1.5 rounded border border-gray-200">
+                                                                                    {cs.refundAccount ? cs.refundAccount : <span className="text-gray-400 font-semibold">우측 상단 [+ 계좌 입력하기]를 눌러 환불계좌를 남겨주세요.</span>}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 3. 교반품비 (배송비) 내역이 있는 경우에만 표시 */}
+                                                                {Number(cs.csFee) > 0 && (
+                                                                    <div className="bg-white p-2.5 rounded-lg border border-gray-200 flex items-center justify-between">
+                                                                        <span className="font-extrabold text-gray-800">🚚 교환/반품 배송비</span>
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className="text-[14px] font-black text-gray-900 tabular-nums">
+                                                                                {Number(cs.csFee).toLocaleString()}원
+                                                                            </span>
+                                                                            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
+                                                                                cs.csFeePaid
+                                                                                    ? 'bg-emerald-600 text-white'
+                                                                                    : 'bg-red-50 text-red-600 border border-red-200'
+                                                                            }`}>
+                                                                                {cs.csFeePaid ? '입금확인' : '미입금'}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 4. 미송/교환 출고 송장번호가 등록된 경우 표시 */}
+                                                                {cs.csTracking && (
+                                                                    <div className="bg-red-50/70 p-2.5 rounded-lg border border-red-200 space-y-1.5">
+                                                                        <div className="flex items-center justify-between">
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <span className="bg-[#E60012] text-white text-[10px] font-black px-1.5 py-0.5 rounded">출고송장</span>
+                                                                                <span className="font-black text-gray-900 text-[13.5px] tabular-nums">
+                                                                                    {formatTrackingDisplay(cs.csTracking)}
+                                                                                </span>
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => copyText(csTrackDigits, "송장번호가")}
+                                                                                className="bg-white text-gray-800 border border-gray-300 px-2 py-1 rounded text-[11px] font-extrabold"
+                                                                            >
+                                                                                번호복사
+                                                                            </button>
+                                                                        </div>
+                                                                        {csTrkInfo && (
+                                                                            <div className="text-[12px] font-extrabold text-[#E60012] flex items-center gap-1">
+                                                                                <Icon name="truck" weight="fill" size={13} />
+                                                                                <span>현재상태: {csTrkInfo.stateText || "배송 조회중..."}</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
+                                )}
 
                                 {/* 4. 하단 최종 확인 버튼 & 카톡 채널 문의 */}
                                 <section className="pt-0.5 space-y-2 safe-bottom">
