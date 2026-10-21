@@ -59,7 +59,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbz5wMdAoYwgihXThXfWyVwnEVfI57HhE9MeK4K6FdtEU53s_Sr5LaM6IdlgfgwzvhBU/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwBjZG8rSPi129Jr2Et_4008ZU8Q_SH3Q0rI0ls1Wt9SYD7J47NlG3bgY2FZ6Hl7b_e/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
         const BANK_NAME_HOLDER = '카카오뱅크 · 김선정';
@@ -1481,10 +1481,8 @@
 
                 setIsSavingAddress(true);
                 try {
-                    const cleanZip = String(updatedAddr.zipcode || "").replace(/[^0-9]/g, "");
                     const cleanBase = String(updatedAddr.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim();
-                    const zipPrefix = cleanZip ? `(${cleanZip}) ` : "";
-                    const fullCombinedAddress = `${zipPrefix}${cleanBase} ${updatedAddr.detailAddress}`.trim();
+                    const fullCombinedAddress = `${cleanBase} ${updatedAddr.detailAddress}`.trim();
                     const cleanTargetBName = String(currentUser.broadcastName || '').replace(/^주문_/, '').trim();
                     const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
                     const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
@@ -1511,7 +1509,7 @@
                             nickname: currentUser.nickname,
                             realname: updatedAddr.realname.trim(),
                             phone: cleanPhone,
-                            zipcode: cleanZip,
+                            zipcode: '',
                             baseAddress: cleanBase,
                             detailAddress: updatedAddr.detailAddress,
                             address: fullCombinedAddress,
@@ -1533,7 +1531,7 @@
                                                 address: {
                                                     realname: updatedAddr.realname.trim(),
                                                     phone: cleanPhone,
-                                                    zipcode: cleanZip,
+                                                    zipcode: '',
                                                     baseAddress: `${cleanBase} ${updatedAddr.detailAddress}`.trim(),
                                                     detailAddress: '',
                                                     memo: updatedAddr.memo.trim(),
@@ -1656,7 +1654,7 @@
             const totalQty = activeItems.reduce((s, i) => s + Number(i.qty || 1), 0);
             const productTotal = activeItems.reduce((s, i) => s + Number(i.price || 0), 0);
             const isVipFree = Boolean(currentUser && (currentUser.isVip || currentUser.isManager));
-            const shippingFee = currentUser ? (isVipFree ? 0 : (activeItems.length > 0 ? Number(currentUser.shipping || 0) : 0)) : 0;
+            const shippingFee = currentUser ? (isVipFree ? 0 : (activeItems.length > 0 && productTotal > 0 ? Number(currentUser.shipping || 0) : 0)) : 0;
             const baseGrandTotal = productTotal + shippingFee;
             const depositTotal = currentUser ? Number(currentUser.depositTotal || 0) : 0;
             const rawBalance = baseGrandTotal - depositTotal;
