@@ -251,6 +251,191 @@
             return realOrders.length > 0 ? realOrders : [list[0]];
         };
 
+        // 실제 품목이 담긴 진짜 주문서가 1개라도 있는지 확인하는 헬퍼
+        const hasRealOrderItems = (list) => {
+            if (!Array.isArray(list) || list.length === 0) return false;
+            return list.some(item =>
+                item &&
+                item.broadcastName !== '최근 주문 내역 없음' &&
+                item.sheetTabName !== '메인주문_빈카드' &&
+                Array.isArray(item.items) && item.items.length > 0
+            );
+        };
+
+        // ✨ 사장님 주문서(강은지 주문서)의 실시간 시트('메인주문') 또는 동일 브라우저 로컬스토리지에서 현재 생방송 주문을 직접 읽어오는 함수
+        const lookupOrderFromBossLiveSheetDirect = async (rawNick, cleanPin) => {
+            const normInPin = normalizePin4(cleanPin);
+            if (!rawNick || !normInPin) return null;
+
+            const results = [];
+
+            // 1) 같은 컴퓨터/브라우저에서 테스트 중일 때: 강은지 주문서 로컬스토리지(default_youtubeOrders)에서 0.01초 만에 직접 읽기!
+            try {
+                const localOrdersRaw = localStorage.getItem('default_youtubeOrders');
+                if (localOrdersRaw) {
+                    const localOrders = JSON.parse(localOrdersRaw);
+                    if (Array.isArray(localOrders) && localOrders.length > 0) {
+                        const localBNameRaw = localStorage.getItem('default_broadcastName');
+                        const localBName = localBNameRaw ? JSON.parse(localBNameRaw) : '오늘의방송';
+                        const localAddrs = JSON.parse(localStorage.getItem('default_verifiedAddresses') || '[]');
+                        const localPins = JSON.parse(localStorage.getItem('default_customerPasswords') || '{}');
+                        const localCards = JSON.parse(localStorage.getItem('default_cardPayments') || '{}');
+                        const localSpecial = JSON.parse(localStorage.getItem('default_specialCustomers') || '{}');
+                        const localCredits = JSON.parse(localStorage.getItem('default_customerCredits') || '{}');
+                        const localShipOverrides = JSON.parse(localStorage.getItem('default_shippingOverrides') || '{}');
+                        const localChecked = JSON.parse(localStorage.getItem('default_checkedOrders') || '[]');
+
+                        const activeOrders = localOrders.filter(o => o && !o.isCancelled && o.customer);
+                        const byCust = {};
+                        activeOrders.forEach(o => {
+                            if (!byCust[o.customer]) byCust[o.customer] = [];
+                            byCust[o.customer].push(o);
+                        });
+
+                        Object.keys(byCust).forEach(cNick => {
+                            const matchedAddr = [...localAddrs].reverse().find(a =>
+                                normalizeNick(a.nickname) === normalizeNick(cNick) ||
+                                (cleanHandle(a.nickname) && cleanHandle(a.nickname) === cleanHandle(cNick))
+                            );
+                            const sc = getNickMatchScore(cNick, matchedAddr?.realname || '', rawNick);
+                            if (sc <= 0) return;
+
+                            const cPin = normalizePin4(localPins[cNick] || (matchedAddr?.phone ? String(matchedAddr.phone).slice(-4) : ''));
+                            if (cPin && cPin !== normInPin) return;
+                            if (!cPin && sc < 2) return;
+
+                            const items = byCust[cNick];
+                            const spType = localSpecial[normalizeNick(cNick)]?.type;
+                            const isVip = spType === 'vip' || spType === 'manager';
+                            const prodSum = items.filter(i => !i.isWaitlist && Number(i.price) > 0).reduce((s, i) => s + Number(i.price), 0);
+                            const depSum = items.reduce((s, i) => s + (Number(i.deposit) || 0), 0);
+                            const shipFee = (!prodSum || isVip) ? 0 : (localShipOverrides[cNick] !== undefined ? Number(localShipOverrides[cNick]) : (prodSum >= 70000 ? 0 : 4000));
+
+                            results.push({
+                                sheetTabName: '주문_' + String(localBName || '오늘의방송').replace(/^주문_/, '').trim(),
+                                nickname: cNick,
+                                phoneLast4: normInPin,
+                                broadcastName: String(localBName || '오늘의방송').replace(/^주문_/, '').trim(),
+                                isVip: isVip,
+                                credit: Number(localCredits[cNick]) || 0,
+                                freeShippingThreshold: 70000,
+                                cardFeeRate: 10,
+                                isCard: localCards[cNick] === 'completed' ? '카드완료(10%)' : (localCards[cNick] ? 'O(10%)' : ''),
+                                shipping: shipFee,
+                                depositTotal: depSum,
+                                deposits: [],
+                                items: items.map((it, idx) => ({
+                                    id: idx + 1,
+                                    product: it.product || '',
+                                    qty: Number(it.quantity) || 1,
+                                    price: Number(it.price) || 0,
+                                    isWaitlist: Boolean(it.isWaitlist),
+                                    waitlistOrder: it.isWaitlist ? 1 : 0
+                                })),
+                                address: matchedAddr ? {
+                                    realname: matchedAddr.realname || '',
+                                    phone: fixPhoneStr(matchedAddr.phone || ''),
+                                    zipcode: '',
+                                    baseAddress: String(matchedAddr.address || '').replace(/^\(\d{5}\)\s*/, '').trim(),
+                                    detailAddress: '',
+                                    memo: matchedAddr.memo || '',
+                                    updatedAt: matchedAddr.timestamp || ''
+                                } : null,
+                                trackingNumbers: [],
+                                isConfirmed: Array.isArray(localChecked) && localChecked.includes(cNick),
+                                _matchScore: sc + 15
+                            });
+                        });
+                    }
+                }
+            } catch (e) {}
+
+            if (results.length > 0) {
+                return { status: 'success', historyList: results };
+            }
+
+            // 2) 다른 기기(모바일 등)에서 접속했을 때: 사장님 마스터 시트의 '메인주문' 탭을 gviz 직통 리더로 0.3초 만에 스캔!
+            try {
+                const mainRows = await fetchGoogleSheetDirectPortal(DEFAULT_MASTER_SHEET_ID, '메인주문', 2800);
+                if (Array.isArray(mainRows) && mainRows.length > 0) {
+                    let curB = '오늘의방송';
+                    let fThresh = 70000, dShip = 4000, cRate = 10;
+                    const custMap = {};
+
+                    mainRows.forEach((r, idx) => {
+                        const nick = String(r['닉네임'] || r.col_0 || '').trim();
+                        const prod = String(r['상품명'] || r.col_1 || '').trim();
+                        if (!nick || nick === '닉네임') return;
+                        if (nick.startsWith('___WORKSPACE')) {
+                            if (prod) curB = String(prod).replace(/^주문_/, '').trim();
+                            return;
+                        }
+                        const realname = String(r['수령인명'] ?? r.col_7 ?? '').trim();
+                        const phone = fixPhoneStr(r['연락처'] ?? r.col_8 ?? '');
+                        const pinRaw = normalizePin4(r['비밀번호'] ?? r.col_14 ?? '');
+                        const effectivePin = pinRaw || (phone.length >= 4 ? normalizePin4(phone.slice(-4)) : '');
+
+                        const sc = getNickMatchScore(nick, realname, rawNick);
+                        if (sc <= 0) return;
+                        if (effectivePin && effectivePin !== normInPin) return;
+
+                        if (!custMap[nick]) {
+                            const cleanAddr = String(r['주소'] ?? r.col_9 ?? '').replace(/^\(\d{5}\)\s*/, '').trim();
+                            const shipNum = Number(String(r['배송비'] ?? r.col_4 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
+                            custMap[nick] = {
+                                sheetTabName: '주문_' + curB,
+                                nickname: nick,
+                                phoneLast4: normInPin,
+                                broadcastName: curB,
+                                isVip: String(r['VIP여부'] ?? r.col_11 ?? '').trim() === 'O',
+                                credit: 0,
+                                freeShippingThreshold: fThresh,
+                                cardFeeRate: cRate,
+                                isCard: String(r['카드결제'] ?? r.col_6 ?? '').trim(),
+                                shipping: shipNum,
+                                depositTotal: 0,
+                                deposits: [],
+                                items: [],
+                                address: cleanAddr ? {
+                                    realname: realname,
+                                    phone: phone,
+                                    zipcode: '',
+                                    baseAddress: cleanAddr,
+                                    detailAddress: '',
+                                    memo: String(r['요청사항'] ?? r.col_10 ?? '').trim(),
+                                    updatedAt: ''
+                                } : null,
+                                trackingNumbers: [],
+                                isConfirmed: String(r['주문확인'] ?? r.col_15 ?? '').trim() === 'O',
+                                _matchScore: sc + 12
+                            };
+                        }
+                        const depVal = Number(String(r['입금액'] ?? r.col_5 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
+                        if (depVal > 0) custMap[nick].depositTotal += depVal;
+                        if (prod) {
+                            const waitRaw = String(r['대기여부'] ?? r.col_13 ?? '').trim();
+                            const isWait = waitRaw === 'O' || waitRaw.includes('대기');
+                            custMap[nick].items.push({
+                                id: idx + 1,
+                                product: prod,
+                                qty: Number(String(r['수량'] ?? r.col_2 ?? '1').replace(/[^0-9.-]/g, '')) || 1,
+                                price: Number(String(r['단가(제품금액)'] ?? r.col_3 ?? '0').replace(/[^0-9.-]/g, '')) || 0,
+                                isWaitlist: isWait,
+                                waitlistOrder: isWait ? 1 : 0
+                            });
+                        }
+                    });
+
+                    const matchedArr = Object.values(custMap).filter(c => c.items.length > 0);
+                    if (matchedArr.length > 0) {
+                        return { status: 'success', historyList: matchedArr };
+                    }
+                }
+            } catch (e) {}
+
+            return null;
+        };
+
         // 고객 본인의 미송 / 교환 / 반품 내역만 필터링하여 가져오는 함수 (직원용 csMemo는 절대 포함하지 않음)
         const lookupCustomerCsRecords = async (targetNicksList, cleanPin) => {
             const validNicks = (Array.isArray(targetNicksList) ? targetNicksList : [targetNicksList]).filter(Boolean);
@@ -1791,8 +1976,7 @@
                             if (Array.isArray(csRes)) setCustomerCsList(csRes);
                         }).catch(() => {});
 
-                        // 🔴 중요: 오직 사장님이 [생방송 시작(isLiveActive === true)]을 켜두었을 때만 백그라운드에서 사장님 라이브 시트(GAS)를 추가 확인!
-                        // 마감 상태(isLiveActive === false)일 때는 무거운 사장님 GAS 시트를 아예 호출하지 않아 서버 과부하를 100% 차단합니다!
+                        // 🔴 중요: 오직 사장님이 [생방송중(isLiveActive === true)]을 켜두었을 때만 백그라운드에서 사장님 라이브 시트(GAS)를 추가 확인!
                         if (portalSheetCache.isLiveActive) {
                             fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
                                 if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
@@ -1808,41 +1992,52 @@
                                             if (!existing) {
                                                 mergedMap.set(key, gItem);
                                             } else {
-                                                const bestCredit = Math.max(Number(existing.credit) || 0, Number(gItem.credit) || 0);
-                                                const bestDep = Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0);
-                                                const bestDepsArr = (Array.isArray(gItem.deposits) && gItem.deposits.length > (existing.deposits?.length || 0)) ? gItem.deposits : (existing.deposits || []);
                                                 mergedMap.set(key, {
                                                     ...gItem,
                                                     ...existing,
-                                                    depositTotal: bestDep,
-                                                    credit: bestCredit,
-                                                    deposits: bestDepsArr,
+                                                    depositTotal: Math.max(Number(existing.depositTotal) || 0, Number(gItem.depositTotal) || 0),
                                                     address: existing._hasBcastCustomAddr ? existing.address : (existing.address || gItem.address),
-                                                    isConfirmed: existing.isConfirmed || gItem.isConfirmed
+                                                    trackingNumbers: (Array.isArray(existing.trackingNumbers) && existing.trackingNumbers.length > 0) ? existing.trackingNumbers : (gItem.trackingNumbers || []),
+                                                    isConfirmed: Boolean(existing.isConfirmed || gItem.isConfirmed)
                                                 });
                                             }
                                         });
-                                        const finalMerged = sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists(Array.from(mergedMap.values())));
-                                        setCurrentUser(cur => finalMerged[nextIdx] || finalMerged[0] || cur);
-                                        return finalMerged;
+                                        return sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists(Array.from(mergedMap.values())));
                                     });
                                 }
                             }).catch(() => {});
                         }
-
                         return true;
                     };
 
-                    // 🚀 1단계(0.05초~0.3초): 프리로드된 직원용 시트(gviz CDN)와 Firebase 클라우드를 동시에 조회!
-                    // (사장님이 생방송 중일 때 입력한 실시간 주문도 1.2초마다 Firebase _portal_orders에 미러링되므로 여기서 0.1초 만에 같이 잡힙니다!)
+                    // 🚀 1단계(0.05초~0.3초): 프리로드된 직원용 시트(gviz CDN), Firebase 클라우드, 그리고 사장님 실시간 주문서를 동시에 조회!
                     const staffPromise = lookupOrderFromStaffSheetDirect(rawNick, cleanPin, isRefreshCall);
                     const fbPromise = lookupOrderFromFirebase(rawNick, cleanPin);
+                    const bossLivePromise = lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin);
 
-                    const [staffDirectData, fbInstantData] = await Promise.all([staffPromise, fbPromise]);
+                    const [staffDirectData, fbInstantData, bossLiveData] = await Promise.all([staffPromise, fbPromise, bossLivePromise]);
 
                     const combinedInstantList = [];
+                    if (bossLiveData && bossLiveData.status === "success" && Array.isArray(bossLiveData.historyList)) {
+                        combinedInstantList.push(...bossLiveData.historyList);
+                    }
                     if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
-                        combinedInstantList.push(...fbInstantData.historyList);
+                        fbInstantData.historyList.forEach(fItem => {
+                            const key = fItem.sheetTabName || fItem.broadcastName;
+                            const existIdx = combinedInstantList.findIndex(x => (x.sheetTabName || x.broadcastName) === key);
+                            if (existIdx === -1) {
+                                combinedInstantList.push(fItem);
+                            } else {
+                                const ex = combinedInstantList[existIdx];
+                                combinedInstantList[existIdx] = {
+                                    ...fItem,
+                                    ...ex,
+                                    items: (Array.isArray(ex.items) && ex.items.length > 0) ? ex.items : (fItem.items || []),
+                                    depositTotal: Math.max(Number(ex.depositTotal) || 0, Number(fItem.depositTotal) || 0),
+                                    address: ex.address || fItem.address
+                                };
+                            }
+                        });
                     }
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
                         staffDirectData.historyList.forEach(sItem => {
@@ -1864,12 +2059,12 @@
                         });
                     }
 
-                    // 1단계에서 찾았으면 즉시 주문서 오픈! (GAS 응답 기다리지 않음)
-                    if (combinedInstantList.length > 0 && applyAndMergeOrders(combinedInstantList)) {
+                    // 1단계에서 실제 주문 품목이 있는 주문서를 찾았으면 즉시 오픈!
+                    if (hasRealOrderItems(combinedInstantList) && applyAndMergeOrders(combinedInstantList)) {
                         return;
                     }
 
-                    // 만약 1단계에서 비밀번호 불일치(WRONG_PIN)가 명확히 확인되었다면 무거운 GAS 조회를 생략하고 즉시 안내!
+                    // 만약 1단계에서 비밀번호 불일치(WRONG_PIN)가 명확히 확인되었다면 즉시 안내!
                     if ((staffDirectData && staffDirectData.errorType === "WRONG_PIN") || (fbInstantData && fbInstantData.errorType === "WRONG_PIN")) {
                         setIsLoading(false);
                         setIsRefreshing(false);
@@ -1877,15 +2072,25 @@
                         return;
                     }
 
-                    // 🚀 2단계: 1단계(직원용 시트 + 클라우드)에 없는 고객일 때:
-                    // 오직 사장님이 [🔴 생방송 시작(isLiveActive === true)]을 켜두었을 때만 사장님 시트(GAS)를 조회하고,
-                    // 마감 상태일 때는 CS 내역만 확인 후 즉시 결과를 안내합니다! (마감 후 GAS 뻗음 현상 100% 방지)
+                    // 🚀 2단계: 1단계에 실제 주문 품목이 없거나 빈 카드('최근 주문 내역 없음')만 있었을 경우 사장님 시트(GAS)와 CS 내역을 추가 확인!
+                    const matchedFullNickFromStep1 = combinedInstantList[0]?.nickname || rawNick;
                     const [gasData, csOnlyCheck] = await Promise.all([
-                        portalSheetCache.isLiveActive ? fetchOrderWithPin(cleanPin).catch(() => null) : Promise.resolve(null),
-                        lookupCustomerCsRecords([rawNick], cleanPin).catch(() => [])
+                        fetchOrderWithPin(cleanPin, matchedFullNickFromStep1).catch(() => null),
+                        lookupCustomerCsRecords([matchedFullNickFromStep1, rawNick], cleanPin).catch(() => [])
                     ]);
 
                     let data = gasData;
+                    if (data && data.status === "success") {
+                        const rawGasList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : (data.customerData ? [data.customerData] : []);
+                        if (hasRealOrderItems(rawGasList) && applyAndMergeOrders(rawGasList)) {
+                            return;
+                        }
+                    }
+
+                    // 실제 주문은 없지만 찐고객사전 주소가 확인된 빈 카드('최근 주문 내역 없음')가 있는 경우 표시
+                    if (combinedInstantList.length > 0 && applyAndMergeOrders(combinedInstantList)) {
+                        return;
+                    }
                     if (data && data.status === "success") {
                         const rawGasList = Array.isArray(data.historyList) && data.historyList.length > 0 ? data.historyList : (data.customerData ? [data.customerData] : []);
                         if (applyAndMergeOrders(rawGasList)) {
