@@ -285,6 +285,30 @@
                 .trim();
         };
 
+        // 방송 제목에서 월/일 날짜 키(예: "10/20", "10/18")만 추출하는 헬퍼 함수
+        const extractMonthDayKey = (titleOrTab) => {
+            const s = cleanBroadcastKey(titleOrTab);
+            if (!s) return '';
+            const fullMatch = s.match(/(?:20)?(\d{2})[./\-\s년]+(\d{1,2})[./\-\s월]+(\d{1,2})/);
+            if (fullMatch) {
+                return `${parseInt(fullMatch[2], 10)}/${parseInt(fullMatch[3], 10)}`;
+            }
+            const mdMatch = s.match(/(?:^|[^\d])(1[0-2]|0?[1-9])[./\-\s월]+([0-2]?\d|3[01])(?:일|\b|\s|[^0-9])/);
+            if (mdMatch) {
+                return `${parseInt(mdMatch[1], 10)}/${parseInt(mdMatch[2], 10)}`;
+            }
+            return '';
+        };
+
+        // 주문 품목 구성이 동일한지 판별하기 위한 품목 시그니처 생성 함수
+        const getOrderItemsSignature = (itemObj) => {
+            if (!itemObj || !Array.isArray(itemObj.items) || itemObj.items.length === 0) return '';
+            return itemObj.items
+                .map(it => `${normalizeNick(it.product || '')}:${Number(it.qty) || 1}:${Number(it.price) || 0}`)
+                .sort()
+                .join('|');
+        };
+
         const extractBroadcastDateScore = (titleOrTab, isLiveItem = false) => {
             const s = cleanBroadcastKey(titleOrTab);
             if (!s) return 0;
@@ -310,30 +334,65 @@
             return 0;
         };
 
-        // 방송 이름(broadcastName) 기준으로 중복 카드를 100% 하나로 합치는 함수
+        // 방송 이름(broadcastName) + 방송 날짜(MM/DD) + 품목 구성을 모두 대조하여 옛날 이름('10/20 악세사리', '10/18 여성복') 중복을 100% 하나로 합치는 함수
         const deduplicateHistoryByBroadcastName = (list) => {
             if (!Array.isArray(list)) return [];
             const map = new Map();
-            list.forEach(item => {
+
+            // 실제 시트에서 직접 읽은 데이터(_fromStaffSheet 또는 _isLiveSource)가 먼저 기준이 되도록 정렬
+            const prioritized = [...list].sort((a, b) => {
+                const aScore = (a?._fromStaffSheet ? 2 : 0) + (a?._isLiveSource ? 1 : 0);
+                const bScore = (b?._fromStaffSheet ? 2 : 0) + (b?._isLiveSource ? 1 : 0);
+                return bScore - aScore;
+            });
+
+            prioritized.forEach(item => {
                 if (!item) return;
                 const bKey = cleanBroadcastKey(item.broadcastName || item.sheetTabName || '주문내역');
                 if (!bKey) return;
-                const existing = map.get(bKey);
-                if (!existing) {
+
+                const itemMd = extractMonthDayKey(bKey);
+                const itemSig = getOrderItemsSignature(item);
+
+                // 이미 등록된 카드 중 ① 방송 이름이 같거나, ② 날짜(예: 10/20, 10/18)가 같거나, ③ 품목 구성이 완전히 똑같으면 동일 방송으로 판별!
+                let matchedKey = null;
+                if (map.has(bKey)) {
+                    matchedKey = bKey;
+                } else {
+                    for (const [existKey, existVal] of map.entries()) {
+                        const existMd = extractMonthDayKey(existKey);
+                        const existSig = getOrderItemsSignature(existVal);
+                        if (itemMd && existMd && itemMd === existMd && !item._isLiveSource && !existVal._isLiveSource) {
+                            matchedKey = existKey;
+                            break;
+                        }
+                        if (itemSig && existSig && itemSig === existSig && !item._isLiveSource && !existVal._isLiveSource) {
+                            matchedKey = existKey;
+                            break;
+                        }
+                    }
+                }
+
+                if (!matchedKey) {
                     map.set(bKey, {
                         ...item,
                         broadcastName: bKey,
                         sheetTabName: '주문_' + bKey
                     });
                 } else {
+                    const existing = map.get(matchedKey);
                     const exItems = Array.isArray(existing.items) ? existing.items : [];
                     const newItems = Array.isArray(item.items) ? item.items : [];
                     const bestItems = newItems.length >= exItems.length ? newItems : exItems;
-                    map.set(bKey, {
+                    // 시트 원본(_fromStaffSheet)의 방송 이름을 최우선으로 유지
+                    const finalBName = existing._fromStaffSheet ? existing.broadcastName : (item._fromStaffSheet ? bKey : existing.broadcastName);
+
+                    const mergedCard = {
                         ...item,
                         ...existing,
-                        broadcastName: bKey,
-                        sheetTabName: '주문_' + bKey,
+                        broadcastName: finalBName,
+                        sheetTabName: '주문_' + finalBName,
+                        _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
                         items: bestItems,
                         depositTotal: Math.max(Number(existing.depositTotal) || 0, Number(item.depositTotal) || 0),
@@ -341,7 +400,14 @@
                         address: existing._hasBcastCustomAddr ? existing.address : (existing.address || item.address),
                         trackingNumbers: (Array.isArray(existing.trackingNumbers) && existing.trackingNumbers.length > 0) ? existing.trackingNumbers : (item.trackingNumbers || []),
                         isConfirmed: Boolean(existing.isConfirmed || item.isConfirmed)
-                    });
+                    };
+
+                    if (finalBName !== matchedKey) {
+                        map.delete(matchedKey);
+                        map.set(finalBName, mergedCard);
+                    } else {
+                        map.set(matchedKey, mergedCard);
+                    }
                 }
             });
             return Array.from(map.values());
@@ -1121,7 +1187,10 @@
                         }
                     });
 
-                    if (bestCand) pinVerifiedMatches.push(bestCand);
+                    if (bestCand) {
+                        bestCand._fromStaffSheet = true;
+                        pinVerifiedMatches.push(bestCand);
+                    }
                 });
 
                 if (pinVerifiedMatches.length > 0) {
@@ -1140,7 +1209,8 @@
                         return {
                             status: 'success',
                             customerData: matchedHistory[0],
-                            historyList: matchedHistory
+                            historyList: matchedHistory,
+                            validSheetBroadcasts: Object.keys(blocks)
                         };
                     }
                 }
@@ -1790,15 +1860,27 @@
                         lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin)
                     ]);
 
+                    // 직원용 시트('메인주문')에 실제로 존재하는 방송 이름 목록 (옛날 이름 '10/20 악세사리', '10/18 여성복' 차단용)
+                    const validStaffSheetSet = (staffDirectData && Array.isArray(staffDirectData.validSheetBroadcasts) && staffDirectData.validSheetBroadcasts.length > 0)
+                        ? new Set(staffDirectData.validSheetBroadcasts.map(b => cleanBroadcastKey(b)))
+                        : null;
+
                     const rawCombinedList = [];
                     if (bossLiveData && bossLiveData.status === "success" && Array.isArray(bossLiveData.historyList)) {
                         rawCombinedList.push(...bossLiveData.historyList);
                     }
-                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
-                        rawCombinedList.push(...fbInstantData.historyList);
-                    }
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
                         rawCombinedList.push(...staffDirectData.historyList);
+                    }
+                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
+                        fbInstantData.historyList.forEach(fbItem => {
+                            const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
+                            // 직원용 시트가 정상 로드되었는데 시트에 없는 옛날 방송 이름이면 (단, 현재 생방송 제외) 무시!
+                            if (validStaffSheetSet && !fbItem._isLiveSource && !validStaffSheetSet.has(fbBName)) {
+                                return;
+                            }
+                            rawCombinedList.push(fbItem);
+                        });
                     }
 
                     const combinedInstantList = deduplicateHistoryByBroadcastName(rawCombinedList);
