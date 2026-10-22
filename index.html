@@ -66,7 +66,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxvccAS0Zy37eBEyY0IDgHBFroNwzabYVDvg3JvaYUQYr9d_hfxdWdKbDssEPg-OJN7/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzrMczblUPLxqGESdkZks8osdL-CihDenW94Ae3ODL8u_QhVAZGKrsVI_KchtHjCTFg/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const DEFAULT_STAFF_SHEET_ID = '1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
@@ -1839,17 +1839,16 @@
                             if (Array.isArray(csRes)) setCustomerCsList(csRes);
                         }).catch(() => {});
 
-                        if (portalSheetCache.isLiveActive) {
-                            fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
-                                if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
-                                    const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
-                                    if (gasList.length === 0) return;
-                                    setOrderHistoryList(prevList => {
-                                        return sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists([...prevList, ...gasList]));
-                                    });
-                                }
-                            }).catch(() => {});
-                        }
+                        // 생방송 중이거나 아직 직원용 시트로 이관하기 전인 마감 방송도 백그라운드에서 누락 없이 병합
+                        fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
+                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
+                                const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
+                                if (gasList.length === 0) return;
+                                setOrderHistoryList(prevList => {
+                                    return sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists([...prevList, ...gasList]));
+                                });
+                            }
+                        }).catch(() => {});
                         return true;
                     };
 
@@ -1857,7 +1856,7 @@
                     const [staffDirectData, fbInstantData, bossLiveData] = await Promise.all([
                         lookupOrderFromStaffSheetDirect(rawNick, cleanPin, isRefreshCall),
                         lookupOrderFromFirebase(rawNick, cleanPin),
-                        lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin)
+                        portalSheetCache.isLiveActive ? lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin) : Promise.resolve(null)
                     ]);
 
                     // 직원용 시트('메인주문')에 실제로 존재하는 방송 이름 목록 (옛날 이름 '10/20 악세사리', '10/18 여성복' 차단용)
@@ -2208,9 +2207,14 @@
                             <div className="relative z-20 px-3 pb-6 pt-2 safe-bottom mt-auto">
                                 <div className="bg-white/55 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-white/70">
                                     <div className="flex items-center justify-between mb-3">
-                                        <h2 className="text-[16px] font-black text-gray-900 tracking-tight drop-shadow-sm">
-                                            통합주문확인
-                                        </h2>
+                                        <div className="flex items-baseline gap-1.5">
+                                            <h2 className="text-[16px] font-black text-gray-900 tracking-tight drop-shadow-sm">
+                                                통합주문확인
+                                            </h2>
+                                            <span className="text-[10.5px] font-bold text-gray-600 tracking-tight">
+                                                (2026.10.22 업데이트)
+                                            </span>
+                                        </div>
                                         <span className="text-[11px] font-extrabold text-blue-700 flex items-center gap-0.5 drop-shadow-sm">
                                             <Icon name="shield-check" weight="bold" size={14} /> 본인 인증 후 열람가능
                                         </span>
