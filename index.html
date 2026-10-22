@@ -57,7 +57,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbyauz2IJXVC8dyuYy11wMJiB7xrXkh_rRCJ-u4QPHWHFxL4gEZeg-QK2S4-4EURNyIA/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzBczJEJh3m4A_cMChAO2dcyLo2cuRA8pFcDDI-mZJc711bC0rIapnZwHokmmm2A0Ej/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const DEFAULT_STAFF_SHEET_ID = '1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
@@ -1623,7 +1623,7 @@
                     [cleanDigits]: {
                         loading: false,
                         loaded: true,
-                        stateText: "운송장 등록 완료 (택배사 집하 대기중)",
+                        stateText: "📦 포장중 (롯데택배 수거·집하 대기)",
                         steps: []
                     }
                 }));
@@ -2692,8 +2692,14 @@
                                                                             ))}
                                                                         </div>
                                                                     ) : (
-                                                                        <div className="py-2.5 px-2 bg-gray-50 rounded-lg text-[12px] text-gray-600 font-semibold text-center leading-relaxed">
-                                                                            송장이 등록되어 택배사 집하(상품인수) 대기 중입니다.
+                                                                        <div className="py-3 px-3 bg-amber-50/80 border border-amber-200 rounded-lg text-center space-y-1">
+                                                                            <div className="text-[13px] font-extrabold text-amber-900 flex items-center justify-center gap-1.5">
+                                                                                <span>📦 현재 상품을 꼼꼼하게 포장 중입니다!</span>
+                                                                            </div>
+                                                                            <div className="text-[11.5px] text-amber-800 font-semibold leading-relaxed">
+                                                                                롯데택배 운송장이 먼저 출력되어 포장 작업이 진행 중이며,<br/>
+                                                                                롯데택배 기사님 수거(집하) 후 저녁부터 실시간 이동흐름이 표시됩니다.
+                                                                            </div>
                                                                         </div>
                                                                     )}
                                                                 </div>
