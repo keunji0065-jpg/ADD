@@ -339,10 +339,10 @@
             if (!Array.isArray(list)) return [];
             const map = new Map();
 
-            // 실제 시트에서 직접 읽은 데이터(_fromStaffSheet 또는 _isLiveSource)가 먼저 기준이 되도록 정렬
+            // 직원이 방금 수정/추가한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 시트 데이터(_fromStaffSheet) > 생방송 데이터(_isLiveSource) 순으로 우선 정렬
             const prioritized = [...list].sort((a, b) => {
-                const aScore = (a?._fromStaffSheet ? 2 : 0) + (a?._isLiveSource ? 1 : 0);
-                const bScore = (b?._fromStaffSheet ? 2 : 0) + (b?._isLiveSource ? 1 : 0);
+                const aScore = (a?._fromStaffRealtime ? 4 : 0) + (a?._fromStaffSheet ? 2 : 0) + (a?._isLiveSource ? 1 : 0);
+                const bScore = (b?._fromStaffRealtime ? 4 : 0) + (b?._fromStaffSheet ? 2 : 0) + (b?._isLiveSource ? 1 : 0);
                 return bScore - aScore;
             });
 
@@ -383,7 +383,10 @@
                     const existing = map.get(matchedKey);
                     const exItems = Array.isArray(existing.items) ? existing.items : [];
                     const newItems = Array.isArray(item.items) ? item.items : [];
-                    const bestItems = newItems.length >= exItems.length ? newItems : exItems;
+                    // 직원이 실시간으로 품목을 추가/삭제한 데이터(_fromStaffRealtime)의 품목을 최우선으로 채택!
+                    const bestItems = existing._fromStaffRealtime
+                        ? exItems
+                        : (item._fromStaffRealtime ? newItems : (newItems.length >= exItems.length ? newItems : exItems));
                     // 시트 원본(_fromStaffSheet)의 방송 이름을 최우선으로 유지
                     const finalBName = existing._fromStaffSheet ? existing.broadcastName : (item._fromStaffSheet ? bKey : existing.broadcastName);
 
@@ -392,6 +395,7 @@
                         ...existing,
                         broadcastName: finalBName,
                         sheetTabName: '주문_' + finalBName,
+                        _fromStaffRealtime: Boolean(existing._fromStaffRealtime || item._fromStaffRealtime),
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
                         items: bestItems,
@@ -889,6 +893,7 @@
             };
 
             let accVal = {};
+            let hasRealtimeFbCs = false;
             if (portalFbDb) {
                 try {
                     const fbCsPromise = Promise.all([
@@ -901,6 +906,7 @@
                         const csVal = csSnap.val();
                         accVal = accSnap.val() || {};
                         const itemsList = (csVal && Array.isArray(csVal.items)) ? csVal.items : [];
+                        if (itemsList.length > 0) hasRealtimeFbCs = true;
                         itemsList.forEach(c => {
                             registerPublicCsItem(c, accVal[c?.id]?.refundAccount);
                         });
@@ -908,50 +914,53 @@
                 } catch (e) {}
             }
 
-            try {
-                let directStaffCs = portalSheetCache.staffCsRows;
-                if (!Array.isArray(directStaffCs)) {
-                    directStaffCs = await fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 2800).catch(() => null);
-                    if (Array.isArray(directStaffCs)) portalSheetCache.staffCsRows = directStaffCs;
-                }
-                const combinedSheetRows = Array.isArray(directStaffCs) ? directStaffCs : [];
-                combinedSheetRows.forEach((r, idx) => {
-                    const cNick = String(r['닉네임'] || r.nick || r.col_4 || '').trim();
-                    const cReal = String(r['수령인명'] || r.realname || r.col_5 || '').trim();
-                    const cPhone = fixPhoneStr(r['연락처'] || r.phone || r.col_6 || '');
-                    if (!cNick || cNick === '닉네임') return;
-                    if (!isMyCsRecord(cNick, cReal, cPhone)) return;
-
-                    const csId = String(r['CS_ID'] || r.id || r.col_0 || `cs_sheet_${cNick}_${idx}`);
-                    let parsedItems = [];
-                    const jsonRaw = r['전체품목JSON'] || r.itemsJson || r.col_15 || '';
-                    if (jsonRaw) {
-                        try {
-                            const p = typeof jsonRaw === 'string' ? JSON.parse(jsonRaw) : jsonRaw;
-                            if (Array.isArray(p)) parsedItems = p;
-                        } catch (e) {}
+            // Firebase에 이미 실시간 CS 목록이 있으면 느린 시트 캐시가 최신 상태(처리완료/삭제 등)를 덮어쓰지 않도록 보호!
+            if (!hasRealtimeFbCs) {
+                try {
+                    let directStaffCs = portalSheetCache.staffCsRows;
+                    if (!Array.isArray(directStaffCs)) {
+                        directStaffCs = await fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 2800).catch(() => null);
+                        if (Array.isArray(directStaffCs)) portalSheetCache.staffCsRows = directStaffCs;
                     }
-                    const rawMemoCell = String(r['CS메모'] || r.csMemo || r.col_10 || '');
-                    const shipFee = Number(String(r['배송비'] || r.shipping || r.col_11 || '0').replace(/[^0-9.-]/g, '')) || 0;
-                    const depAmt = Number(String(r['입금액'] || r.deposit || r.col_12 || '0').replace(/[^0-9.-]/g, '')) || 0;
-                    const stRaw = String(r['처리상태'] || r.csStatus || r.col_3 || '').trim();
+                    const combinedSheetRows = Array.isArray(directStaffCs) ? directStaffCs : [];
+                    combinedSheetRows.forEach((r, idx) => {
+                        const cNick = String(r['닉네임'] || r.nick || r.col_4 || '').trim();
+                        const cReal = String(r['수령인명'] || r.realname || r.col_5 || '').trim();
+                        const cPhone = fixPhoneStr(r['연락처'] || r.phone || r.col_6 || '');
+                        if (!cNick || cNick === '닉네임') return;
+                        if (!isMyCsRecord(cNick, cReal, cPhone)) return;
 
-                    registerPublicCsItem({
-                        id: csId,
-                        sourceBroadcast: cleanBroadcastKey(r['원본방송'] || r.sourceBroadcast || r.col_2 || ''),
-                        csStatus: stRaw === '처리완료' ? '처리완료' : '미처리',
-                        nick: cNick,
-                        realname: cReal,
-                        phone: cPhone,
-                        origTracking: String(r['원송장번호'] || r.origTracking || r.col_8 || '').replace(/^'+/, '').trim(),
-                        csTracking: String(r['교반송장번호'] || r.csTracking || r.col_9 || '').replace(/^'+/, '').trim(),
-                        csMemo: rawMemoCell,
-                        shipping: shipFee,
-                        deposit: depAmt,
-                        items: parsedItems
-                    }, accVal[csId]?.refundAccount);
-                });
-            } catch (e) {}
+                        const csId = String(r['CS_ID'] || r.id || r.col_0 || `cs_sheet_${cNick}_${idx}`);
+                        let parsedItems = [];
+                        const jsonRaw = r['전체품목JSON'] || r.itemsJson || r.col_15 || '';
+                        if (jsonRaw) {
+                            try {
+                                const p = typeof jsonRaw === 'string' ? JSON.parse(jsonRaw) : jsonRaw;
+                                if (Array.isArray(p)) parsedItems = p;
+                            } catch (e) {}
+                        }
+                        const rawMemoCell = String(r['CS메모'] || r.csMemo || r.col_10 || '');
+                        const shipFee = Number(String(r['배송비'] || r.shipping || r.col_11 || '0').replace(/[^0-9.-]/g, '')) || 0;
+                        const depAmt = Number(String(r['입금액'] || r.deposit || r.col_12 || '0').replace(/[^0-9.-]/g, '')) || 0;
+                        const stRaw = String(r['처리상태'] || r.csStatus || r.col_3 || '').trim();
+
+                        registerPublicCsItem({
+                            id: csId,
+                            sourceBroadcast: cleanBroadcastKey(r['원본방송'] || r.sourceBroadcast || r.col_2 || ''),
+                            csStatus: stRaw === '처리완료' ? '처리완료' : '미처리',
+                            nick: cNick,
+                            realname: cReal,
+                            phone: cPhone,
+                            origTracking: String(r['원송장번호'] || r.origTracking || r.col_8 || '').replace(/^'+/, '').trim(),
+                            csTracking: String(r['교반송장번호'] || r.csTracking || r.col_9 || '').replace(/^'+/, '').trim(),
+                            csMemo: rawMemoCell,
+                            shipping: shipFee,
+                            deposit: depAmt,
+                            items: parsedItems
+                        }, accVal[csId]?.refundAccount);
+                    });
+                } catch (e) {}
+            }
 
             try {
                 const localCsRaw = localStorage.getItem('ember_staff_cs_groups_v1');
@@ -1366,6 +1375,7 @@
                                     broadcastName: cleanBName,
                                     sheetTabName: '주문_' + cleanBName,
                                     _isLiveSource: isLiveNode,
+                                    _fromStaffRealtime: !isLiveNode && nodeData.updatedBy === 'staff',
                                     _matchScore: effectiveScore,
                                     credit: fbCredit,
                                     phoneLast4: normInPin,
@@ -1395,7 +1405,7 @@
                     scanBroadcastNode(mainLiveData, true);
                 }
 
-                // 2) 직원용 시스템이 송장/주문을 동기화해 둔 방송 노드들(staff / staff_init) 스캔 -> 직원이 송장 넣자마자 0.1초 만에 포털에 반영!
+                // 2) 직원용 시스템이 송장/주문을 동기화해 둔 방송 노드들(staff / staff_init) 스캔 -> 직원이 송장이나 단일주문을 넣자마자 0.1초 만에 포털에 반영!
                 Object.keys(allPortalOrders).forEach(k => {
                     if (k === '__MAIN_LIVE__') return;
                     const node = allPortalOrders[k];
@@ -1519,6 +1529,31 @@
             useEffect(() => {
                 preloadStaffSheetsInBackground(false);
             }, []);
+
+            // ✨ 직원이 직원용 시스템에서 주문 품목, 입금액(완납), 송장번호를 추가/수정하면 고객이 새로고침을 누르지 않아도 실시간으로 즉시 자동 업데이트!
+            useEffect(() => {
+                if (!portalFbDb || !currentUser || !currentUser.nickname) return;
+                const ordersRef = portalFbDb.ref('ember_live_data/_portal_orders');
+                const handleOrdersRealtimeChange = () => {
+                    const targetPin = currentUser.phoneLast4 || pinInput;
+                    lookupOrderFromFirebase(currentUser.nickname, targetPin).then(fbData => {
+                        if (fbData && fbData.status === 'success' && Array.isArray(fbData.historyList) && fbData.historyList.length > 0) {
+                            setOrderHistoryList(prevList => {
+                                const merged = sortHistoryByNewestDate(
+                                    removeDummyEmptyOrdersIfRealExists([...fbData.historyList, ...prevList])
+                                );
+                                const nextSelected = merged[selectedBroadcastIdx] || merged[0];
+                                if (nextSelected) {
+                                    setCurrentUser(nextSelected);
+                                }
+                                return merged;
+                            });
+                        }
+                    }).catch(() => {});
+                };
+                ordersRef.on('value', handleOrdersRealtimeChange);
+                return () => ordersRef.off('value', handleOrdersRealtimeChange);
+            }, [currentUser?.nickname, currentUser?.phoneLast4, pinInput, selectedBroadcastIdx]);
 
             useEffect(() => {
                 if (!portalFbDb || !currentUser || !currentUser.nickname) return;
@@ -1874,8 +1909,8 @@
                     if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
-                            // 직원용 시트가 정상 로드되었는데 시트에 없는 옛날 방송 이름이면 (단, 현재 생방송 제외) 무시!
-                            if (validStaffSheetSet && !fbItem._isLiveSource && !validStaffSheetSet.has(fbBName)) {
+                            // 직원이 방금 추가/저장한 방송(_fromStaffRealtime)이거나 현재 생방송(_isLiveSource)이면 시트 캐시 지연과 무관하게 즉시 허용!
+                            if (validStaffSheetSet && !fbItem._isLiveSource && !fbItem._fromStaffRealtime && !validStaffSheetSet.has(fbBName)) {
                                 return;
                             }
                             rawCombinedList.push(fbItem);
