@@ -95,13 +95,13 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 324; // 324 => v3.24
+        const VERSION_STEP = 326; // 326 => v3.26
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
-        const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_xaxkxkG/chat";
+        const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_IuqtG/chat";
         const BANK_NAME_HOLDER = "카카오뱅크 · 김선정";
         const BANK_ACCOUNT_NUMBER = "7942-32-84990";
         const HERO_LOOKBOOK_LIST = [
@@ -567,12 +567,24 @@
             if (!Array.isArray(rawList) || rawList.length === 0) return [];
             const normInPin = normalizePin4(cleanPinInput);
 
+            // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 카드가 하나라도 있는지 확인 (본인 인증 완료 여부)
+            const hasAnyPinVerifiedCard = rawList.some(item => {
+                if (!item || !item.nickname) return false;
+                const itemPin = normalizePin4(
+                    item.phoneLast4 ||
+                    (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
+                );
+                const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput);
+                return sc > 0 && itemPin && normInPin && itemPin === normInPin;
+            });
+
             const step1 = rawList.filter(item => {
                 if (!item || !item.nickname) return false;
                 const itemPin = normalizePin4(
                     item.phoneLast4 ||
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
+                // 다른 번호가 명시적으로 적혀 있는 타인의 주문은 무조건 차단
                 if (itemPin && normInPin && itemPin !== normInPin) {
                     return false;
                 }
@@ -581,7 +593,8 @@
                 if (sc <= 0 && lockedSc <= 0) {
                     return false;
                 }
-                if (!itemPin && sc < 3 && lockedSc < 3) {
+                // 다른 방송 카드에서 이미 본인 비밀번호(뒷4자리) 인증이 통과되었다면, 오늘 생방송 카드에 아직 전화번호가 없더라도 통과!
+                if (!itemPin && !hasAnyPinVerifiedCard && sc < 2 && lockedSc < 2) {
                     return false;
                 }
                 return true;
@@ -598,11 +611,19 @@
             const bestNick = lockedFullNick || step1[0].nickname;
             const bestNorm = normalizeNick(bestNick);
             const bestHandle = cleanHandle(bestNick);
+            const bestKor = extractKorean(bestHandle || bestNorm);
 
-            return step1.filter(item =>
-                normalizeNick(item.nickname) === bestNorm ||
-                (bestHandle && cleanHandle(item.nickname) === bestHandle)
-            );
+            // 핸들 꼬리표(-ab12 등)가 붙어 있거나 빠진 동일 고객의 이전/현재 방송 주문이 절대 누락되지 않도록 통합 유지!
+            return step1.filter(item => {
+                const itemNorm = normalizeNick(item.nickname);
+                const itemHandle = cleanHandle(item.nickname);
+                const itemKor = extractKorean(itemHandle || itemNorm);
+                if (itemNorm === bestNorm) return true;
+                if (bestHandle && itemHandle && itemHandle === bestHandle) return true;
+                if (bestKor && itemKor && bestKor.length >= 2 && itemKor === bestKor) return true;
+                if (getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput) >= 2) return true;
+                return false;
+            });
         };
 
         const fetchGasWithRetry = async (url, options = {}, retries = 2) => {
@@ -812,12 +833,11 @@
                         wrongPinDetected = true;
                         return;
                     }
-                    if (!effPin && sc < 3) return;
 
                     matchedCards.push({
                         sheetTabName: '주문_' + blk.bName,
                         nickname: custNick,
-                        phoneLast4: effPin || normInPin,
+                        phoneLast4: effPin || '',
                         broadcastName: blk.bName,
                         isVip: isVip,
                         credit: 0,
@@ -888,7 +908,22 @@
 
             let curBName = '오늘의 라이브';
             let curMeta = { fThresh: 70000, dShip: 4000, cRate: 10 };
-            const custMap = {};
+            const blocks = {};
+
+            const ensureBossBlock = (bTitle) => {
+                const cleaned = cleanBroadcastKey(bTitle);
+                const finalTitle = (!cleaned || cleaned === '오늘의방송' || cleaned === '기본방송') ? '오늘의 라이브' : cleaned;
+                if (!blocks[finalTitle]) {
+                    blocks[finalTitle] = {
+                        bName: finalTitle,
+                        fThresh: curMeta.fThresh,
+                        dShip: curMeta.dShip,
+                        cRate: curMeta.cRate,
+                        custMap: {}
+                    };
+                }
+                return blocks[finalTitle];
+            };
 
             rows.forEach((r, idx) => {
                 const nick = String(r['닉네임'] || r['주문자'] || r.col_0 || '').trim();
@@ -910,126 +945,129 @@
                         dShip: (priceVal !== '' && Number(priceVal) >= 0) ? Number(priceVal) : 4000,
                         cRate: Number(shipVal) > 0 ? Number(shipVal) : 10
                     };
+                    ensureBossBlock(curBName);
                     return;
                 }
                 if (!nick || nick === '닉네임' || nick === '주문자') return;
                 if (prod.includes('222222')) return;
-                if (!custMap[nick]) custMap[nick] = [];
-                custMap[nick].push({ r, idx });
+                const blk = ensureBossBlock(curBName);
+                if (!blk.custMap[nick]) blk.custMap[nick] = [];
+                blk.custMap[nick].push({ r, idx });
             });
 
             const matchedCards = [];
             let wrongPinDetected = false;
 
-            Object.keys(custMap).forEach(custNick => {
-                const entries = custMap[custNick];
-                const firstR = entries[0].r;
-                const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
-                const sc = getNickMatchScore(custNick, rReal, rawNick);
-                if (sc <= 0) return;
+            Object.values(blocks).forEach(blk => {
+                Object.keys(blk.custMap).forEach(custNick => {
+                    const entries = blk.custMap[custNick];
+                    const firstR = entries[0].r;
+                    const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
+                    const sc = getNickMatchScore(custNick, rReal, rawNick);
+                    if (sc <= 0) return;
 
-                let sheetPin = '';
-                let sheetPhone = '';
-                let sheetAddr = '';
-                let sheetMemo = '';
-                let isVip = false;
-                let isConfirmed = false;
-                let cardStr = '';
-                let shipNum = curMeta.dShip;
-                let depTotal = 0;
-                let depositsArr = [];
-                const trkSet = new Set();
-                const itemsArr = [];
+                    let sheetPin = '';
+                    let sheetPhone = '';
+                    let sheetAddr = '';
+                    let sheetMemo = '';
+                    let isVip = false;
+                    let isConfirmed = false;
+                    let cardStr = '';
+                    let shipNum = blk.dShip;
+                    let depTotal = 0;
+                    let depositsArr = [];
+                    const trkSet = new Set();
+                    const itemsArr = [];
 
-                entries.forEach((ent, eIdx) => {
-                    const row = ent.r;
-                    const col9Val = String(row.col_9 || '').trim();
-                    const isCol9Zip = /^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val);
-                    const shift = isCol9Zip ? 1 : 0;
+                    entries.forEach((ent, eIdx) => {
+                        const row = ent.r;
+                        const col9Val = String(row.col_9 || '').trim();
+                        const isCol9Zip = /^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val);
+                        const shift = isCol9Zip ? 1 : 0;
 
-                    const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
-                    const ph = fixPhoneStr(row['연락처'] || row.col_8);
-                    if (p && !sheetPin) sheetPin = p;
-                    if (ph && !sheetPhone) sheetPhone = ph;
+                        const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                        const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                        if (p && !sheetPin) sheetPin = p;
+                        if (ph && !sheetPhone) sheetPhone = ph;
 
-                    const rawA = String(row['주소'] || row[`col_${9 + shift}`] || '').replace(/^\(\d{5}\)\s*/, '').trim();
-                    if (rawA && !sheetAddr) sheetAddr = rawA;
+                        const rawA = String(row['주소'] || row[`col_${9 + shift}`] || '').replace(/^\(\d{5}\)\s*/, '').trim();
+                        if (rawA && !sheetAddr) sheetAddr = rawA;
 
-                    const rawM = String(row['요청사항'] || row[`col_${10 + shift}`] || '').trim();
-                    if (rawM && !sheetMemo) sheetMemo = rawM;
+                        const rawM = String(row['요청사항'] || row[`col_${10 + shift}`] || '').trim();
+                        if (rawM && !sheetMemo) sheetMemo = rawM;
 
-                    if (String(row['VIP여부'] || row[`col_${11 + shift}`] || '').trim() === 'O') isVip = true;
-                    if (String(row['주문확인'] || row[`col_${15 + shift}`] || '').trim() === 'O') isConfirmed = true;
-                    if (row['카드결제'] && !cardStr) cardStr = String(row['카드결제']).trim();
+                        if (String(row['VIP여부'] || row[`col_${11 + shift}`] || '').trim() === 'O') isVip = true;
+                        if (String(row['주문확인'] || row[`col_${15 + shift}`] || '').trim() === 'O') isConfirmed = true;
+                        if (row['카드결제'] && !cardStr) cardStr = String(row['카드결제']).trim();
 
-                    if (eIdx === 0 && row['배송비'] !== undefined && row['배송비'] !== '') {
-                        const sVal = Number(String(row['배송비']).replace(/[^0-9.-]/g, ''));
-                        if (!isNaN(sVal)) shipNum = sVal;
+                        if (eIdx === 0 && row['배송비'] !== undefined && row['배송비'] !== '') {
+                            const sVal = Number(String(row['배송비']).replace(/[^0-9.-]/g, ''));
+                            if (!isNaN(sVal)) shipNum = sVal;
+                        }
+                        const dVal = Number(String(row['입금액'] || '0').replace(/[^0-9.-]/g, '')) || 0;
+                        if (dVal > 0) depTotal += dVal;
+
+                        const depJson = String(row['입금내역JSON'] || row[`col_${16 + shift}`] || '').trim();
+                        if (depJson) {
+                            try {
+                                const parsed = JSON.parse(depJson);
+                                if (Array.isArray(parsed)) depositsArr = parsed;
+                            } catch (e) {}
+                        }
+                        const trk = String(row['송장번호'] || row[`col_${17 + shift}`] || '').replace(/^'+/, '').trim();
+                        if (trk) trkSet.add(trk);
+
+                        const prodName = String(row['상품명'] || row.col_1 || '').trim();
+                        if (prodName) {
+                            const wStr = String(row['대기여부'] || row[`col_${13 + shift}`] || '').trim();
+                            const isW = wStr === 'O' || wStr.includes('대기');
+                            const wM = wStr.match(/(\d+)/);
+                            itemsArr.push({
+                                id: eIdx + 1,
+                                product: prodName,
+                                qty: Number(String(row['수량'] || row.col_2 || '1').replace(/[^0-9.-]/g, '')) || 1,
+                                price: Number(String(row['단가(제품금액)'] || row.col_3 || '0').replace(/[^0-9.-]/g, '')) || 0,
+                                isWaitlist: isW,
+                                waitlistOrder: wM ? Number(wM[1]) : (isW ? 1 : 0)
+                            });
+                        }
+                    });
+
+                    if (itemsArr.length === 0) return;
+
+                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '');
+                    if (effPin && normInPin && effPin !== normInPin) {
+                        wrongPinDetected = true;
+                        return;
                     }
-                    const dVal = Number(String(row['입금액'] || '0').replace(/[^0-9.-]/g, '')) || 0;
-                    if (dVal > 0) depTotal += dVal;
 
-                    const depJson = String(row['입금내역JSON'] || row[`col_${16 + shift}`] || '').trim();
-                    if (depJson) {
-                        try {
-                            const parsed = JSON.parse(depJson);
-                            if (Array.isArray(parsed)) depositsArr = parsed;
-                        } catch (e) {}
-                    }
-                    const trk = String(row['송장번호'] || row[`col_${17 + shift}`] || '').replace(/^'+/, '').trim();
-                    if (trk) trkSet.add(trk);
-
-                    const prodName = String(row['상품명'] || row.col_1 || '').trim();
-                    if (prodName) {
-                        const wStr = String(row['대기여부'] || row[`col_${13 + shift}`] || '').trim();
-                        const isW = wStr === 'O' || wStr.includes('대기');
-                        const wM = wStr.match(/(\d+)/);
-                        itemsArr.push({
-                            id: eIdx + 1,
-                            product: prodName,
-                            qty: Number(String(row['수량'] || row.col_2 || '1').replace(/[^0-9.-]/g, '')) || 1,
-                            price: Number(String(row['단가(제품금액)'] || row.col_3 || '0').replace(/[^0-9.-]/g, '')) || 0,
-                            isWaitlist: isW,
-                            waitlistOrder: wM ? Number(wM[1]) : (isW ? 1 : 0)
-                        });
-                    }
-                });
-
-                if (itemsArr.length === 0) return;
-
-                const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '');
-                if (effPin && normInPin && effPin !== normInPin) {
-                    wrongPinDetected = true;
-                    return;
-                }
-                if (!effPin && sc < 3) return;
-
-                matchedCards.push({
-                    sheetTabName: '메인주문',
-                    nickname: custNick,
-                    phoneLast4: effPin || normInPin,
-                    broadcastName: curBName,
-                    isVip: isVip,
-                    credit: 0,
-                    freeShippingThreshold: curMeta.fThresh,
-                    cardFeeRate: curMeta.cRate,
-                    isCard: cardStr,
-                    shipping: isVip ? 0 : shipNum,
-                    depositTotal: depTotal,
-                    deposits: depositsArr,
-                    items: itemsArr,
-                    address: (sheetAddr || rReal) ? {
-                        realname: rReal,
-                        phone: sheetPhone,
-                        zipcode: '',
-                        baseAddress: sheetAddr,
-                        detailAddress: '',
-                        memo: sheetMemo,
-                        updatedAt: ''
-                    } : null,
-                    trackingNumbers: Array.from(trkSet),
-                    isConfirmed: isConfirmed,
-                    _isLiveSource: true
+                    matchedCards.push({
+                        sheetTabName: '메인주문',
+                        nickname: custNick,
+                        phoneLast4: effPin || '',
+                        broadcastName: blk.bName,
+                        isVip: isVip,
+                        credit: 0,
+                        freeShippingThreshold: blk.fThresh,
+                        cardFeeRate: blk.cRate,
+                        isCard: cardStr,
+                        shipping: isVip ? 0 : shipNum,
+                        depositTotal: depTotal,
+                        deposits: depositsArr,
+                        items: itemsArr,
+                        address: (sheetAddr || rReal) ? {
+                            realname: rReal,
+                            phone: sheetPhone,
+                            zipcode: '',
+                            baseAddress: sheetAddr,
+                            detailAddress: '',
+                            memo: sheetMemo,
+                            updatedAt: ''
+                        } : null,
+                        trackingNumbers: Array.from(trkSet),
+                        isConfirmed: isConfirmed,
+                        _isLiveSource: true
+                    });
                 });
             });
 
@@ -1077,7 +1115,6 @@
                             wrongPinDetected = true;
                             return;
                         }
-                        if (!cPin && sc < 3) return;
 
                         const safeNickKey = String(cust.nickname).replace(/[.#$\[\]\/]/g, '_');
                         const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey];
@@ -1088,7 +1125,7 @@
                             ...cust,
                             broadcastName: bName,
                             sheetTabName: isLiveNode ? '메인주문' : ('주문_' + bName),
-                            phoneLast4: cPin || normInPin,
+                            phoneLast4: cPin || '',
                             credit: credEntry ? Number(credEntry.credit || 0) : (Number(cust.credit) || 0),
                             creditLogs: credEntry && Array.isArray(credEntry.logs) ? credEntry.logs : [],
                             creditUpdatedAt: credEntry?.updatedAtStr || '',
@@ -1391,35 +1428,52 @@
                                     memo: bAddr.memo ?? sheetCard.address?.memo ?? '',
                                     updatedAt: bAddr.updatedAt || ''
                                 } : sheetCard.address,
-                                isConfirmed: isConf
+                                isConfirmed: isConf,
+                                _hasBcastCustomAddr: Boolean(bAddr),
+                                _fromStaffSheet: true
                             });
                         });
                     }
 
-                    // 1순위: 사장님의 마스터 구글 시트('메인주문' 탭)에 현재 생방송 주문이 들어있으면 무조건 최우선으로 추가!
-                    if (hasBossSheetCustomers) {
-                        bossLiveSheetData.historyList.forEach(bossCard => {
-                            const safeNickKey = String(bossCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-                            const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(bossCard.nickname));
-                            const isConf = Boolean(bossCard.isConfirmed || confVal[safeNickKey]);
+                    // 1순위: 사장님의 마스터 구글 시트(DEFAULT_MASTER_SHEET_ID) '메인주문' 탭에 현재 생방송 중인 주문이 있다면 최우선으로 추가!
+                    if (bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
+                        bossLiveSheetData.historyList.forEach(liveCard => {
+                            const bName = cleanBroadcastKey(liveCard.broadcastName || activeLiveBName || '오늘의 라이브');
+                            const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
+                            const safeNickKey = String(liveCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                            const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey] || bcastAddrsVal['오늘의방송']?.[safeNickKey];
+                            const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(liveCard.nickname));
+                            const isConf = Boolean(liveCard.isConfirmed || confVal[safeNickKey]);
+
                             rawCombinedList.push({
-                                ...bossCard,
-                                credit: credEntry ? Number(credEntry.credit || 0) : (Number(bossCard.credit) || 0),
+                                ...liveCard,
+                                broadcastName: (!bName || bName === '오늘의방송' || bName === '기본방송') ? (activeLiveBName && activeLiveBName !== '오늘의방송' ? activeLiveBName : '오늘의 라이브') : bName,
+                                credit: credEntry ? Number(credEntry.credit || 0) : (Number(liveCard.credit) || 0),
                                 creditLogs: credEntry && Array.isArray(credEntry.logs) ? credEntry.logs : [],
                                 creditUpdatedAt: credEntry?.updatedAtStr || '',
+                                address: bAddr ? {
+                                    realname: bAddr.realname || liveCard.address?.realname || '',
+                                    phone: fixPhoneStr(bAddr.phone || liveCard.address?.phone || ''),
+                                    zipcode: '',
+                                    baseAddress: String(bAddr.address || bAddr.baseAddress || '').replace(/^\(\d{5}\)\s*/, '').trim(),
+                                    detailAddress: '',
+                                    memo: bAddr.memo ?? liveCard.address?.memo ?? '',
+                                    updatedAt: bAddr.updatedAt || ''
+                                } : liveCard.address,
                                 isConfirmed: isConf,
+                                _hasBcastCustomAddr: Boolean(bAddr),
                                 _isLiveSource: true
                             });
                         });
                     }
 
-                    // 2순위: 파이어베이스 실시간 주문서(__MAIN_LIVE__) 데이터도 함께 병합!
-                    if (isLiveNow && fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
+                    // 2순위: 파이어베이스 실시간 주문서(__MAIN_LIVE__) 및 파이어베이스에 백업된 방송 데이터도 함께 병합!
+                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
                             const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
                             if (hasDummyItem) return;
-                            if (fbItem._isLiveSource || (activeLiveBName && fbBName === activeLiveBName)) {
+                            if (fbItem._isLiveSource || (isLiveNow && activeLiveBName && fbBName === activeLiveBName)) {
                                 const displayLiveTitle = (!fbBName || fbBName === '오늘의방송' || fbBName === '기본방송') ? '오늘의 라이브' : fbBName;
                                 rawCombinedList.push({
                                     ...fbItem,
@@ -1428,6 +1482,29 @@
                                 });
                             }
                         });
+                    }
+
+                    // 3순위: 만약 사장님 시트에 '주문_...' 별도 탭으로 저장된 오늘/최근 방송이 있는 경우를 위해 GAS 백엔드(DEFAULT_MASTER_SHEET_ID)도 함께 병합!
+                    if (!hasBossSheetCustomers) {
+                        try {
+                            const bossGasRes = await fetchGasWithRetry(
+                                `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`,
+                                {},
+                                1
+                            );
+                            if (bossGasRes && bossGasRes.status === "success" && Array.isArray(bossGasRes.historyList)) {
+                                bossGasRes.historyList.forEach(bCard => {
+                                    if (!bCard || bCard.sheetTabName === '메인주문_빈카드' || !Array.isArray(bCard.items) || bCard.items.length === 0) return;
+                                    const bName = cleanBroadcastKey(bCard.broadcastName || bCard.sheetTabName || '');
+                                    const isMainOrderTab = String(bCard.sheetTabName || '').includes('메인주문') || bName === '오늘의방송';
+                                    rawCombinedList.push({
+                                        ...bCard,
+                                        broadcastName: (!bName || bName === '오늘의방송' || bName === '기본방송') ? '오늘의 라이브' : bName,
+                                        _isLiveSource: isMainOrderTab
+                                    });
+                                });
+                            }
+                        } catch (e) {}
                     }
 
                     const combinedInstantList = deduplicateHistoryByBroadcastName(rawCombinedList);
