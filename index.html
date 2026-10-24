@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 323; // 323 => v3.23
+        const VERSION_STEP = 324; // 324 => v3.24
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec";
@@ -152,6 +152,7 @@
         // 백그라운드 프리로드 캐시 (고객이 닉네임/비번을 입력하는 동안 미리 로드하여 조회 시 0.1초 즉시 오픈!)
         const portalSheetCache = {
             staffOrderRows: null,
+            bossLiveOrderRows: null,
             staffCsRows: null,
             validSheetBroadcasts: null,
             isLiveActive: false,
@@ -163,28 +164,44 @@
 
         const preloadPortalDataInBackground = (force = false) => {
             const now = Date.now();
-            if (!force && portalSheetCache.staffOrderRows && (now - portalSheetCache.lastFetchedAt < 20000)) {
+            if (!force && portalSheetCache.staffOrderRows && (now - portalSheetCache.lastFetchedAt < 15000)) {
                 return Promise.resolve(portalSheetCache.staffOrderRows);
             }
             if (portalSheetCache.fetchingPromise) {
                 return portalSheetCache.fetchingPromise;
             }
-            // Google GVIZ 직통 리더(0.3초)와 GAS 실시간 리더를 동시에 경주시켜 가장 먼저 도착한 데이터로 즉시 캐시!
-            const gvizPromise = fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문').catch(() => null);
-            const gasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
+            // 1) 직원용 시트('메인주문') + 2) 사장님 실시간 생방송 시트(DEFAULT_MASTER_SHEET_ID '메인주문') 동시 초고속 로드!
+            const staffGvizPromise = fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문').catch(() => null);
+            const staffGasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
                 .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
                 .catch(() => null);
 
+            const bossGvizPromise = fetchSheetDirectGviz(DEFAULT_MASTER_SHEET_ID, '메인주문').catch(() => null);
+            const bossGasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_MASTER_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
+                .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
+                .catch(() => null);
+
+            Promise.race([
+                bossGvizPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : bossGasPromise),
+                bossGasPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : bossGvizPromise)
+            ]).then(bossRows => {
+                if (Array.isArray(bossRows)) {
+                    portalSheetCache.bossLiveOrderRows = bossRows;
+                }
+                bossGasPromise.then(freshBoss => {
+                    if (Array.isArray(freshBoss)) portalSheetCache.bossLiveOrderRows = freshBoss;
+                });
+            }).catch(() => {});
+
             portalSheetCache.fetchingPromise = Promise.race([
-                gvizPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : gasPromise),
-                gasPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : gvizPromise)
+                staffGvizPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : staffGasPromise),
+                staffGasPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : staffGvizPromise)
             ]).then(rows => {
                 if (Array.isArray(rows) && rows.length > 0) {
                     portalSheetCache.staffOrderRows = rows;
                     portalSheetCache.lastFetchedAt = Date.now();
                 }
-                // GAS 최신본이 뒤이어 도착하면 조용히 최신본으로 한 번 더 갱신
-                gasPromise.then(freshRows => {
+                staffGasPromise.then(freshRows => {
                     if (Array.isArray(freshRows) && freshRows.length > 0) {
                         portalSheetCache.staffOrderRows = freshRows;
                         portalSheetCache.lastFetchedAt = Date.now();
@@ -426,34 +443,43 @@
             if (!Array.isArray(list)) return [];
             const map = new Map();
 
-            // 직원이 방금 수정/추가한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 시트 데이터(_fromStaffSheet) 순으로 우선 정렬
+            // 실시간 생방송 데이터(_isLiveSource) > 직원이 수정한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 시트 데이터(_fromStaffSheet) 순으로 우선 정렬
             const prioritized = [...list].sort((a, b) => {
-                const aScore = (a?._fromStaffRealtime ? 4 : 0) + (a?._fromStaffSheet ? 2 : 0);
-                const bScore = (b?._fromStaffRealtime ? 4 : 0) + (b?._fromStaffSheet ? 2 : 0);
+                const aScore = (a?._isLiveSource ? 8 : 0) + (a?._fromStaffRealtime ? 4 : 0) + (a?._fromStaffSheet ? 2 : 0);
+                const bScore = (b?._isLiveSource ? 8 : 0) + (b?._fromStaffRealtime ? 4 : 0) + (b?._fromStaffSheet ? 2 : 0);
                 return bScore - aScore;
             });
 
             prioritized.forEach(item => {
                 if (!item) return;
-                const bKey = cleanBroadcastKey(item.broadcastName || item.sheetTabName || '주문내역');
+                let bKey = cleanBroadcastKey(item.broadcastName || item.sheetTabName || '주문내역');
                 if (!bKey) return;
+
+                // 🔴 현재 생방송 중인 주문서(_isLiveSource)가 만약 이전 마감 방송과 같은 이름이면 절대 옛날 방송에 먹히지 않도록 구분!
+                if (item._isLiveSource && map.has(bKey) && !map.get(bKey)._isLiveSource) {
+                    bKey = `${bKey} (실시간 라이브)`;
+                }
 
                 const itemMd = extractMonthDayKey(bKey);
                 const itemSig = getOrderItemsSignature(item);
 
-                // 이미 등록된 카드 중 ① 방송 이름이 같거나, ② 날짜(예: 10/20, 10/18)가 같거나, ③ 품목 구성이 완전히 똑같으면 동일 방송으로 판별!
                 let matchedKey = null;
                 if (map.has(bKey)) {
-                    matchedKey = bKey;
-                } else {
+                    const ex = map.get(bKey);
+                    // 생방송 카드와 일반 마감 시트 카드는 이름이 같아도 합치지 않고 별도 탭으로 분리 보호!
+                    if (Boolean(ex._isLiveSource) === Boolean(item._isLiveSource)) {
+                        matchedKey = bKey;
+                    }
+                } else if (!item._isLiveSource) {
                     for (const [existKey, existVal] of map.entries()) {
+                        if (existVal._isLiveSource) continue;
                         const existMd = extractMonthDayKey(existKey);
                         const existSig = getOrderItemsSignature(existVal);
-                        if (itemMd && existMd && itemMd === existMd && !item._isLiveSource && !existVal._isLiveSource) {
+                        if (itemMd && existMd && itemMd === existMd) {
                             matchedKey = existKey;
                             break;
                         }
-                        if (itemSig && existSig && itemSig === existSig && !item._isLiveSource && !existVal._isLiveSource) {
+                        if (itemSig && existSig && itemSig === existSig) {
                             matchedKey = existKey;
                             break;
                         }
@@ -464,24 +490,22 @@
                     map.set(bKey, {
                         ...item,
                         broadcastName: bKey,
-                        sheetTabName: '주문_' + bKey
+                        sheetTabName: item._isLiveSource ? '메인주문' : ('주문_' + bKey)
                     });
                 } else {
                     const existing = map.get(matchedKey);
                     const exItems = Array.isArray(existing.items) ? existing.items : [];
                     const newItems = Array.isArray(item.items) ? item.items : [];
-                    // 직원이 실시간으로 품목을 추가/삭제한 데이터(_fromStaffRealtime)의 품목을 최우선으로 채택!
-                    const bestItems = existing._fromStaffRealtime
+                    const bestItems = (existing._isLiveSource || existing._fromStaffRealtime)
                         ? exItems
-                        : (item._fromStaffRealtime ? newItems : (newItems.length >= exItems.length ? newItems : exItems));
-                    // 시트 원본(_fromStaffSheet)의 방송 이름을 최우선으로 유지
-                    const finalBName = existing._fromStaffSheet ? existing.broadcastName : (item._fromStaffSheet ? bKey : existing.broadcastName);
+                        : ((item._isLiveSource || item._fromStaffRealtime) ? newItems : (newItems.length >= exItems.length ? newItems : exItems));
+                    const finalBName = existing._isLiveSource ? existing.broadcastName : (existing._fromStaffSheet ? existing.broadcastName : (item._fromStaffSheet ? bKey : existing.broadcastName));
 
                     const mergedCard = {
                         ...item,
                         ...existing,
                         broadcastName: finalBName,
-                        sheetTabName: '주문_' + finalBName,
+                        sheetTabName: (existing._isLiveSource || item._isLiveSource) ? '메인주문' : ('주문_' + finalBName),
                         _fromStaffRealtime: Boolean(existing._fromStaffRealtime || item._fromStaffRealtime),
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
@@ -842,6 +866,182 @@
             };
         };
 
+        // 🔴 사장님의 마스터 구글 시트(DEFAULT_MASTER_SHEET_ID) '메인주문' 탭에서 현재 생방송 중인 주문을 직접 읽어오는 함수!
+        const lookupOrderFromBossLiveSheetDirect = async (rawNick, cleanPin, forceFresh = false) => {
+            const normInPin = normalizePin4(cleanPin);
+            let rows = (!forceFresh && Array.isArray(portalSheetCache.bossLiveOrderRows)) ? portalSheetCache.bossLiveOrderRows : null;
+            if (!rows) {
+                const now = Date.now();
+                const gvizP = fetchSheetDirectGviz(DEFAULT_MASTER_SHEET_ID, '메인주문').catch(() => null);
+                const gasP = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_MASTER_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
+                    .then(res => (res && Array.isArray(res.data)) ? res.data : null)
+                    .catch(() => null);
+                rows = await Promise.race([
+                    gvizP.then(r => (Array.isArray(r) && r.length > 0) ? r : gasP),
+                    gasP.then(r => (Array.isArray(r) && r.length > 0) ? r : gvizP)
+                ]);
+                if (Array.isArray(rows)) portalSheetCache.bossLiveOrderRows = rows;
+            }
+            if (!Array.isArray(rows) || rows.length === 0) {
+                return { status: 'not_found', historyList: [] };
+            }
+
+            let curBName = '오늘의 라이브';
+            let curMeta = { fThresh: 70000, dShip: 4000, cRate: 10 };
+            const custMap = {};
+
+            rows.forEach((r, idx) => {
+                const nick = String(r['닉네임'] || r['주문자'] || r.col_0 || '').trim();
+                const prod = String(r['상품명'] || r['품목'] || r.col_1 || '').trim();
+                const qtyVal = r['수량'] ?? r.col_2;
+                const priceVal = r['단가(제품금액)'] ?? r.col_3;
+                const shipVal = r['배송비'] ?? r.col_4;
+                const realname = String(r['수령인명'] ?? r.col_7 ?? '').trim();
+                const phone = String(r['연락처'] ?? r.col_8 ?? '').trim();
+
+                const isImplicitMeta = (!nick && prod && prod !== '상품명' && !realname && !phone && (Number(qtyVal) >= 10000 || Number(priceVal) === 4000 || Number(shipVal) === 10));
+                if (nick.startsWith('___WORKSPACE') || isImplicitMeta) {
+                    if (prod) {
+                        const cleaned = cleanBroadcastKey(prod);
+                        curBName = (cleaned === '오늘의방송' || cleaned === '기본방송' || !cleaned) ? '오늘의 라이브' : cleaned;
+                    }
+                    curMeta = {
+                        fThresh: Number(qtyVal) > 0 ? Number(qtyVal) : 70000,
+                        dShip: (priceVal !== '' && Number(priceVal) >= 0) ? Number(priceVal) : 4000,
+                        cRate: Number(shipVal) > 0 ? Number(shipVal) : 10
+                    };
+                    return;
+                }
+                if (!nick || nick === '닉네임' || nick === '주문자') return;
+                if (prod.includes('222222')) return;
+                if (!custMap[nick]) custMap[nick] = [];
+                custMap[nick].push({ r, idx });
+            });
+
+            const matchedCards = [];
+            let wrongPinDetected = false;
+
+            Object.keys(custMap).forEach(custNick => {
+                const entries = custMap[custNick];
+                const firstR = entries[0].r;
+                const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
+                const sc = getNickMatchScore(custNick, rReal, rawNick);
+                if (sc <= 0) return;
+
+                let sheetPin = '';
+                let sheetPhone = '';
+                let sheetAddr = '';
+                let sheetMemo = '';
+                let isVip = false;
+                let isConfirmed = false;
+                let cardStr = '';
+                let shipNum = curMeta.dShip;
+                let depTotal = 0;
+                let depositsArr = [];
+                const trkSet = new Set();
+                const itemsArr = [];
+
+                entries.forEach((ent, eIdx) => {
+                    const row = ent.r;
+                    const col9Val = String(row.col_9 || '').trim();
+                    const isCol9Zip = /^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val);
+                    const shift = isCol9Zip ? 1 : 0;
+
+                    const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                    const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                    if (p && !sheetPin) sheetPin = p;
+                    if (ph && !sheetPhone) sheetPhone = ph;
+
+                    const rawA = String(row['주소'] || row[`col_${9 + shift}`] || '').replace(/^\(\d{5}\)\s*/, '').trim();
+                    if (rawA && !sheetAddr) sheetAddr = rawA;
+
+                    const rawM = String(row['요청사항'] || row[`col_${10 + shift}`] || '').trim();
+                    if (rawM && !sheetMemo) sheetMemo = rawM;
+
+                    if (String(row['VIP여부'] || row[`col_${11 + shift}`] || '').trim() === 'O') isVip = true;
+                    if (String(row['주문확인'] || row[`col_${15 + shift}`] || '').trim() === 'O') isConfirmed = true;
+                    if (row['카드결제'] && !cardStr) cardStr = String(row['카드결제']).trim();
+
+                    if (eIdx === 0 && row['배송비'] !== undefined && row['배송비'] !== '') {
+                        const sVal = Number(String(row['배송비']).replace(/[^0-9.-]/g, ''));
+                        if (!isNaN(sVal)) shipNum = sVal;
+                    }
+                    const dVal = Number(String(row['입금액'] || '0').replace(/[^0-9.-]/g, '')) || 0;
+                    if (dVal > 0) depTotal += dVal;
+
+                    const depJson = String(row['입금내역JSON'] || row[`col_${16 + shift}`] || '').trim();
+                    if (depJson) {
+                        try {
+                            const parsed = JSON.parse(depJson);
+                            if (Array.isArray(parsed)) depositsArr = parsed;
+                        } catch (e) {}
+                    }
+                    const trk = String(row['송장번호'] || row[`col_${17 + shift}`] || '').replace(/^'+/, '').trim();
+                    if (trk) trkSet.add(trk);
+
+                    const prodName = String(row['상품명'] || row.col_1 || '').trim();
+                    if (prodName) {
+                        const wStr = String(row['대기여부'] || row[`col_${13 + shift}`] || '').trim();
+                        const isW = wStr === 'O' || wStr.includes('대기');
+                        const wM = wStr.match(/(\d+)/);
+                        itemsArr.push({
+                            id: eIdx + 1,
+                            product: prodName,
+                            qty: Number(String(row['수량'] || row.col_2 || '1').replace(/[^0-9.-]/g, '')) || 1,
+                            price: Number(String(row['단가(제품금액)'] || row.col_3 || '0').replace(/[^0-9.-]/g, '')) || 0,
+                            isWaitlist: isW,
+                            waitlistOrder: wM ? Number(wM[1]) : (isW ? 1 : 0)
+                        });
+                    }
+                });
+
+                if (itemsArr.length === 0) return;
+
+                const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '');
+                if (effPin && normInPin && effPin !== normInPin) {
+                    wrongPinDetected = true;
+                    return;
+                }
+                if (!effPin && sc < 3) return;
+
+                matchedCards.push({
+                    sheetTabName: '메인주문',
+                    nickname: custNick,
+                    phoneLast4: effPin || normInPin,
+                    broadcastName: curBName,
+                    isVip: isVip,
+                    credit: 0,
+                    freeShippingThreshold: curMeta.fThresh,
+                    cardFeeRate: curMeta.cRate,
+                    isCard: cardStr,
+                    shipping: isVip ? 0 : shipNum,
+                    depositTotal: depTotal,
+                    deposits: depositsArr,
+                    items: itemsArr,
+                    address: (sheetAddr || rReal) ? {
+                        realname: rReal,
+                        phone: sheetPhone,
+                        zipcode: '',
+                        baseAddress: sheetAddr,
+                        detailAddress: '',
+                        memo: sheetMemo,
+                        updatedAt: ''
+                    } : null,
+                    trackingNumbers: Array.from(trkSet),
+                    isConfirmed: isConfirmed,
+                    _isLiveSource: true
+                });
+            });
+
+            if (matchedCards.length > 0) {
+                return { status: 'success', historyList: matchedCards };
+            }
+            if (wrongPinDetected) {
+                return { status: 'error', errorType: 'WRONG_PIN', historyList: [] };
+            }
+            return { status: 'not_found', historyList: [] };
+        };
+
         const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
             if (!portalFbDb) return { status: 'not_found', historyList: [] };
             const normInPin = normalizePin4(cleanPin);
@@ -1142,21 +1342,24 @@
                 try {
                     // ⚡ [새로고침] 버튼을 직접 누른 경우에만 서버 강제 재요청을 하고, 첫 로그인 시에는 백그라운드에 미리 준비된 캐시로 0.1초 만에 즉시 오픈!
                     if (isRefreshCall) {
+                        portalSheetCache.bossLiveOrderRows = null;
                         await Promise.all([
                             preloadPortalDataInBackground(true),
                             portalFbDb ? portalFbDb.ref('ember_live_data').once('value').then(s => { portalSheetCache.fbSnapshot = s.val() || {}; }).catch(() => {}) : Promise.resolve()
                         ]);
                     }
 
-                    const [staffDirectData, fbInstantData] = await Promise.all([
+                    const [staffDirectData, bossLiveSheetData, fbInstantData] = await Promise.all([
                         lookupOrderFromStaffSheetDirect(rawNick, cleanPin, false),
+                        lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin, isRefreshCall),
                         lookupOrderFromFirebase(rawNick, cleanPin)
                     ]);
 
                     const rootFb = portalSheetCache.fbSnapshot || {};
                     const liveModeVal = rootFb._portal_live_mode || {};
                     const hasMainLiveCustomers = Array.isArray(rootFb._portal_orders?.__MAIN_LIVE__?.customers) && rootFb._portal_orders.__MAIN_LIVE__.customers.length > 0;
-                    const isLiveNow = Boolean(liveModeVal.isLive || hasMainLiveCustomers);
+                    const hasBossSheetCustomers = bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList) && bossLiveSheetData.historyList.length > 0;
+                    const isLiveNow = Boolean(liveModeVal.isLive || hasMainLiveCustomers || hasBossSheetCustomers);
                     const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || rootFb._portal_orders?.__MAIN_LIVE__?.broadcastName || '');
 
                     const bcastAddrsVal = rootFb._portal_broadcast_addresses || {};
@@ -1193,16 +1396,35 @@
                         });
                     }
 
-                    // 현재 생방송 중이거나 __MAIN_LIVE__ 실시간 주문서에 고객 주문이 들어있으면 방송 이름과 관계없이 100% 최우선으로 합쳐서 표시!
+                    // 1순위: 사장님의 마스터 구글 시트('메인주문' 탭)에 현재 생방송 주문이 들어있으면 무조건 최우선으로 추가!
+                    if (hasBossSheetCustomers) {
+                        bossLiveSheetData.historyList.forEach(bossCard => {
+                            const safeNickKey = String(bossCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                            const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(bossCard.nickname));
+                            const isConf = Boolean(bossCard.isConfirmed || confVal[safeNickKey]);
+                            rawCombinedList.push({
+                                ...bossCard,
+                                credit: credEntry ? Number(credEntry.credit || 0) : (Number(bossCard.credit) || 0),
+                                creditLogs: credEntry && Array.isArray(credEntry.logs) ? credEntry.logs : [],
+                                creditUpdatedAt: credEntry?.updatedAtStr || '',
+                                isConfirmed: isConf,
+                                _isLiveSource: true
+                            });
+                        });
+                    }
+
+                    // 2순위: 파이어베이스 실시간 주문서(__MAIN_LIVE__) 데이터도 함께 병합!
                     if (isLiveNow && fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
                             const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
                             if (hasDummyItem) return;
                             if (fbItem._isLiveSource || (activeLiveBName && fbBName === activeLiveBName)) {
+                                const displayLiveTitle = (!fbBName || fbBName === '오늘의방송' || fbBName === '기본방송') ? '오늘의 라이브' : fbBName;
                                 rawCombinedList.push({
                                     ...fbItem,
-                                    broadcastName: fbBName || activeLiveBName || '실시간 라이브'
+                                    broadcastName: displayLiveTitle,
+                                    _isLiveSource: true
                                 });
                             }
                         });
@@ -1214,7 +1436,7 @@
                         return;
                     }
 
-                    if ((staffDirectData && staffDirectData.errorType === "WRONG_PIN") || (fbInstantData && fbInstantData.errorType === "WRONG_PIN")) {
+                    if ((staffDirectData && staffDirectData.errorType === "WRONG_PIN") || (bossLiveSheetData && bossLiveSheetData.errorType === "WRONG_PIN") || (fbInstantData && fbInstantData.errorType === "WRONG_PIN")) {
                         setIsLoading(false);
                         setIsRefreshing(false);
                         setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
