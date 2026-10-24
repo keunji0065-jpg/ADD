@@ -104,8 +104,17 @@
         const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_xaxkxkG/chat";
         const BANK_NAME_HOLDER = "카카오뱅크 · 김선정";
         const BANK_ACCOUNT_NUMBER = "7942-32-84990";
-        const FIXED_AUTUMN_WINTER_HERO = "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1000&q=80";
-        const FALLBACK_COAT_HERO = "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=1000&q=80";
+        const HERO_LOOKBOOK_LIST = [
+            "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=1000&q=80",
+            "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1000&q=80",
+            "https://images.unsplash.com/photo-1791720080429-996c1eb5dd4a?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
+            "https://plus.unsplash.com/premium_photo-1762610839350-ff7aebb37f19?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
+            "https://images.unsplash.com/photo-1792058697948-1a4eb4df5acb?q=80&w=764&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
+            "https://images.unsplash.com/photo-1571513800374-df1bbe650e56?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
+            "https://images.unsplash.com/photo-1706822592725-7e095b68b625?q=80&w=680&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D"
+        ];
+        const FIXED_AUTUMN_WINTER_HERO = HERO_LOOKBOOK_LIST[Math.floor(Math.random() * HERO_LOOKBOOK_LIST.length)];
+        const FALLBACK_COAT_HERO = HERO_LOOKBOOK_LIST[0];
         const BUSINESS_INFO = {
             companyName: "엠버(EMBER)",
             ceoName: "강은지",
@@ -1492,7 +1501,7 @@
                                 decoding="async"
                                 onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_COAT_HERO; }}
                                 alt="엠버언니 가을겨울 화보" 
-                                className="absolute inset-0 w-full h-full object-cover object-top select-none pointer-events-none"
+                                className="absolute inset-0 w-full h-full object-cover object-top select-none pointer-events-none transition-all duration-300"
                             />
 
                             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-4">
