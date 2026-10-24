@@ -66,6 +66,11 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
+        const VERSION_STEP = 313; // 313 => v3.13
+        const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
+        const PORTAL_UPDATED_DATE = "2026.10.24";
+
         const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzrMczblUPLxqGESdkZks8osdL-CihDenW94Ae3ODL8u_QhVAZGKrsVI_KchtHjCTFg/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const DEFAULT_STAFF_SHEET_ID = '1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8';
@@ -631,9 +636,15 @@
 
         const extractPublicCsFieldsFromRawMemo = (rawMemoStr) => {
             let raw = String(rawMemoStr || '').trim();
-            if (!raw) return { accountOnly: '', refundAmount: 0, refundCompleted: false };
+            if (!raw) return { accountOnly: '', refundAmount: 0, refundCompleted: false, convertedToCredit: false };
 
             let refundCompleted = false;
+            let convertedToCredit = false;
+            if (raw.includes('[적립금전환완료]')) {
+                refundCompleted = true;
+                convertedToCredit = true;
+                raw = raw.replace(/\[적립금전환완료\]/g, '').trim();
+            }
             if (raw.includes('[환불완료]')) {
                 refundCompleted = true;
                 raw = raw.replace(/\[환불완료\]/g, '').trim();
@@ -656,7 +667,7 @@
                     accountOnly = slashBankMatch[2].trim();
                 }
             }
-            return { accountOnly, refundAmount, refundCompleted };
+            return { accountOnly, refundAmount, refundCompleted, convertedToCredit };
         };
 
         // 1) 사장님 현재 생방송 시트('메인주문') 또는 동일 브라우저 로컬스토리지에서 실시간 주문을 읽어오는 함수
@@ -872,6 +883,7 @@
                     ? Number(c.refundAmount)
                     : (parsedFromMemo.refundAmount > 0 ? parsedFromMemo.refundAmount : autoRetSum);
                 const finalRefundDone = Boolean(c.refundCompleted || parsedFromMemo.refundCompleted);
+                const finalCredConv = Boolean(c.convertedToCredit || parsedFromMemo.convertedToCredit);
                 const shipFee = Number(c.csFee !== undefined ? c.csFee : c.shipping) || 0;
                 const feePaid = c.csFeePaid !== undefined ? Boolean(c.csFeePaid) : (Number(c.deposit) > 0 && Number(c.deposit) >= shipFee);
 
@@ -885,6 +897,7 @@
                     refundAccount: String(finalAcc || '').trim(),
                     refundAmount: finalRefundAmt,
                     refundCompleted: finalRefundDone,
+                    convertedToCredit: finalCredConv,
                     csFee: shipFee,
                     csFeePaid: feePaid,
                     items: displayItems.map(it => ({
@@ -1034,18 +1047,32 @@
                 rows.forEach((r, idx) => {
                     const nick = String(r['닉네임'] || r['주문자'] || r.col_0 || '').trim();
                     const prod = String(r['상품명'] || r['품목'] || r.col_1 || '').trim();
-                    if (!nick || nick === '닉네임' || nick === '주문자') return;
+                    const rawQtyMeta = r['수량'] ?? r.col_2;
+                    const rawPriceMeta = r['단가(제품금액)'] ?? r.col_3;
+                    const rawShipMeta = r['배송비'] ?? r.col_4;
+                    const rawRealMeta = String(r['수령인명'] ?? r.col_7 ?? '').trim();
+                    const rawPhoneMeta = String(r['연락처'] ?? r.col_8 ?? '').trim();
+                    const isImplicitMeta = (
+                        !nick &&
+                        prod &&
+                        prod !== '상품명' &&
+                        !rawRealMeta &&
+                        !rawPhoneMeta &&
+                        (Number(rawQtyMeta) >= 10000 || Number(rawPriceMeta) === 4000 || Number(rawPriceMeta) === 0 || Number(rawShipMeta) === 10)
+                    );
 
-                    if (nick.startsWith('___WORKSPACE')) {
+                    if (nick.startsWith('___WORKSPACE') || isImplicitMeta) {
                         if (prod) curB = cleanBroadcastKey(prod) || '최근 방송';
                         curMeta = {
-                            fThresh: Number(r['수량'] || r.col_2) > 0 ? Number(r['수량'] || r.col_2) : 70000,
-                            dShip: (r['단가(제품금액)'] !== '' && Number(r['단가(제품금액)'] ?? r.col_3) >= 0) ? Number(r['단가(제품금액)'] ?? r.col_3) : 4000,
-                            cRate: Number(r['배송비'] || r.col_4) > 0 ? Number(r['배송비'] || r.col_4) : 10
+                            fThresh: Number(rawQtyMeta) > 0 ? Number(rawQtyMeta) : 70000,
+                            dShip: (rawPriceMeta !== '' && Number(rawPriceMeta) >= 0) ? Number(rawPriceMeta) : 4000,
+                            cRate: Number(rawShipMeta) > 0 ? Number(rawShipMeta) : 10
                         };
                         ensureBlk(curB, curMeta);
                         return;
                     }
+
+                    if (!nick || nick === '닉네임' || nick === '주문자') return;
 
                     const blk = ensureBlk(curB, curMeta);
                     const col9Val = String(r.col_9 || '').trim();
@@ -1280,6 +1307,24 @@
                     return 0;
                 };
 
+                const findCreditMetaForNick = (targetNick) => {
+                    if (!targetNick) return { updatedAtStr: '', logs: [] };
+                    const tNorm = normalizeNick(targetNick);
+                    const tClean = cleanHandle(targetNick);
+                    for (const k in creditsMap) {
+                        const item = creditsMap[k];
+                        if (!item) continue;
+                        const itemNick = item.nickname || k;
+                        if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
+                            return {
+                                updatedAtStr: item.updatedAtStr || (typeof item.updatedAt === 'string' ? item.updatedAt : ''),
+                                logs: Array.isArray(item.logs) ? item.logs : []
+                            };
+                        }
+                    }
+                    return { updatedAtStr: '', logs: [] };
+                };
+
                 const matchedMasterMap = {};
                 const knownPinsByNick = {};
                 const addKnownPin = (nickKey, pinVal) => {
@@ -1358,6 +1403,7 @@
                         const isPinMatched = Boolean(normInPin && ((directPin && directPin === normInPin) || (knownPinSet && knownPinSet.has(normInPin))));
 
                         const fbCredit = findCreditForNick(cust.nickname) || Number(cust.credit) || 0;
+                        const fbCreditMeta = findCreditMetaForNick(cust.nickname);
                         const isPortalConfirmed = Boolean(cust.isConfirmed || portalConfMap[`${safeBKey}___${safeCustKey}`] || portalConfMap[safeCustKey]);
 
                         const resolvedAddrObj = bcastCustomAddr ? {
@@ -1382,6 +1428,8 @@
                                     _fromStaffRealtime: !isLiveNode && nodeData.updatedBy === 'staff',
                                     _matchScore: effectiveScore,
                                     credit: fbCredit,
+                                    creditUpdatedAt: fbCreditMeta.updatedAtStr,
+                                    creditLogs: fbCreditMeta.logs,
                                     phoneLast4: normInPin,
                                     address: resolvedAddrObj || (masterEntry ? {
                                         realname: masterEntry.addr.realname || '',
@@ -1430,6 +1478,7 @@
                 if (bestMasterAddr && bestAddrScore >= 1) {
                     const aPin = bestMasterAddr.phone && String(bestMasterAddr.phone).length >= 4 ? normalizePin4(String(bestMasterAddr.phone).slice(-4)) : '';
                     if (aPin && aPin === normInPin) {
+                        const fbMeta = findCreditMetaForNick(bestMasterAddr.nickname);
                         const emptyCard = {
                             sheetTabName: '메인주문_빈카드',
                             nickname: bestMasterAddr.nickname,
@@ -1437,6 +1486,8 @@
                             broadcastName: '최근 주문 내역 없음',
                             isVip: false,
                             credit: findCreditForNick(bestMasterAddr.nickname),
+                            creditUpdatedAt: fbMeta.updatedAtStr,
+                            creditLogs: fbMeta.logs,
                             freeShippingThreshold: 70000,
                             cardFeeRate: 10,
                             isCard: '',
@@ -1523,6 +1574,7 @@
             const [trackingMap, setTrackingMap] = useState({});
             const [collapsedTracks, setCollapsedTracks] = useState({});
             const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
+            const [isCreditHistoryOpen, setIsCreditHistoryOpen] = useState(false);
             const [customerCsList, setCustomerCsList] = useState([]);
             const [editingCsAccountMap, setEditingCsAccountMap] = useState({});
             const [showBizFooter, setShowBizFooter] = useState(false);
@@ -1582,24 +1634,27 @@
                     const creditsMap = snap.val() || {};
                     const tNorm = normalizeNick(currentUser.nickname);
                     const tClean = cleanHandle(currentUser.nickname);
-                    let foundCredit = null;
+                    let foundItem = null;
                     for (const k in creditsMap) {
                         const item = creditsMap[k];
                         if (!item) continue;
                         const itemNick = item.nickname || k;
                         if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
-                            foundCredit = Number(item.credit) || 0;
+                            foundItem = item;
                             break;
                         }
                     }
-                    if (foundCredit !== null && foundCredit !== (Number(currentUser.credit) || 0)) {
-                        setCurrentUser(prev => prev ? { ...prev, credit: foundCredit } : prev);
-                        setOrderHistoryList(prev => prev.map(item => ({ ...item, credit: foundCredit })));
+                    if (foundItem) {
+                        const nextCred = Number(foundItem.credit) || 0;
+                        const nextLogs = Array.isArray(foundItem.logs) ? foundItem.logs : [];
+                        const nextUpd = foundItem.updatedAtStr || '';
+                        setCurrentUser(prev => prev ? { ...prev, credit: nextCred, creditLogs: nextLogs, creditUpdatedAt: nextUpd } : prev);
+                        setOrderHistoryList(prev => prev.map(item => ({ ...item, credit: nextCred, creditLogs: nextLogs, creditUpdatedAt: nextUpd })));
                     }
                 };
                 creditsRef.on('value', handleCreditUpdate);
                 return () => creditsRef.off('value', handleCreditUpdate);
-            }, [currentUser?.nickname, currentUser?.credit]);
+            }, [currentUser?.nickname]);
 
             useEffect(() => {
                 if (!currentUser) {
@@ -1878,20 +1933,40 @@
                             if (Array.isArray(csRes)) setCustomerCsList(csRes);
                         }).catch(() => {});
 
-                        // 생방송 중이거나 아직 직원용 시트로 이관하기 전인 마감 방송도 백그라운드에서 누락 없이 병합
-                        fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
-                            if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
-                                const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
-                                if (gasList.length === 0) return;
-                                setOrderHistoryList(prevList => {
-                                    return sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists([...prevList, ...gasList]));
-                                });
-                            }
-                        }).catch(() => {});
+                        // ⚠️ 핵심: 오직 사장님이 '🔴 생방송중'(isLiveActive === true)을 켜두었을 때만 사장님 메인시트를 추가로 조회!
+                        // '🔒 방송마감' 상태일 때는 사장님 메인시트에 남아있는 주문을 절대 고객에게 노출하지 않음!
+                        if (portalSheetCache.isLiveActive) {
+                            fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
+                                if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
+                                    const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
+                                    if (gasList.length === 0) return;
+                                    setOrderHistoryList(prevList => {
+                                        return sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists([...prevList, ...gasList]));
+                                    });
+                                }
+                            }).catch(() => {});
+                        }
                         return true;
                     };
 
-                    // 1단계: 직원용 시트('주문'), Firebase 클라우드, 사장님 생방송 시트('메인주문')를 동시에 스캔 후 방송명 기준으로 중복 없이 병합!
+                    // 먼저 최신 생방송 상태(_portal_live_mode)를 실시간으로 확인
+                    if (portalFbDb) {
+                        try {
+                            const liveSnap = await Promise.race([
+                                portalFbDb.ref('ember_live_data/_portal_live_mode').once('value'),
+                                new Promise(r => setTimeout(() => r(null), 1200))
+                            ]);
+                            if (liveSnap) {
+                                const lv = liveSnap.val();
+                                if (lv && typeof lv.isLive === 'boolean') {
+                                    portalSheetCache.isLiveActive = lv.isLive;
+                                    portalSheetCache.activeBroadcastName = cleanBroadcastKey(lv.activeBroadcastName || '');
+                                }
+                            }
+                        } catch (e) {}
+                    }
+
+                    // 1단계: 직원용 시트('주문'), Firebase 클라우드, 그리고 생방송 중일 때만 사장님 생방송 시트('메인주문')를 스캔!
                     const [staffDirectData, fbInstantData, bossLiveData] = await Promise.all([
                         lookupOrderFromStaffSheetDirect(rawNick, cleanPin, isRefreshCall),
                         lookupOrderFromFirebase(rawNick, cleanPin),
@@ -1904,7 +1979,7 @@
                         : null;
 
                     const rawCombinedList = [];
-                    if (bossLiveData && bossLiveData.status === "success" && Array.isArray(bossLiveData.historyList)) {
+                    if (portalSheetCache.isLiveActive && bossLiveData && bossLiveData.status === "success" && Array.isArray(bossLiveData.historyList)) {
                         rawCombinedList.push(...bossLiveData.historyList);
                     }
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
@@ -1912,6 +1987,9 @@
                     }
                     if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
+                            if (fbItem._isLiveSource && !portalSheetCache.isLiveActive) {
+                                return;
+                            }
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
                             // 직원이 방금 추가/저장한 방송(_fromStaffRealtime)이거나 현재 생방송(_isLiveSource)이면 시트 캐시 지연과 무관하게 즉시 허용!
                             if (validStaffSheetSet && !fbItem._isLiveSource && !fbItem._fromStaffRealtime && !validStaffSheetSet.has(fbBName)) {
@@ -1935,8 +2013,9 @@
                     }
 
                     const matchedFullNickFromStep1 = combinedInstantList[0]?.nickname || rawNick;
+                    // ⚠️ 방송 마감 상태(!portalSheetCache.isLiveActive)일 때는 사장님 메인시트(fetchOrderWithPin)를 절대 호출하지 않음!
                     const [gasData, csOnlyCheck] = await Promise.all([
-                        fetchOrderWithPin(cleanPin, matchedFullNickFromStep1).catch(() => null),
+                        portalSheetCache.isLiveActive ? fetchOrderWithPin(cleanPin, matchedFullNickFromStep1).catch(() => null) : Promise.resolve(null),
                         lookupCustomerCsRecords([matchedFullNickFromStep1, rawNick], cleanPin).catch(() => [])
                     ]);
 
@@ -2188,7 +2267,13 @@
             const isPaid = activeItems.length > 0 && finalBalance === 0 && !isCard;
             const isOverpaid = finalBalance < 0 && !isCard;
             const isUnpaid = finalBalance > 0 && !isCard;
-            const customerCredit = currentUser ? (Number(currentUser.credit) || 0) : 0;
+            // 고객의 현재 보유적립금은 시트/클라우드에 저장된 최종 잔액 그대로 표시! (과납 등으로 재적립된 적립금이 사라지지 않도록 보호)
+            const customerCredit = currentUser ? Math.max(0, Number(currentUser.credit) || 0) : 0;
+            const customerCreditLogs = (currentUser && Array.isArray(currentUser.creditLogs)) ? currentUser.creditLogs : [];
+            const customerCreditUpdatedAt = (currentUser && currentUser.creditUpdatedAt) ? currentUser.creditUpdatedAt : '';
+            const usedCreditInCurrentOrder = activeItems
+                .filter(i => String(i.product || '').trim().includes('적립금') && Number(i.price) < 0)
+                .reduce((s, i) => s + Math.abs(Number(i.price) || 0), 0);
 
             const depositsHistory = currentUser && Array.isArray(currentUser.deposits) && currentUser.deposits.length > 0
                 ? currentUser.deposits
@@ -2255,7 +2340,7 @@
                                                 통합주문확인
                                             </h2>
                                             <span className="text-[10.5px] font-bold text-gray-600 tracking-tight">
-                                                (2026.10.22 업데이트)
+                                                ({PORTAL_UPDATED_DATE} 업데이트 · {PORTAL_VERSION})
                                             </span>
                                         </div>
                                         <span className="text-[11px] font-extrabold text-blue-700 flex items-center gap-0.5 drop-shadow-sm">
@@ -2577,10 +2662,58 @@
                                         </div>
                                     )}
 
-                                    {customerCredit > 0 && (
-                                        <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex justify-between items-center text-[14px] font-extrabold text-teal-800">
-                                            <span>현재 적립금</span>
-                                            <span className="text-[16px] font-black text-teal-700 tabular-nums">{customerCredit.toLocaleString()}원</span>
+                                    {(customerCredit > 0 || usedCreditInCurrentOrder > 0 || customerCreditLogs.length > 0) && (
+                                        <div className="bg-teal-50 border border-teal-200 rounded-lg overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCreditHistoryOpen(prev => !prev)}
+                                                className="w-full p-3 flex justify-between items-center text-left text-[14px] font-extrabold text-teal-800 hover:bg-teal-100/50 transition-colors"
+                                            >
+                                                <div className="flex flex-col">
+                                                    <span className="flex items-center gap-1">
+                                                        <span>💰 현재 보유 적립금</span>
+                                                        {(customerCreditLogs.length > 0 || usedCreditInCurrentOrder > 0) && (
+                                                            <span className="text-[11px] font-bold text-teal-600 underline ml-1">
+                                                                {isCreditHistoryOpen ? '내역 접기 ▲' : '적립·사용내역 보기 ▼'}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                    {customerCreditUpdatedAt && (
+                                                        <span className="text-[11px] font-semibold text-teal-600 mt-0.5">
+                                                            최근 업데이트: {customerCreditUpdatedAt}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="text-[16px] font-black text-teal-700 tabular-nums shrink-0">
+                                                    {customerCredit.toLocaleString()}원
+                                                </span>
+                                            </button>
+
+                                            {usedCreditInCurrentOrder > 0 && (
+                                                <div className="px-3 py-1.5 bg-rose-50 border-t border-rose-200 flex justify-between items-center text-[12.5px] font-extrabold text-rose-700">
+                                                    <span>📉 이번 방송 주문에서 차감 사용됨</span>
+                                                    <span className="tabular-nums">-{usedCreditInCurrentOrder.toLocaleString()}원</span>
+                                                </div>
+                                            )}
+
+                                            {isCreditHistoryOpen && customerCreditLogs.length > 0 && (
+                                                <div className="p-2.5 bg-white border-t border-teal-200 divide-y divide-gray-100 space-y-1.5">
+                                                    {customerCreditLogs.slice(0, 10).map((lg, lIdx) => (
+                                                        <div key={lg.id || lIdx} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2 text-[12.5px]">
+                                                            <div className="min-w-0">
+                                                                <div className="font-bold text-gray-800 truncate">{lg.reason || '적립금 변동'}</div>
+                                                                <div className="text-[11px] text-gray-400 tabular-nums">{lg.date}</div>
+                                                            </div>
+                                                            <div className="text-right shrink-0">
+                                                                <div className={`font-extrabold tabular-nums ${Number(lg.diff) >= 0 ? 'text-teal-600' : 'text-rose-600'}`}>
+                                                                    {Number(lg.diff) >= 0 ? `+${Number(lg.diff).toLocaleString()}원` : `${Number(lg.diff).toLocaleString()}원`}
+                                                                </div>
+                                                                <div className="text-[10.5px] text-gray-400 tabular-nums">잔액 {Number(lg.balance || 0).toLocaleString()}원</div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -3015,93 +3148,53 @@
                                                                                     {Number(cs.refundAmount || 0).toLocaleString()}원
                                                                                 </span>
                                                                                 <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
-                                                                                    cs.refundCompleted
-                                                                                        ? 'bg-blue-600 text-white'
-                                                                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                                                                    cs.convertedToCredit
+                                                                                        ? 'bg-teal-600 text-white'
+                                                                                        : cs.refundCompleted
+                                                                                            ? 'bg-blue-600 text-white'
+                                                                                            : 'bg-rose-50 text-rose-700 border border-rose-200'
                                                                                 }`}>
-                                                                                    {cs.refundCompleted ? '환불완료' : '환불대기'}
+                                                                                    {cs.convertedToCredit ? '💰 적립금전환완료' : (cs.refundCompleted ? '환불완료' : '환불대기')}
                                                                                 </span>
                                                                             </div>
                                                                         </div>
 
-                                                                        <div className="pt-2 border-t border-gray-100">
-                                                                            <div className="flex items-center justify-between mb-1">
-                                                                                <span className="text-[12px] font-bold text-gray-600">🏦 환불 계좌번호</span>
-                                                                                {!cs.refundCompleted && !isEditingAcc && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => setEditingCsAccountMap(prev => ({ ...prev, [cs.id]: cs.refundAccount || '' }))}
-                                                                                        className="text-[11.5px] font-extrabold text-blue-600 hover:underline"
-                                                                                    >
-                                                                                        {cs.refundAccount ? '계좌 수정' : '+ 계좌 입력하기'}
-                                                                                    </button>
+                                                                        {!cs.convertedToCredit && (
+                                                                            <div className="pt-2 border-t border-gray-100">
+                                                                                <div className="flex items-center justify-between mb-1">
+                                                                                    <span className="text-[12px] font-bold text-gray-600">🏦 환불 계좌번호</span>
+                                                                                    {!cs.refundCompleted && !isEditingAcc && (
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => setEditingCsAccountMap(prev => ({ ...prev, [cs.id]: cs.refundAccount || '' }))}
+                                                                                            className="text-[11.5px] font-extrabold text-blue-600 hover:underline"
+                                                                                        >
+                                                                                            {cs.refundAccount ? '계좌 수정' : '+ 계좌 입력하기'}
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                                {isEditingAcc ? (
+                                                                                    <div className="flex gap-1.5 mt-1">
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            value={editingCsAccountMap[cs.id] || ''}
+                                                                                            onChange={(e) => setEditingCsAccountMap(prev => ({ ...prev, [cs.id]: e.target.value }))}
+                                                                                            placeholder="은행명 / 계좌번호 / 예금주 성함"
+                                                                                            className="flex-1 px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded text-[13px] font-bold outline-none focus:border-blue-600 focus:bg-white"
+                                                                                        />
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleSaveCustomerRefundAccount(cs.id)}
+                                                                                            className="px-3 py-1.5 bg-gray-900 text-white rounded text-[12px] font-extrabold shrink-0"
+                                                                                        >
+                                                                                            저장
+                                                                                        </button>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="text-[13px] font-extrabold text-gray-900 bg-gray-50 px-2.5 py-1.5 rounded border border-gray-200">
+                                                                                        {cs.refundAccount ? cs.refundAccount : <span className="text-gray-400 font-semibold">우측 상단 [+ 계좌 입력하기]를 눌러 환불계좌를 남겨주세요.</span>}
+                                                                                    </div>
                                                                                 )}
-                                                                            </div>
-                                                                            {isEditingAcc ? (
-                                                                                <div className="flex gap-1.5 mt-1">
-                                                                                    <input
-                                                                                        type="text"
-                                                                                        value={editingCsAccountMap[cs.id] || ''}
-                                                                                        onChange={(e) => setEditingCsAccountMap(prev => ({ ...prev, [cs.id]: e.target.value }))}
-                                                                                        placeholder="은행명 / 계좌번호 / 예금주 성함"
-                                                                                        className="flex-1 px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded text-[13px] font-bold outline-none focus:border-blue-600 focus:bg-white"
-                                                                                    />
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => handleSaveCustomerRefundAccount(cs.id)}
-                                                                                        className="px-3 py-1.5 bg-gray-900 text-white rounded text-[12px] font-extrabold shrink-0"
-                                                                                    >
-                                                                                        저장
-                                                                                    </button>
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="text-[13px] font-extrabold text-gray-900 bg-gray-50 px-2.5 py-1.5 rounded border border-gray-200">
-                                                                                    {cs.refundAccount ? cs.refundAccount : <span className="text-gray-400 font-semibold">우측 상단 [+ 계좌 입력하기]를 눌러 환불계좌를 남겨주세요.</span>}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-
-                                                                {Number(cs.csFee) > 0 && (
-                                                                    <div className="bg-white p-2.5 rounded-lg border border-gray-200 flex items-center justify-between">
-                                                                        <span className="font-extrabold text-gray-800">🚚 교환/반품 배송비</span>
-                                                                        <div className="flex items-center gap-1.5">
-                                                                            <span className="text-[14px] font-black text-gray-900 tabular-nums">
-                                                                                {Number(cs.csFee).toLocaleString()}원
-                                                                            </span>
-                                                                            <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
-                                                                                cs.csFeePaid
-                                                                                    ? 'bg-emerald-600 text-white'
-                                                                                    : 'bg-red-50 text-red-600 border border-red-200'
-                                                                            }`}>
-                                                                                {cs.csFeePaid ? '입금확인' : '미입금'}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-
-                                                                {cs.csTracking && (
-                                                                    <div className="bg-red-50/70 p-2.5 rounded-lg border border-red-200 space-y-1.5">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <div className="flex items-center gap-1.5">
-                                                                                <span className="bg-[#E60012] text-white text-[10px] font-black px-1.5 py-0.5 rounded">출고송장</span>
-                                                                                <span className="font-black text-gray-900 text-[13.5px] tabular-nums">
-                                                                                    {formatTrackingDisplay(cs.csTracking)}
-                                                                                </span>
-                                                                            </div>
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={() => copyText(csTrackDigits, "송장번호가")}
-                                                                                className="bg-white text-gray-800 border border-gray-300 px-2 py-1 rounded text-[11px] font-extrabold"
-                                                                            >
-                                                                                번호복사
-                                                                            </button>
-                                                                        </div>
-                                                                        {csTrkInfo && (
-                                                                            <div className="text-[12px] font-extrabold text-[#E60012] flex items-center gap-1">
-                                                                                <Icon name="truck" weight="fill" size={13} />
-                                                                                <span>현재상태: {csTrkInfo.stateText || "배송 조회중..."}</span>
                                                                             </div>
                                                                         )}
                                                                     </div>
