@@ -87,11 +87,11 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 314; // 314 => v3.14
+        const VERSION_STEP = 316; // 316 => v3.16
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
 
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzrMczblUPLxqGESdkZks8osdL-CihDenW94Ae3ODL8u_QhVAZGKrsVI_KchtHjCTFg/exec';
+        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec';
         const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
         const DEFAULT_STAFF_SHEET_ID = '1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8';
         const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
@@ -1993,10 +1993,10 @@
                         portalSheetCache.isLiveActive ? lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin) : Promise.resolve(null)
                     ]);
 
-                    // 직원용 시트('메인주문')에 실제로 존재하는 방송 이름 목록 (옛날 이름 '10/20 악세사리', '10/18 여성복' 차단용)
-                    const validStaffSheetSet = (staffDirectData && Array.isArray(staffDirectData.validSheetBroadcasts) && staffDirectData.validSheetBroadcasts.length > 0)
+                    // 직원용 시트('메인주문')에 실제로 존재하는 방송 이름 목록 (시트에 없는 테스트 방이나 옛날 이름 차단용)
+                    const validStaffSheetSet = (staffDirectData && Array.isArray(staffDirectData.validSheetBroadcasts))
                         ? new Set(staffDirectData.validSheetBroadcasts.map(b => cleanBroadcastKey(b)))
-                        : null;
+                        : new Set();
 
                     const rawCombinedList = [];
                     if (portalSheetCache.isLiveActive && bossLiveData && bossLiveData.status === "success" && Array.isArray(bossLiveData.historyList)) {
@@ -2011,8 +2011,8 @@
                                 return;
                             }
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
-                            // 직원이 방금 추가/저장한 방송(_fromStaffRealtime)이거나 현재 생방송(_isLiveSource)이면 시트 캐시 지연과 무관하게 즉시 허용!
-                            if (validStaffSheetSet && !fbItem._isLiveSource && !fbItem._fromStaffRealtime && !validStaffSheetSet.has(fbBName)) {
+                            // ⚠️ 핵심: 현재 생방송(_isLiveSource)이 아닌데 직원용 구글 시트('메인주문')에 없는 방송 방(예: 아까 테스트로 만든 임시 방)은 고객 포털에 절대 노출하지 않음!
+                            if (!fbItem._isLiveSource && validStaffSheetSet.size > 0 && !validStaffSheetSet.has(fbBName)) {
                                 return;
                             }
                             rawCombinedList.push(fbItem);
