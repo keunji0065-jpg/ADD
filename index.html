@@ -111,7 +111,14 @@
             "https://plus.unsplash.com/premium_photo-1762610839350-ff7aebb37f19?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
             "https://images.unsplash.com/photo-1792058697948-1a4eb4df5acb?q=80&w=764&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
             "https://images.unsplash.com/photo-1571513800374-df1bbe650e56?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
-            "https://images.unsplash.com/photo-1706822592725-7e095b68b625?q=80&w=680&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D"
+            "https://images.unsplash.com/photo-1706822592725-7e095b68b625?q=80&w=680&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D",
+            "https://noblesse.com/shop/data/m/editor_new/2021/12/13/31385c5c15ad9194image1.jpg",
+            "https://kr.maxmara.com/dam/jcr:dd5007c2-a4ee-43dd-91d4-8139a2289936/FW26---MAX-MARA-ADV-2.jpg",
+            "https://cdn.noblesse.com/wp-content/uploads/2026/09/25144817/image1-38-723x1024.webp",
+            "https://cdn.noblesse.com/wp-content/uploads/2026/09/25143927/image2-36-749x1024.webp",
+            "https://img.vogue.co.kr/vogue/2026/10/style_6ad7220e04591-933x1400.jpg",
+            "https://img.vogue.co.kr/vogue/2026/10/style_6ad857f6c6cab-933x1400.jpg",
+            "https://img.vogue.co.kr/vogue/2026/10/style_6ad5af6d679e7-933x1400.jpg"
         ];
         const FIXED_AUTUMN_WINTER_HERO = HERO_LOOKBOOK_LIST[Math.floor(Math.random() * HERO_LOOKBOOK_LIST.length)];
         const FALLBACK_COAT_HERO = HERO_LOOKBOOK_LIST[0];
@@ -1499,6 +1506,7 @@
                                 src={FIXED_AUTUMN_WINTER_HERO} 
                                 fetchpriority="high"
                                 decoding="async"
+                                referrerPolicy="no-referrer"
                                 onError={(e) => { e.target.onerror = null; e.target.src = FALLBACK_COAT_HERO; }}
                                 alt="엠버언니 가을겨울 화보" 
                                 className="absolute inset-0 w-full h-full object-cover object-top select-none pointer-events-none transition-all duration-300"
