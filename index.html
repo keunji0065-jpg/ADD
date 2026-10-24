@@ -66,28 +66,34 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 🛡️ 타 업체 무단 코드 열람 및 복제 방지 보안 가드 (우클릭, F12, Ctrl+Shift+I/J/C, Ctrl+U, Ctrl+S 원천 차단)
+        // 🛡️ [보안 가드] 무단 소스코드 열람·복제·개발자도구 원천 차단 및 스크립트 태그 자동 소거
         if (typeof window !== 'undefined') {
-            window.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-            });
+            const blockEv = (e) => { e.preventDefault(); e.stopPropagation(); return false; };
+            window.addEventListener('contextmenu', blockEv, true);
+            window.addEventListener('dragstart', blockEv, true);
             window.addEventListener('keydown', (e) => {
                 const key = String(e.key || '').toLowerCase();
                 if (
                     e.key === 'F12' ||
                     (e.ctrlKey && e.shiftKey && (key === 'i' || key === 'j' || key === 'c')) ||
-                    (e.ctrlKey && (key === 'u' || key === 's')) ||
-                    (e.metaKey && e.altKey && (key === 'i' || key === 'j' || key === 'u'))
+                    (e.ctrlKey && (key === 'u' || key === 's' || key === 'p')) ||
+                    (e.metaKey && e.altKey && (key === 'i' || key === 'j' || key === 'u' || key === 'c'))
                 ) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return false;
+                    return blockEv(e);
                 }
             }, true);
+            setInterval(() => {
+                if (window.outerWidth - window.innerWidth > 180 || window.outerHeight - window.innerHeight > 180) {
+                    try { console.clear(); } catch (err) {}
+                }
+            }, 1500);
+            setTimeout(() => {
+                document.querySelectorAll('script[type="text/babel"]').forEach(el => el.remove());
+            }, 800);
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 320; // 320 => v3.20
+        const VERSION_STEP = 330; // 330 => v3.30
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
 
@@ -1104,9 +1110,11 @@
                     ]);
 
                     const liveModeVal = liveModeSnap && typeof liveModeSnap.val === 'function' ? (liveModeSnap.val() || {}) : {};
-                    // 사장님 주문서(index.html) 또는 직원용 라이브에서 현재 생방송 중일 때만 실시간 방송 허용
-                    const isBossLiveNow = Boolean(liveModeVal.isLive && liveModeVal.liveOwner === 'boss');
+                    // ✨ 사장님 주문서(owner.html) 또는 직원용 라이브(staff.html) 어느 쪽에서든 현재 생방송 중(isLive === true)이면 실시간 주문서(__MAIN_LIVE__)를 즉시 노출!
+                    const isAnyLiveNow = Boolean(liveModeVal.isLive);
                     const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || '');
+                    portalSheetCache.isLiveActive = isAnyLiveNow;
+                    portalSheetCache.activeBroadcastName = activeLiveBName;
 
                     const validStaffSheetSet = (staffDirectData && Array.isArray(staffDirectData.validSheetBroadcasts))
                         ? new Set(staffDirectData.validSheetBroadcasts.map(b => cleanBroadcastKey(b)))
@@ -1119,29 +1127,17 @@
                     if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
-                            // 테스트 더미 데이터('10/24 라이브' 또는 '222222' 품목)는 무조건 차단 및 파이어베이스에서 즉시 삭제!
                             const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
-                            if (fbBName === '10/24 라이브' || hasDummyItem) {
-                                if (portalFbDb) {
-                                    const safeDelKey = fbBName.replace(/[.#$\[\]\/]/g, '_');
-                                    portalFbDb.ref(`ember_live_data/_portal_orders/${safeDelKey}`).remove().catch(() => {});
-                                    portalFbDb.ref('ember_live_data/_portal_orders/__MAIN_LIVE__').remove().catch(() => {});
-                                }
-                                return;
-                            }
+                            if (hasDummyItem) return;
+
                             if (fbItem._isLiveSource) {
-                                if (isBossLiveNow) {
+                                if (isAnyLiveNow) {
                                     rawCombinedList.push(fbItem);
                                 }
                                 return;
                             }
-                            // 🚨 핵심 수정: 직원용 구글 시트('메인주문')에 존재하지 않는 방송은 _fromStaffRealtime 꼬리표가 있더라도 절대 표시하지 않고 클라우드에서도 즉시 삭제!
-                            const isCurrentlyLiveBroadcast = Boolean(liveModeVal.isLive && activeLiveBName && fbBName === activeLiveBName);
-                            if (!validStaffSheetSet.has(fbBName) && !isCurrentlyLiveBroadcast) {
-                                if (portalFbDb && validStaffSheetSet.size > 0) {
-                                    const safeDelKey = fbBName.replace(/[.#$\[\]\/]/g, '_');
-                                    portalFbDb.ref(`ember_live_data/_portal_orders/${safeDelKey}`).remove().catch(() => {});
-                                }
+                            const isCurrentlyLiveBroadcast = Boolean(isAnyLiveNow && activeLiveBName && fbBName === activeLiveBName);
+                            if (validStaffSheetSet.size > 0 && !validStaffSheetSet.has(fbBName) && !isCurrentlyLiveBroadcast && !fbItem._fromStaffRealtime) {
                                 return;
                             }
                             rawCombinedList.push(fbItem);
