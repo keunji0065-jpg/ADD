@@ -87,7 +87,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 316; // 316 => v3.16
+        const VERSION_STEP = 320; // 320 => v3.20
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
 
@@ -132,6 +132,7 @@
         const portalSheetCache = {
             staffOrderRows: null,
             staffCsRows: null,
+            validSheetBroadcasts: null,
             isLiveActive: false,
             activeBroadcastName: '',
             lastFetchedAt: 0,
@@ -364,10 +365,10 @@
             if (!Array.isArray(list)) return [];
             const map = new Map();
 
-            // 직원이 방금 수정/추가한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 시트 데이터(_fromStaffSheet) > 생방송 데이터(_isLiveSource) 순으로 우선 정렬
+            // 직원이 방금 수정/추가한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 시트 데이터(_fromStaffSheet) 순으로 우선 정렬
             const prioritized = [...list].sort((a, b) => {
-                const aScore = (a?._fromStaffRealtime ? 4 : 0) + (a?._fromStaffSheet ? 2 : 0) + (a?._isLiveSource ? 1 : 0);
-                const bScore = (b?._fromStaffRealtime ? 4 : 0) + (b?._fromStaffSheet ? 2 : 0) + (b?._isLiveSource ? 1 : 0);
+                const aScore = (a?._fromStaffRealtime ? 4 : 0) + (a?._fromStaffSheet ? 2 : 0);
+                const bScore = (b?._fromStaffRealtime ? 4 : 0) + (b?._fromStaffSheet ? 2 : 0);
                 return bScore - aScore;
             });
 
@@ -503,69 +504,45 @@
 
             if (step1.length === 0) return [];
 
-            const sortedByConfidence = [...step1].sort((a, b) => {
-                const aPin = normalizePin4(a.phoneLast4 || (a.address?.phone ? String(a.address.phone).slice(-4) : ""));
-                const bPin = normalizePin4(b.phoneLast4 || (b.address?.phone ? String(b.address.phone).slice(-4) : ""));
-                const aHasPin = (aPin && aPin === normInPin) ? 1 : 0;
-                const bHasPin = (bPin && bPin === normInPin) ? 1 : 0;
-                if (aHasPin !== bHasPin) return bHasPin - aHasPin;
-                const scA = getNickMatchScore(a.nickname, a.address?.realname || "", rawNickInput);
-                const scB = getNickMatchScore(b.nickname, b.address?.realname || "", rawNickInput);
+            step1.sort((a, b) => {
+                const scA = getNickMatchScore(a.nickname, a.address?.realname || "", lockedFullNick || rawNickInput);
+                const scB = getNickMatchScore(b.nickname, b.address?.realname || "", lockedFullNick || rawNickInput);
                 return scB - scA;
             });
 
-            const targetNick = lockedFullNick || sortedByConfidence[0].nickname;
-            const targetNorm = normalizeNick(targetNick);
-            const targetHandle = cleanHandle(targetNick);
+            const bestNick = lockedFullNick || step1[0].nickname;
+            const bestNorm = normalizeNick(bestNick);
+            const bestHandle = cleanHandle(bestNick);
 
-            return sortHistoryByNewestDate(step1.filter(item =>
-                normalizeNick(item.nickname) === targetNorm ||
-                (targetHandle && cleanHandle(item.nickname) === targetHandle)
-            ));
+            return step1.filter(item =>
+                normalizeNick(item.nickname) === bestNorm ||
+                (bestHandle && cleanHandle(item.nickname) === bestHandle)
+            );
         };
 
-        const fetchGasWithRetry = async (url, options = null, maxRetries = 1, timeoutMs = 4000) => {
-            let lastErr = null;
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const fetchGasWithRetry = async (url, options = {}, retries = 2) => {
+            for (let i = 0; i <= retries; i++) {
                 try {
-                    const fetchOpts = options
-                        ? { ...options, redirect: 'follow', signal: controller.signal }
-                        : { method: 'GET', redirect: 'follow', signal: controller.signal };
-                    const res = await fetch(url, fetchOpts);
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 12000);
+                    const res = await fetch(url, { ...options, redirect: 'follow', signal: controller.signal });
                     clearTimeout(timer);
                     const text = await res.text();
-                    const parsed = JSON.parse(text);
-                    if (parsed) return parsed;
+                    return JSON.parse(text);
                 } catch (err) {
-                    clearTimeout(timer);
-                    lastErr = err;
-                    if (attempt < maxRetries - 1) {
-                        await new Promise(r => setTimeout(r, 200));
-                    }
+                    if (i === retries) throw err;
+                    await new Promise(r => setTimeout(r, 400));
                 }
             }
-            if (options && options.method === 'POST') {
-                try {
-                    await fetch(url, { ...options, mode: 'no-cors' });
-                    return { status: 'success', success: true, fallbackNoCors: true };
-                } catch (e) {}
-            }
-            throw lastErr || new Error('네트워크 연결 지연');
         };
 
-        const fetchGoogleSheetDirectPortal = (sheetId, sheetName = null, timeoutMs = 3200) => {
+        const fetchSheetDirectGviz = (sheetId, sheetName) => {
             return new Promise((resolve) => {
                 let settled = false;
                 const cbName = `portal_gviz_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
                 const timer = setTimeout(() => {
-                    if (!settled) {
-                        settled = true;
-                        window[cbName] = () => {};
-                        resolve(null);
-                    }
-                }, timeoutMs);
+                    if (!settled) { settled = true; window[cbName] = () => {}; resolve(null); }
+                }, 5500);
 
                 window[cbName] = (res) => {
                     if (settled) return;
@@ -581,8 +558,7 @@
                         const obj = {};
                         (r.c || []).forEach((cell, idx) => {
                             const val = cell ? (cell.f !== undefined && cell.f !== null ? String(cell.f) : (cell.v !== undefined && cell.v !== null ? String(cell.v) : '')) : '';
-                            const colKey = cols[idx] || `col_${idx}`;
-                            obj[colKey] = val;
+                            obj[cols[idx] || `col_${idx}`] = val;
                             obj[`col_${idx}`] = val;
                         });
                         return obj;
@@ -592,981 +568,339 @@
 
                 try {
                     const script = document.createElement('script');
-                    const sheetParam = sheetName ? `&sheet=${encodeURIComponent(sheetName)}` : `&gid=0`;
-                    script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=responseHandler:${cbName}${sheetParam}&headers=1&t=${Date.now()}`;
+                    script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${encodeURIComponent(sheetName)}&headers=1&t=${Date.now()}`;
                     script.onerror = () => {
-                        if (!settled) {
-                            settled = true;
-                            clearTimeout(timer);
-                            window[cbName] = () => {};
-                            resolve(null);
-                        }
+                        if (!settled) { settled = true; clearTimeout(timer); window[cbName] = () => {}; resolve(null); }
                     };
                     document.body.appendChild(script);
-                    setTimeout(() => { try { if (script.parentNode) script.parentNode.removeChild(script); } catch (e) {} }, timeoutMs + 1000);
-                } catch (err) {
-                    if (!settled) {
-                        settled = true;
-                        clearTimeout(timer);
-                        resolve(null);
-                    }
+                    setTimeout(() => { try { if (script.parentNode) script.parentNode.removeChild(script); } catch (e) {} }, 6000);
+                } catch (e) {
+                    if (!settled) { settled = true; clearTimeout(timer); resolve(null); }
                 }
             });
         };
 
-        const preloadStaffSheetsInBackground = (force = false) => {
-            const now = Date.now();
-            if (!force && portalSheetCache.staffOrderRows && (now - portalSheetCache.lastFetchedAt < 5000)) {
-                return Promise.resolve(portalSheetCache);
-            }
-            if (portalSheetCache.fetchingPromise && !force) {
-                return portalSheetCache.fetchingPromise;
-            }
-            portalSheetCache.fetchingPromise = (async () => {
-                try {
-                    const liveModePromise = portalFbDb
-                        ? Promise.race([
-                            portalFbDb.ref('ember_live_data/_portal_live_mode').once('value').then(s => s.val()).catch(() => null),
-                            new Promise(r => setTimeout(() => r(null), 1500))
-                        ])
-                        : Promise.resolve(null);
-
-                    const [ordRows, csRows, liveModeVal] = await Promise.all([
-                        fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '메인주문', 3000).then(r => (Array.isArray(r) && r.length > 0) ? r : fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, null, 2500)),
-                        fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 3000),
-                        liveModePromise
-                    ]);
-                    if (liveModeVal && typeof liveModeVal.isLive === 'boolean') {
-                        portalSheetCache.isLiveActive = liveModeVal.isLive;
-                        portalSheetCache.activeBroadcastName = cleanBroadcastKey(liveModeVal.activeBroadcastName || '');
-                    }
-                    if (Array.isArray(ordRows) && ordRows.length > 0) {
-                        portalSheetCache.staffOrderRows = ordRows;
-                        portalSheetCache.lastFetchedAt = Date.now();
-                    }
-                    if (Array.isArray(csRows)) {
-                        portalSheetCache.staffCsRows = csRows;
-                    }
-                } catch (e) {}
-                portalSheetCache.fetchingPromise = null;
-                return portalSheetCache;
-            })();
-            return portalSheetCache.fetchingPromise;
-        };
-
-        const extractPublicCsFieldsFromRawMemo = (rawMemoStr) => {
-            let raw = String(rawMemoStr || '').trim();
-            if (!raw) return { accountOnly: '', refundAmount: 0, refundCompleted: false, convertedToCredit: false };
-
-            let refundCompleted = false;
-            let convertedToCredit = false;
-            if (raw.includes('[적립금전환완료]')) {
-                refundCompleted = true;
-                convertedToCredit = true;
-                raw = raw.replace(/\[적립금전환완료\]/g, '').trim();
-            }
-            if (raw.includes('[환불완료]')) {
-                refundCompleted = true;
-                raw = raw.replace(/\[환불완료\]/g, '').trim();
-            }
-
-            let refundAmount = 0;
-            const amtMatch = raw.match(/\[환불액:\s*([0-9,]+)\]/);
-            if (amtMatch) {
-                refundAmount = Number(amtMatch[1].replace(/[^0-9]/g, '')) || 0;
-                raw = raw.replace(amtMatch[0], '').trim();
-            }
-
-            let accountOnly = '';
-            const tagMatch = raw.match(/\[계좌:\s*([^\]]+)\]/);
-            if (tagMatch) {
-                accountOnly = tagMatch[1].trim();
-            } else {
-                const slashBankMatch = raw.match(/^(.*?)\s*\/\s*((?:카카오|카뱅|농협|국민|신한|우리|하나|기업|토스|우체국|새마을|신협|수협|부산|대구|경남|광주|전북|제주|케이|씨티|SC).*)$/);
-                if (slashBankMatch) {
-                    accountOnly = slashBankMatch[2].trim();
-                }
-            }
-            return { accountOnly, refundAmount, refundCompleted, convertedToCredit };
-        };
-
-        // 1) 사장님 현재 생방송 시트('메인주문') 또는 동일 브라우저 로컬스토리지에서 실시간 주문을 읽어오는 함수
-        const lookupOrderFromBossLiveSheetDirect = async (rawNick, cleanPin) => {
+        const lookupOrderFromStaffSheetDirect = async (rawNick, cleanPin, forceFresh = false) => {
             const normInPin = normalizePin4(cleanPin);
-            if (!rawNick || !normInPin) return null;
-
-            const results = [];
-
-            // A) 동일 브라우저 로컬스토리지 확인
-            try {
-                const localOrdersRaw = localStorage.getItem('default_youtubeOrders');
-                if (localOrdersRaw) {
-                    const localOrders = JSON.parse(localOrdersRaw);
-                    if (Array.isArray(localOrders) && localOrders.length > 0) {
-                        const localBNameRaw = localStorage.getItem('default_broadcastName');
-                        const localBName = cleanBroadcastKey(localBNameRaw ? JSON.parse(localBNameRaw) : '오늘의방송') || '오늘의방송';
-                        const localAddrs = JSON.parse(localStorage.getItem('default_verifiedAddresses') || '[]');
-                        const localPins = JSON.parse(localStorage.getItem('default_customerPasswords') || '{}');
-                        const localCards = JSON.parse(localStorage.getItem('default_cardPayments') || '{}');
-                        const localSpecial = JSON.parse(localStorage.getItem('default_specialCustomers') || '{}');
-                        const localCredits = JSON.parse(localStorage.getItem('default_customerCredits') || '{}');
-                        const localShipOverrides = JSON.parse(localStorage.getItem('default_shippingOverrides') || '{}');
-                        const localChecked = JSON.parse(localStorage.getItem('default_checkedOrders') || '[]');
-
-                        const activeOrders = localOrders.filter(o => o && !o.isCancelled && o.customer);
-                        const byCust = {};
-                        activeOrders.forEach(o => {
-                            if (!byCust[o.customer]) byCust[o.customer] = [];
-                            byCust[o.customer].push(o);
-                        });
-
-                        Object.keys(byCust).forEach(cNick => {
-                            const matchedAddr = [...localAddrs].reverse().find(a =>
-                                normalizeNick(a.nickname) === normalizeNick(cNick) ||
-                                (cleanHandle(a.nickname) && cleanHandle(a.nickname) === cleanHandle(cNick))
-                            );
-                            const sc = getNickMatchScore(cNick, matchedAddr?.realname || '', rawNick);
-                            if (sc <= 0) return;
-
-                            const cPin = normalizePin4(localPins[cNick] || (matchedAddr?.phone ? String(matchedAddr.phone).slice(-4) : ''));
-                            if (cPin && cPin !== normInPin) return;
-                            if (!cPin && sc < 2) return;
-
-                            const items = byCust[cNick];
-                            const spType = localSpecial[normalizeNick(cNick)]?.type;
-                            const isVip = spType === 'vip' || spType === 'manager';
-                            const prodSum = items.filter(i => !i.isWaitlist && Number(i.price) > 0).reduce((s, i) => s + Number(i.price), 0);
-                            const depSum = items.reduce((s, i) => s + (Number(i.deposit) || 0), 0);
-                            const shipFee = (!prodSum || isVip) ? 0 : (localShipOverrides[cNick] !== undefined ? Number(localShipOverrides[cNick]) : (prodSum >= 70000 ? 0 : 4000));
-
-                            results.push({
-                                sheetTabName: '주문_' + localBName,
-                                nickname: cNick,
-                                phoneLast4: normInPin,
-                                broadcastName: localBName,
-                                _isLiveSource: true,
-                                isVip: isVip,
-                                credit: Number(localCredits[cNick]) || 0,
-                                freeShippingThreshold: 70000,
-                                cardFeeRate: 10,
-                                isCard: localCards[cNick] === 'completed' ? '카드완료(10%)' : (localCards[cNick] ? 'O(10%)' : ''),
-                                shipping: shipFee,
-                                depositTotal: depSum,
-                                deposits: [],
-                                items: items.map((it, idx) => ({
-                                    id: idx + 1,
-                                    product: it.product || '',
-                                    qty: Number(it.quantity) || 1,
-                                    price: Number(it.price) || 0,
-                                    isWaitlist: Boolean(it.isWaitlist),
-                                    waitlistOrder: it.isWaitlist ? 1 : 0
-                                })),
-                                address: matchedAddr ? {
-                                    realname: matchedAddr.realname || '',
-                                    phone: fixPhoneStr(matchedAddr.phone || ''),
-                                    zipcode: '',
-                                    baseAddress: String(matchedAddr.address || '').replace(/^\(\d{5}\)\s*/, '').trim(),
-                                    detailAddress: '',
-                                    memo: matchedAddr.memo || '',
-                                    updatedAt: matchedAddr.timestamp || ''
-                                } : null,
-                                trackingNumbers: [],
-                                isConfirmed: Array.isArray(localChecked) && localChecked.includes(cNick),
-                                _matchScore: sc + 15
-                            });
-                        });
-                    }
+            let rows = (!forceFresh && portalSheetCache.staffOrderRows) ? portalSheetCache.staffOrderRows : null;
+            if (!rows) {
+                    rows = await fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문');
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    try {
+                        const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, {}, 1);
+                        if (gasRes && Array.isArray(gasRes.data)) rows = gasRes.data;
+                    } catch (e) {}
                 }
-            } catch (e) {}
-
-            if (results.length > 0) {
-                return { status: 'success', historyList: results };
+                if (Array.isArray(rows) && rows.length > 0) {
+                    portalSheetCache.staffOrderRows = rows;
+                    portalSheetCache.lastFetchedAt = Date.now();
+                }
+            }
+            if (!Array.isArray(rows) || rows.length === 0) {
+                return { status: 'not_found', historyList: [], validSheetBroadcasts: [] };
             }
 
-            // B) 다른 기기(모바일 등)에서 접속했을 때: 사장님 시트의 '메인주문' 탭 직통 조회
-            try {
-                const mainRows = await fetchGoogleSheetDirectPortal(DEFAULT_MASTER_SHEET_ID, '메인주문', 2800);
-                if (Array.isArray(mainRows) && mainRows.length > 0) {
-                    let curB = '오늘의방송';
-                    let fThresh = 70000, cRate = 10;
-                    const custMap = {};
+            let curBName = '기본방송';
+            let curMeta = { fThresh: 70000, dShip: 4000, cRate: 10 };
+            const blocks = {};
+            const validBroadcastNames = new Set();
 
-                    mainRows.forEach((r, idx) => {
-                        const nick = String(r['닉네임'] || r.col_0 || '').trim();
-                        const prod = String(r['상품명'] || r.col_1 || '').trim();
-                        if (!nick || nick === '닉네임') return;
-                        if (nick.startsWith('___WORKSPACE')) {
-                            if (prod) curB = cleanBroadcastKey(prod) || '오늘의방송';
-                            return;
+            const ensureBlock = (bTitle) => {
+                const cleanB = cleanBroadcastKey(bTitle) || '기본방송';
+                validBroadcastNames.add(cleanB);
+                if (!blocks[cleanB]) {
+                    blocks[cleanB] = {
+                        bName: cleanB,
+                        fThresh: curMeta.fThresh,
+                        dShip: curMeta.dShip,
+                        cRate: curMeta.cRate,
+                        custMap: {}
+                    };
+                }
+                return blocks[cleanB];
+            };
+
+            rows.forEach((r, idx) => {
+                const nick = String(r['닉네임'] || r['주문자'] || r.col_0 || '').trim();
+                const prod = String(r['상품명'] || r['품목'] || r.col_1 || '').trim();
+                const qtyVal = r['수량'] ?? r.col_2;
+                const priceVal = r['단가(제품금액)'] ?? r.col_3;
+                const shipVal = r['배송비'] ?? r.col_4;
+                const realname = String(r['수령인명'] ?? r.col_7 ?? '').trim();
+                const phone = String(r['연락처'] ?? r.col_8 ?? '').trim();
+
+                const isImplicitMeta = (!nick && prod && prod !== '상품명' && !realname && !phone && (Number(qtyVal) >= 10000 || Number(priceVal) === 4000 || Number(shipVal) === 10));
+                if (nick.startsWith('___WORKSPACE') || isImplicitMeta) {
+                    if (prod) curBName = cleanBroadcastKey(prod);
+                    curMeta = {
+                        fThresh: Number(qtyVal) > 0 ? Number(qtyVal) : 70000,
+                        dShip: (priceVal !== '' && Number(priceVal) >= 0) ? Number(priceVal) : 4000,
+                        cRate: Number(shipVal) > 0 ? Number(shipVal) : 10
+                    };
+                    ensureBlock(curBName);
+                    return;
+                }
+                if (!nick || nick === '닉네임' || nick === '주문자') return;
+                const blk = ensureBlock(curBName);
+                if (!blk.custMap[nick]) blk.custMap[nick] = [];
+                blk.custMap[nick].push({ r, idx });
+            });
+
+            portalSheetCache.validSheetBroadcasts = Array.from(validBroadcastNames);
+
+            const matchedCards = [];
+            let wrongPinDetected = false;
+
+            Object.values(blocks).forEach(blk => {
+                if (blk.bName === '기본방송') return;
+                Object.keys(blk.custMap).forEach(custNick => {
+                    const entries = blk.custMap[custNick];
+                    const firstR = entries[0].r;
+                    const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
+                    const sc = getNickMatchScore(custNick, rReal, rawNick);
+                    if (sc <= 0) return;
+
+                    let sheetPin = '';
+                    let sheetPhone = '';
+                    let sheetAddr = '';
+                    let sheetMemo = '';
+                    let isVip = false;
+                    let isConfirmed = false;
+                    let cardStr = '';
+                    let shipNum = blk.dShip;
+                    let depTotal = 0;
+                    let depositsArr = [];
+                    const trkSet = new Set();
+                    const itemsArr = [];
+
+                    entries.forEach((ent, eIdx) => {
+                        const row = ent.r;
+                        const col9Val = String(row.col_9 || '').trim();
+                        const isCol9Zip = /^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val);
+                        const shift = isCol9Zip ? 1 : 0;
+
+                        const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                        const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                        if (p && !sheetPin) sheetPin = p;
+                        if (ph && !sheetPhone) sheetPhone = ph;
+
+                        const rawA = String(row['주소'] || row[`col_${9 + shift}`] || '').replace(/^\(\d{5}\)\s*/, '').trim();
+                        if (rawA && !sheetAddr) sheetAddr = rawA;
+
+                        const rawM = String(row['요청사항'] || row[`col_${10 + shift}`] || '').trim();
+                        if (rawM && !sheetMemo) sheetMemo = rawM;
+
+                        if (String(row['VIP여부'] || row[`col_${11 + shift}`] || '').trim() === 'O') isVip = true;
+                        if (String(row['주문확인'] || row[`col_${15 + shift}`] || '').trim() === 'O') isConfirmed = true;
+                        if (row['카드결제'] && !cardStr) cardStr = String(row['카드결제']).trim();
+
+                        if (eIdx === 0 && row['배송비'] !== undefined && row['배송비'] !== '') {
+                            const sVal = Number(String(row['배송비']).replace(/[^0-9.-]/g, ''));
+                            if (!isNaN(sVal)) shipNum = sVal;
                         }
-                        const realname = String(r['수령인명'] ?? r.col_7 ?? '').trim();
-                        const phone = fixPhoneStr(r['연락처'] ?? r.col_8 ?? '');
-                        const pinRaw = normalizePin4(r['비밀번호'] ?? r.col_14 ?? '');
-                        const effectivePin = pinRaw || (phone.length >= 4 ? normalizePin4(phone.slice(-4)) : '');
+                        const dVal = Number(String(row['입금액'] || '0').replace(/[^0-9.-]/g, '')) || 0;
+                        if (dVal > 0) depTotal += dVal;
 
-                        const sc = getNickMatchScore(nick, realname, rawNick);
-                        if (sc <= 0) return;
-                        if (effectivePin && effectivePin !== normInPin) return;
-
-                        if (!custMap[nick]) {
-                            const cleanAddr = String(r['주소'] ?? r.col_9 ?? '').replace(/^\(\d{5}\)\s*/, '').trim();
-                            const shipNum = Number(String(r['배송비'] ?? r.col_4 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
-                            custMap[nick] = {
-                                sheetTabName: '주문_' + curB,
-                                nickname: nick,
-                                phoneLast4: normInPin,
-                                broadcastName: curB,
-                                _isLiveSource: true,
-                                isVip: String(r['VIP여부'] ?? r.col_11 ?? '').trim() === 'O',
-                                credit: 0,
-                                freeShippingThreshold: fThresh,
-                                cardFeeRate: cRate,
-                                isCard: String(r['카드결제'] ?? r.col_6 ?? '').trim(),
-                                shipping: shipNum,
-                                depositTotal: 0,
-                                deposits: [],
-                                items: [],
-                                address: cleanAddr ? {
-                                    realname: realname,
-                                    phone: phone,
-                                    zipcode: '',
-                                    baseAddress: cleanAddr,
-                                    detailAddress: '',
-                                    memo: String(r['요청사항'] ?? r.col_10 ?? '').trim(),
-                                    updatedAt: ''
-                                } : null,
-                                trackingNumbers: [],
-                                isConfirmed: String(r['주문확인'] ?? r.col_15 ?? '').trim() === 'O',
-                                _matchScore: sc + 12
-                            };
+                        const depJson = String(row['입금내역JSON'] || row[`col_${16 + shift}`] || '').trim();
+                        if (depJson) {
+                            try {
+                                const parsed = JSON.parse(depJson);
+                                if (Array.isArray(parsed)) depositsArr = parsed;
+                            } catch (e) {}
                         }
-                        const depVal = Number(String(r['입금액'] ?? r.col_5 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
-                        if (depVal > 0) custMap[nick].depositTotal += depVal;
-                        if (prod) {
-                            const waitRaw = String(r['대기여부'] ?? r.col_13 ?? '').trim();
-                            const isWait = waitRaw === 'O' || waitRaw.includes('대기');
-                            custMap[nick].items.push({
-                                id: idx + 1,
-                                product: prod,
-                                qty: Number(String(r['수량'] ?? r.col_2 ?? '1').replace(/[^0-9.-]/g, '')) || 1,
-                                price: Number(String(r['단가(제품금액)'] ?? r.col_3 ?? '0').replace(/[^0-9.-]/g, '')) || 0,
-                                isWaitlist: isWait,
-                                waitlistOrder: isWait ? 1 : 0
+                        const trk = String(row['송장번호'] || row[`col_${17 + shift}`] || '').replace(/^'+/, '').trim();
+                        if (trk) trkSet.add(trk);
+
+                        const prodName = String(row['상품명'] || row.col_1 || '').trim();
+                        if (prodName) {
+                            const wStr = String(row['대기여부'] || row[`col_${13 + shift}`] || '').trim();
+                            const isW = wStr === 'O' || wStr.includes('대기');
+                            const wM = wStr.match(/(\d+)/);
+                            itemsArr.push({
+                                id: eIdx + 1,
+                                product: prodName,
+                                qty: Number(String(row['수량'] || row.col_2 || '1').replace(/[^0-9.-]/g, '')) || 1,
+                                price: Number(String(row['단가(제품금액)'] || row.col_3 || '0').replace(/[^0-9.-]/g, '')) || 0,
+                                isWaitlist: isW,
+                                waitlistOrder: wM ? Number(wM[1]) : (isW ? 1 : 0)
                             });
                         }
                     });
 
-                    const matchedArr = Object.values(custMap).filter(c => c.items.length > 0);
-                    if (matchedArr.length > 0) {
-                        return { status: 'success', historyList: matchedArr };
+                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '');
+                    if (effPin && normInPin && effPin !== normInPin) {
+                        wrongPinDetected = true;
+                        return;
                     }
-                }
-            } catch (e) {}
+                    if (!effPin && sc < 3) return;
 
-            return null;
+                    matchedCards.push({
+                        sheetTabName: '주문_' + blk.bName,
+                        nickname: custNick,
+                        phoneLast4: effPin || normInPin,
+                        broadcastName: blk.bName,
+                        isVip: isVip,
+                        credit: 0,
+                        freeShippingThreshold: blk.fThresh,
+                        cardFeeRate: blk.cRate,
+                        isCard: cardStr,
+                        shipping: isVip ? 0 : shipNum,
+                        depositTotal: depTotal,
+                        deposits: depositsArr,
+                        items: itemsArr,
+                        address: (sheetAddr || rReal) ? {
+                            realname: rReal,
+                            phone: sheetPhone,
+                            zipcode: '',
+                            baseAddress: sheetAddr,
+                            detailAddress: '',
+                            memo: sheetMemo,
+                            updatedAt: ''
+                        } : null,
+                        trackingNumbers: Array.from(trkSet),
+                        isConfirmed: isConfirmed,
+                        _fromStaffSheet: true
+                    });
+                });
+            });
+
+            if (matchedCards.length > 0) {
+                return {
+                    status: 'success',
+                    historyList: matchedCards,
+                    validSheetBroadcasts: Array.from(validBroadcastNames)
+                };
+            }
+            if (wrongPinDetected) {
+                return {
+                    status: 'error',
+                    errorType: 'WRONG_PIN',
+                    historyList: [],
+                    validSheetBroadcasts: Array.from(validBroadcastNames)
+                };
+            }
+            return {
+                status: 'not_found',
+                historyList: [],
+                validSheetBroadcasts: Array.from(validBroadcastNames)
+            };
         };
 
-        // 2) 미송 / 교환 / 반품(CS) 내역 조회 (직원용 csMemo는 절대 노출하지 않음)
-        const lookupCustomerCsRecords = async (targetNicksList, cleanPin) => {
-            const validNicks = (Array.isArray(targetNicksList) ? targetNicksList : [targetNicksList]).filter(Boolean);
-            if (validNicks.length === 0) return [];
+        const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
+            if (!portalFbDb) return { status: 'not_found', historyList: [] };
+            const normInPin = normalizePin4(cleanPin);
+            try {
+                const [ordersSnap, bcastAddrSnap, confSnap, credSnap] = await Promise.all([
+                    portalFbDb.ref('ember_live_data/_portal_orders').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_broadcast_addresses').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_confirmed').once('value'),
+                    portalFbDb.ref('ember_live_data/_portal_credits').once('value')
+                ]);
+
+                const ordersVal = ordersSnap.val() || {};
+                const bcastAddrsVal = bcastAddrSnap.val() || {};
+                const confVal = confSnap.val() || {};
+                const credVal = credSnap.val() || {};
+
+                const matchedList = [];
+                let wrongPinDetected = false;
+
+                Object.keys(ordersVal).forEach(safeBKey => {
+                    const node = ordersVal[safeBKey];
+                    if (!node || !Array.isArray(node.customers)) return;
+                    const isLiveNode = safeBKey === '__MAIN_LIVE__';
+                    const bName = cleanBroadcastKey(node.broadcastName || safeBKey);
+
+                    node.customers.forEach(cust => {
+                        if (!cust || !cust.nickname) return;
+                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
+                        if (sc <= 0) return;
+
+                        const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
+                        if (cPin && normInPin && cPin !== normInPin) {
+                            wrongPinDetected = true;
+                            return;
+                        }
+                        if (!cPin && sc < 3) return;
+
+                        const safeNickKey = String(cust.nickname).replace(/[.#$\[\]\/]/g, '_');
+                        const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey];
+                        const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
+                        const isConf = Boolean(cust.isConfirmed || confVal[safeNickKey]);
+
+                        matchedList.push({
+                            ...cust,
+                            broadcastName: bName,
+                            sheetTabName: isLiveNode ? '메인주문' : ('주문_' + bName),
+                            phoneLast4: cPin || normInPin,
+                            credit: credEntry ? Number(credEntry.credit || 0) : (Number(cust.credit) || 0),
+                            creditLogs: credEntry && Array.isArray(credEntry.logs) ? credEntry.logs : [],
+                            creditUpdatedAt: credEntry?.updatedAtStr || '',
+                            address: bAddr ? {
+                                realname: bAddr.realname || cust.address?.realname || '',
+                                phone: fixPhoneStr(bAddr.phone || cust.address?.phone || ''),
+                                zipcode: '',
+                                baseAddress: String(bAddr.address || bAddr.baseAddress || '').replace(/^\(\d{5}\)\s*/, '').trim(),
+                                detailAddress: '',
+                                memo: bAddr.memo ?? cust.address?.memo ?? '',
+                                updatedAt: bAddr.updatedAt || ''
+                            } : cust.address,
+                            isConfirmed: isConf,
+                            _hasBcastCustomAddr: Boolean(bAddr),
+                            _isLiveSource: isLiveNode,
+                            _fromStaffRealtime: Boolean(node.updatedBy === 'staff')
+                        });
+                    });
+                });
+
+                if (matchedList.length > 0) {
+                    return { status: 'success', historyList: matchedList };
+                }
+                if (wrongPinDetected) {
+                    return { status: 'error', errorType: 'WRONG_PIN', historyList: [] };
+                }
+                return { status: 'not_found', historyList: [] };
+            } catch (e) {
+                return { status: 'not_found', historyList: [] };
+            }
+        };
+
+        const lookupCustomerCsRecords = async (nickCandidates, cleanPin) => {
+            const nicks = (Array.isArray(nickCandidates) ? nickCandidates : [nickCandidates]).filter(Boolean);
+            if (nicks.length === 0) return [];
             const normInPin = normalizePin4(cleanPin);
 
-            const isMyCsRecord = (csNick, csRealname, csPhone) => {
-                const phPin = csPhone && String(csPhone).replace(/[^0-9]/g, '').length >= 4
-                    ? normalizePin4(String(csPhone).replace(/[^0-9]/g, '').slice(-4))
-                    : '';
-                if (phPin && normInPin && phPin !== normInPin) return false;
-                for (const myNick of validNicks) {
-                    const sc = getNickMatchScore(csNick, csRealname || '', myNick);
-                    if (sc >= 2) return true;
-                    if (sc >= 1 && phPin && normInPin && phPin === normInPin) return true;
-                }
-                return false;
-            };
-
-            const resultsMap = new Map();
-
-            const registerPublicCsItem = (c, customAccOverride) => {
-                if (!c || !c.nick) return;
-                if (!isMyCsRecord(c.nick, c.realname, c.phone)) return;
-                const parsedFromMemo = extractPublicCsFieldsFromRawMemo(c.csMemo || '');
-                const allItems = Array.isArray(c.items) ? c.items : [];
-                const taggedOnly = allItems.filter(it => it.csTag && it.csTag !== '정상');
-                const displayItems = taggedOnly.length > 0 ? taggedOnly : allItems;
-                const autoRetSum = displayItems.filter(x => x.csTag === '반품').reduce((s, x) => s + (Number(x.price) || 0), 0);
-
-                const finalAcc = customAccOverride !== undefined
-                    ? customAccOverride
-                    : (c.refundAccount !== undefined && c.refundAccount !== '' ? c.refundAccount : parsedFromMemo.accountOnly);
-                const finalRefundAmt = Number(c.refundAmount) > 0
-                    ? Number(c.refundAmount)
-                    : (parsedFromMemo.refundAmount > 0 ? parsedFromMemo.refundAmount : autoRetSum);
-                const finalRefundDone = Boolean(c.refundCompleted || parsedFromMemo.refundCompleted);
-                const finalCredConv = Boolean(c.convertedToCredit || parsedFromMemo.convertedToCredit);
-                const shipFee = Number(c.csFee !== undefined ? c.csFee : c.shipping) || 0;
-                const feePaid = c.csFeePaid !== undefined ? Boolean(c.csFeePaid) : (Number(c.deposit) > 0 && Number(c.deposit) >= shipFee);
-
-                resultsMap.set(c.id || `${c.nick}_${c.sourceBroadcast}`, {
-                    id: c.id || `${c.nick}_${c.sourceBroadcast}`,
-                    sourceBroadcast: cleanBroadcastKey(c.sourceBroadcast || ''),
-                    csStatus: c.csStatus === '처리완료' ? '처리완료' : '미처리',
-                    nick: c.nick,
-                    origTracking: String(c.origTracking || '').replace(/^'+/, '').trim(),
-                    csTracking: String(c.csTracking || '').replace(/^'+/, '').trim(),
-                    refundAccount: String(finalAcc || '').trim(),
-                    refundAmount: finalRefundAmt,
-                    refundCompleted: finalRefundDone,
-                    convertedToCredit: finalCredConv,
-                    csFee: shipFee,
-                    csFeePaid: feePaid,
-                    items: displayItems.map(it => ({
-                        product: it.product || '',
-                        qty: Number(it.qty) || 1,
-                        price: Number(it.price) || 0,
-                        csTag: it.csTag || '정상'
-                    }))
-                });
-            };
-
-            let accVal = {};
-            let hasRealtimeFbCs = false;
-            if (portalFbDb) {
-                try {
-                    const fbCsPromise = Promise.all([
+            try {
+                if (portalFbDb) {
+                    const [csSnap, accSnap] = await Promise.all([
                         portalFbDb.ref('ember_live_data/_portal_cs').once('value'),
                         portalFbDb.ref('ember_live_data/_portal_cs_accounts').once('value')
                     ]);
-                    const snaps = await Promise.race([fbCsPromise, new Promise(r => setTimeout(() => r(null), 1800))]);
-                    if (snaps) {
-                        const [csSnap, accSnap] = snaps;
-                        const csVal = csSnap.val();
-                        accVal = accSnap.val() || {};
-                        const itemsList = (csVal && Array.isArray(csVal.items)) ? csVal.items : [];
-                        if (itemsList.length > 0) hasRealtimeFbCs = true;
-                        itemsList.forEach(c => {
-                            registerPublicCsItem(c, accVal[c?.id]?.refundAccount);
-                        });
-                    }
-                } catch (e) {}
-            }
-
-            // Firebase에 이미 실시간 CS 목록이 있으면 느린 시트 캐시가 최신 상태(처리완료/삭제 등)를 덮어쓰지 않도록 보호!
-            if (!hasRealtimeFbCs) {
-                try {
-                    let directStaffCs = portalSheetCache.staffCsRows;
-                    if (!Array.isArray(directStaffCs)) {
-                        directStaffCs = await fetchGoogleSheetDirectPortal(DEFAULT_STAFF_SHEET_ID, '교환반품CS', 2800).catch(() => null);
-                        if (Array.isArray(directStaffCs)) portalSheetCache.staffCsRows = directStaffCs;
-                    }
-                    const combinedSheetRows = Array.isArray(directStaffCs) ? directStaffCs : [];
-                    combinedSheetRows.forEach((r, idx) => {
-                        const cNick = String(r['닉네임'] || r.nick || r.col_4 || '').trim();
-                        const cReal = String(r['수령인명'] || r.realname || r.col_5 || '').trim();
-                        const cPhone = fixPhoneStr(r['연락처'] || r.phone || r.col_6 || '');
-                        if (!cNick || cNick === '닉네임') return;
-                        if (!isMyCsRecord(cNick, cReal, cPhone)) return;
-
-                        const csId = String(r['CS_ID'] || r.id || r.col_0 || `cs_sheet_${cNick}_${idx}`);
-                        let parsedItems = [];
-                        const jsonRaw = r['전체품목JSON'] || r.itemsJson || r.col_15 || '';
-                        if (jsonRaw) {
-                            try {
-                                const p = typeof jsonRaw === 'string' ? JSON.parse(jsonRaw) : jsonRaw;
-                                if (Array.isArray(p)) parsedItems = p;
-                            } catch (e) {}
-                        }
-                        const rawMemoCell = String(r['CS메모'] || r.csMemo || r.col_10 || '');
-                        const shipFee = Number(String(r['배송비'] || r.shipping || r.col_11 || '0').replace(/[^0-9.-]/g, '')) || 0;
-                        const depAmt = Number(String(r['입금액'] || r.deposit || r.col_12 || '0').replace(/[^0-9.-]/g, '')) || 0;
-                        const stRaw = String(r['처리상태'] || r.csStatus || r.col_3 || '').trim();
-
-                        registerPublicCsItem({
-                            id: csId,
-                            sourceBroadcast: cleanBroadcastKey(r['원본방송'] || r.sourceBroadcast || r.col_2 || ''),
-                            csStatus: stRaw === '처리완료' ? '처리완료' : '미처리',
-                            nick: cNick,
-                            realname: cReal,
-                            phone: cPhone,
-                            origTracking: String(r['원송장번호'] || r.origTracking || r.col_8 || '').replace(/^'+/, '').trim(),
-                            csTracking: String(r['교반송장번호'] || r.csTracking || r.col_9 || '').replace(/^'+/, '').trim(),
-                            csMemo: rawMemoCell,
-                            shipping: shipFee,
-                            deposit: depAmt,
-                            items: parsedItems
-                        }, accVal[csId]?.refundAccount);
-                    });
-                } catch (e) {}
-            }
-
-            try {
-                const localCsRaw = localStorage.getItem('ember_staff_cs_groups_v1');
-                if (localCsRaw) {
-                    const localCsList = JSON.parse(localCsRaw);
-                    if (Array.isArray(localCsList)) {
-                        localCsList.forEach(c => {
-                            registerPublicCsItem(c, accVal[c?.id]?.refundAccount);
-                        });
+                    const csVal = csSnap.val();
+                    const accVal = accSnap.val() || {};
+                    if (csVal && Array.isArray(csVal.items)) {
+                        return csVal.items.filter(c => {
+                            if (!c || !c.nick) return false;
+                            const cPin = normalizePin4(c.phone ? String(c.phone).slice(-4) : '');
+                            if (cPin && normInPin && cPin !== normInPin) return false;
+                            return nicks.some(n => getNickMatchScore(c.nick, c.realname || '', n) >= 2);
+                        }).map(c => ({
+                            ...c,
+                            refundAccount: accVal[c.id]?.refundAccount ?? c.refundAccount ?? ''
+                        }));
                     }
                 }
             } catch (e) {}
-
-            return Array.from(resultsMap.values());
+            return [];
         };
 
-        // 3) 직원용 시트('주문' 탭)에서 고객의 과거 방송 주문서를 찾아오는 함수
-        const lookupOrderFromStaffSheetDirect = async (rawNick, cleanPin, forceRefresh = false) => {
-            const normInPin = normalizePin4(cleanPin);
-            if (!rawNick || !normInPin) return null;
+        const SAMPLE_DB = [];
 
-            try {
-                let rows = (!forceRefresh && Array.isArray(portalSheetCache.staffOrderRows) && portalSheetCache.staffOrderRows.length > 0)
-                    ? portalSheetCache.staffOrderRows
-                    : null;
-
-                if (!rows) {
-                    await preloadStaffSheetsInBackground(forceRefresh);
-                    rows = portalSheetCache.staffOrderRows;
-                }
-                if (!Array.isArray(rows) || rows.length === 0) {
-                    const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, null, 1, 3500).catch(() => null);
-                    if (gasRes && Array.isArray(gasRes.data) && gasRes.data.length > 0) {
-                        rows = gasRes.data;
-                        portalSheetCache.staffOrderRows = rows;
-                        portalSheetCache.lastFetchedAt = Date.now();
-                    }
-                }
-                if (!Array.isArray(rows) || rows.length === 0) return null;
-
-                const blocks = {};
-                let curB = '최근 방송';
-                let curMeta = { fThresh: 70000, dShip: 4000, cRate: 10 };
-
-                const ensureBlk = (bName, meta) => {
-                    const cleanB = cleanBroadcastKey(bName || '최근 방송') || '최근 방송';
-                    if (!blocks[cleanB]) {
-                        blocks[cleanB] = {
-                            broadcastName: cleanB,
-                            fThresh: meta.fThresh,
-                            dShip: meta.dShip,
-                            cRate: meta.cRate,
-                            custMap: {}
-                        };
-                    }
-                    return blocks[cleanB];
-                };
-
-                const knownPinsByNick = {};
-                const knownAddrByNick = {};
-                const addKnownPin = (nKey, pVal) => {
-                    if (!nKey || !pVal) return;
-                    if (!knownPinsByNick[nKey]) knownPinsByNick[nKey] = new Set();
-                    knownPinsByNick[nKey].add(pVal);
-                };
-
-                rows.forEach((r, idx) => {
-                    const nick = String(r['닉네임'] || r['주문자'] || r.col_0 || '').trim();
-                    const prod = String(r['상품명'] || r['품목'] || r.col_1 || '').trim();
-                    const rawQtyMeta = r['수량'] ?? r.col_2;
-                    const rawPriceMeta = r['단가(제품금액)'] ?? r.col_3;
-                    const rawShipMeta = r['배송비'] ?? r.col_4;
-                    const rawRealMeta = String(r['수령인명'] ?? r.col_7 ?? '').trim();
-                    const rawPhoneMeta = String(r['연락처'] ?? r.col_8 ?? '').trim();
-                    const isImplicitMeta = (
-                        !nick &&
-                        prod &&
-                        prod !== '상품명' &&
-                        !rawRealMeta &&
-                        !rawPhoneMeta &&
-                        (Number(rawQtyMeta) >= 10000 || Number(rawPriceMeta) === 4000 || Number(rawPriceMeta) === 0 || Number(rawShipMeta) === 10)
-                    );
-
-                    if (nick.startsWith('___WORKSPACE') || isImplicitMeta) {
-                        if (prod) curB = cleanBroadcastKey(prod) || '최근 방송';
-                        curMeta = {
-                            fThresh: Number(rawQtyMeta) > 0 ? Number(rawQtyMeta) : 70000,
-                            dShip: (rawPriceMeta !== '' && Number(rawPriceMeta) >= 0) ? Number(rawPriceMeta) : 4000,
-                            cRate: Number(rawShipMeta) > 0 ? Number(rawShipMeta) : 10
-                        };
-                        ensureBlk(curB, curMeta);
-                        return;
-                    }
-
-                    if (!nick || nick === '닉네임' || nick === '주문자') return;
-
-                    const blk = ensureBlk(curB, curMeta);
-                    const col9Val = String(r.col_9 || '').trim();
-                    const col10Val = String(r.col_10 || '').trim();
-                    const isCol9Zip = /^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val);
-                    const shifted = isCol9Zip ? 1 : 0;
-
-                    const qtyVal = Number(String(r['수량'] ?? r.col_2 ?? '1').replace(/[^0-9.-]/g, '')) || 1;
-                    const priceVal = Number(String(r['단가(제품금액)'] ?? r.col_3 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
-                    const shipRaw = r['배송비'] ?? r.col_4;
-                    const depVal = Number(String(r['입금액'] ?? r.col_5 ?? '0').replace(/[^0-9.-]/g, '')) || 0;
-                    const cardRaw = String(r['카드결제'] ?? r.col_6 ?? '').trim();
-                    const realname = String(r['수령인명'] ?? r.col_7 ?? '').trim();
-                    const phone = fixPhoneStr(r['연락처'] ?? r.col_8 ?? '');
-
-                    let rawAddr = String(r['주소'] || '').trim();
-                    if (!rawAddr || /^\(\d{5}\)$/.test(rawAddr) || /^\d{5}$/.test(rawAddr)) {
-                        rawAddr = isCol9Zip ? col10Val : (col9Val || col10Val);
-                    }
-                    const cleanAddr = String(rawAddr || '').replace(/^\(\d{5}\)\s*/, '').trim();
-                    const memo = String(r['요청사항'] ?? r[`col_${10 + shifted}`] ?? '').trim();
-                    const vipRaw = String(r['VIP여부'] ?? r[`col_${11 + shifted}`] ?? '').trim();
-                    const waitRaw = String(r['대기여부'] ?? r[`col_${13 + shifted}`] ?? '').trim();
-                    const pinRaw = normalizePin4(r['비밀번호'] ?? r[`col_${14 + shifted}`] ?? '');
-                    const confRaw = String(r['주문확인'] ?? r[`col_${15 + shifted}`] ?? '').trim();
-                    const depJsonRaw = String(r['입금내역JSON'] ?? r[`col_${16 + shifted}`] ?? '').trim();
-                    const trkRaw = String(r['송장번호'] ?? r[`col_${17 + shifted}`] ?? '').replace(/^'+/, '').trim();
-
-                    const effectivePin = pinRaw || (phone.length >= 4 ? normalizePin4(phone.slice(-4)) : '');
-                    const nKey = normalizeNick(nick);
-                    const hKey = cleanHandle(nick);
-                    if (effectivePin) {
-                        addKnownPin(nKey, effectivePin);
-                        if (hKey) addKnownPin(hKey, effectivePin);
-                    }
-                    if (cleanAddr && !knownAddrByNick[nKey]) {
-                        knownAddrByNick[nKey] = {
-                            realname: realname || '',
-                            phone: phone || '',
-                            zipcode: '',
-                            baseAddress: cleanAddr,
-                            detailAddress: '',
-                            memo: (memo === cleanAddr || /^\(\d{5}\)/.test(memo)) ? '' : memo,
-                            updatedAt: ''
-                        };
-                    }
-
-                    if (!blk.custMap[nick]) {
-                        let parsedDeps = [];
-                        if (depJsonRaw) {
-                            try {
-                                const p = JSON.parse(depJsonRaw);
-                                if (Array.isArray(p)) parsedDeps = p;
-                            } catch (e) {}
-                        }
-                        const shipNum = (shipRaw !== '' && shipRaw !== undefined)
-                            ? Number(String(shipRaw).replace(/[^0-9.-]/g, ''))
-                            : blk.dShip;
-
-                        blk.custMap[nick] = {
-                            sheetTabName: '주문_' + blk.broadcastName,
-                            nickname: nick,
-                            phoneLast4: effectivePin,
-                            broadcastName: blk.broadcastName,
-                            isVip: vipRaw === 'O' || vipRaw === 'true',
-                            credit: 0,
-                            freeShippingThreshold: blk.fThresh,
-                            cardFeeRate: blk.cRate,
-                            isCard: cardRaw,
-                            shipping: isNaN(shipNum) ? blk.dShip : shipNum,
-                            depositTotal: 0,
-                            deposits: parsedDeps,
-                            items: [],
-                            address: cleanAddr ? {
-                                realname: realname || '',
-                                phone: phone || '',
-                                zipcode: '',
-                                baseAddress: cleanAddr,
-                                detailAddress: '',
-                                memo: (memo === cleanAddr || /^\(\d{5}\)/.test(memo)) ? '' : memo,
-                                updatedAt: ''
-                            } : null,
-                            trackingNumbers: trkRaw ? [trkRaw] : [],
-                            isConfirmed: confRaw === 'O' || confRaw === 'true'
-                        };
-                    } else {
-                        const cObj = blk.custMap[nick];
-                        if (!cObj.phoneLast4 && effectivePin) cObj.phoneLast4 = effectivePin;
-                        if (!cObj.address && cleanAddr) {
-                            cObj.address = {
-                                realname: realname || '',
-                                phone: phone || '',
-                                zipcode: '',
-                                baseAddress: cleanAddr,
-                                detailAddress: '',
-                                memo: (memo === cleanAddr || /^\(\d{5}\)/.test(memo)) ? '' : memo,
-                                updatedAt: ''
-                            };
-                        }
-                        if (trkRaw && !cObj.trackingNumbers.includes(trkRaw)) {
-                            cObj.trackingNumbers.push(trkRaw);
-                        }
-                    }
-
-                    if (depVal > 0) {
-                        blk.custMap[nick].depositTotal += depVal;
-                    }
-                    if (prod) {
-                        const isWait = waitRaw === 'O' || waitRaw.includes('대기');
-                        const wMatch = waitRaw.match(/(\d+)/);
-                        blk.custMap[nick].items.push({
-                            id: idx + 1,
-                            product: prod,
-                            qty: qtyVal,
-                            price: priceVal,
-                            isWaitlist: isWait,
-                            waitlistOrder: wMatch ? Number(wMatch[1]) : (isWait ? 1 : 0)
-                        });
-                    }
-                });
-
-                const pinVerifiedMatches = [];
-                let pinMismatchFound = false;
-
-                Object.values(blocks).forEach(blk => {
-                    let bestCand = null;
-                    let bestScore = 0;
-
-                    Object.values(blk.custMap).forEach(cust => {
-                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
-                        if (sc <= 0) return;
-
-                        const nKey = normalizeNick(cust.nickname);
-                        const hKey = cleanHandle(cust.nickname);
-                        const directPin = cust.phoneLast4 || (cust.address?.phone ? normalizePin4(cust.address.phone.slice(-4)) : '');
-                        const knownSet = knownPinsByNick[nKey] || (hKey ? knownPinsByNick[hKey] : null);
-                        const isPinMatched = Boolean(normInPin && ((directPin && directPin === normInPin) || (knownSet && knownSet.has(normInPin))));
-
-                        if (isPinMatched) {
-                            const effScore = sc + 10;
-                            if (effScore > bestScore) {
-                                bestScore = effScore;
-                                bestCand = {
-                                    ...cust,
-                                    _matchScore: effScore,
-                                    phoneLast4: normInPin,
-                                    address: cust.address || knownAddrByNick[nKey] || null
-                                };
-                            }
-                        } else if (directPin || (knownSet && knownSet.size > 0)) {
-                            pinMismatchFound = true;
-                        }
-                    });
-
-                    if (bestCand) {
-                        bestCand._fromStaffSheet = true;
-                        pinVerifiedMatches.push(bestCand);
-                    }
-                });
-
-                if (pinVerifiedMatches.length > 0) {
-                    pinVerifiedMatches.sort((a, b) => (b._matchScore || 0) - (a._matchScore || 0));
-                    const primaryNick = pinVerifiedMatches[0].nickname;
-                    const primaryNorm = normalizeNick(primaryNick);
-                    const primaryHandle = cleanHandle(primaryNick);
-
-                    const matchedHistory = sortHistoryByNewestDate(
-                        pinVerifiedMatches.filter(item =>
-                            normalizeNick(item.nickname) === primaryNorm ||
-                            (primaryHandle && cleanHandle(item.nickname) === primaryHandle)
-                        )
-                    );
-                    if (matchedHistory.length > 0) {
-                        return {
-                            status: 'success',
-                            customerData: matchedHistory[0],
-                            historyList: matchedHistory,
-                            validSheetBroadcasts: Object.keys(blocks)
-                        };
-                    }
-                }
-
-                if (pinMismatchFound) {
-                    return { status: 'error', errorType: 'WRONG_PIN' };
-                }
-            } catch (e) {}
-            return null;
+        const formatTrackingDisplay = (trk) => {
+            const d = String(trk || '').replace(/[^0-9]/g, '');
+            if (d.length === 12) return `${d.slice(0, 4)}-${d.slice(4, 8)}-${d.slice(8)}`;
+            return trk;
         };
-        // 4) Firebase 실시간 클라우드 조회 (현재 생방송 __MAIN_LIVE__ + 직원 실시간 송장/주문 _portal_orders + 고객 배송지 변경분 + 적립금)
-        const lookupOrderFromFirebase = async (rawNick, cleanPin) => {
-            if (!portalFbDb) return null;
-            try {
-                const normInPin = normalizePin4(cleanPin);
-                const fbFetchPromise = Promise.all([
-                    portalFbDb.ref('ember_live_data/_portal_orders').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_master_addrs').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_credits').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_confirmed').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_broadcast_addresses').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_live_mode').once('value')
-                ]);
-                const snaps = await Promise.race([
-                    fbFetchPromise,
-                    new Promise(r => setTimeout(() => r(null), 2200))
-                ]);
-                if (!snaps) return null;
-                const [allPortalOrdersSnap, masterAddrSnap, creditsSnap, confSnap, bcastAddrSnap, liveModeSnap] = snaps;
-                const allPortalOrders = allPortalOrdersSnap ? (allPortalOrdersSnap.val() || {}) : {};
-                const mainLiveData = allPortalOrders.__MAIN_LIVE__ || null;
-                const masterAddrMap = masterAddrSnap.val() || {};
-                const creditsMap = creditsSnap.val() || {};
-                const portalConfMap = confSnap.val() || {};
-                const bcastAddrMap = bcastAddrSnap.val() || {};
-                const liveModeVal = liveModeSnap ? liveModeSnap.val() : null;
-                if (liveModeVal && typeof liveModeVal.isLive === 'boolean') {
-                    portalSheetCache.isLiveActive = liveModeVal.isLive;
-                    portalSheetCache.activeBroadcastName = cleanBroadcastKey(liveModeVal.activeBroadcastName || '');
-                }
-
-                const findCreditForNick = (targetNick) => {
-                    if (!targetNick) return 0;
-                    const tNorm = normalizeNick(targetNick);
-                    const tClean = cleanHandle(targetNick);
-                    for (const k in creditsMap) {
-                        const item = creditsMap[k];
-                        if (!item) continue;
-                        const itemNick = item.nickname || k;
-                        if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
-                            return Number(item.credit) || 0;
-                        }
-                    }
-                    return 0;
-                };
-
-                const findCreditMetaForNick = (targetNick) => {
-                    if (!targetNick) return { updatedAtStr: '', logs: [] };
-                    const tNorm = normalizeNick(targetNick);
-                    const tClean = cleanHandle(targetNick);
-                    for (const k in creditsMap) {
-                        const item = creditsMap[k];
-                        if (!item) continue;
-                        const itemNick = item.nickname || k;
-                        if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
-                            return {
-                                updatedAtStr: item.updatedAtStr || (typeof item.updatedAt === 'string' ? item.updatedAt : ''),
-                                logs: Array.isArray(item.logs) ? item.logs : []
-                            };
-                        }
-                    }
-                    return { updatedAtStr: '', logs: [] };
-                };
-
-                const matchedMasterMap = {};
-                const knownPinsByNick = {};
-                const addKnownPin = (nickKey, pinVal) => {
-                    if (!nickKey || !pinVal) return;
-                    if (!knownPinsByNick[nickKey]) knownPinsByNick[nickKey] = new Set();
-                    knownPinsByNick[nickKey].add(pinVal);
-                };
-
-                const handleCountMap = {};
-                Object.values(masterAddrMap).forEach(a => {
-                    if (!a || !a.nickname) return;
-                    const hk = cleanHandle(a.nickname);
-                    if (hk) handleCountMap[hk] = (handleCountMap[hk] || 0) + 1;
-                });
-
-                let bestMasterAddr = null;
-                let bestAddrScore = 0;
-
-                Object.values(masterAddrMap).forEach(a => {
-                    if (!a || !a.nickname) return;
-                    const aPin = a.phone && String(a.phone).length >= 4 ? normalizePin4(String(a.phone).slice(-4)) : '';
-                    const normNickKey = normalizeNick(a.nickname);
-                    const cleanHandleKey = cleanHandle(a.nickname);
-                    if (aPin) {
-                        const entryObj = { addr: a, pin: aPin };
-                        if (normNickKey) {
-                            matchedMasterMap[normNickKey] = entryObj;
-                            addKnownPin(normNickKey, aPin);
-                        }
-                        if (cleanHandleKey && handleCountMap[cleanHandleKey] === 1) {
-                            matchedMasterMap[cleanHandleKey] = entryObj;
-                            addKnownPin(cleanHandleKey, aPin);
-                        }
-                    }
-                    const sc = getNickMatchScore(a.nickname, a.realname || '', rawNick);
-                    if (sc <= 0) return;
-                    if (aPin && normInPin && aPin === normInPin) {
-                        if (sc > bestAddrScore) {
-                            bestAddrScore = sc;
-                            bestMasterAddr = a;
-                        }
-                    }
-                });
-
-                const pinVerifiedMatches = [];
-                let pinMismatchFound = false;
-
-                // 개별 방송 방(생방송 __MAIN_LIVE__ 및 직원이 송장/주문을 업데이트한 방)에서 고객 매칭 스캔
-                const scanBroadcastNode = (nodeData, isLiveNode = false) => {
-                    if (!nodeData || !Array.isArray(nodeData.customers)) return;
-                    const cleanBName = cleanBroadcastKey(nodeData.broadcastName || (isLiveNode ? (portalSheetCache.activeBroadcastName || '오늘의방송') : ''));
-                    if (!cleanBName || cleanBName === '기본방송' || cleanBName === '주문') return;
-                    const safeBKey = cleanBName.replace(/[.#$\[\]\/]/g, '_');
-                    const bcastSpecificAddrs = (safeBKey && bcastAddrMap[safeBKey]) ? bcastAddrMap[safeBKey] : {};
-
-                    let bestPinCand = null;
-                    let bestPinScore = 0;
-
-                    nodeData.customers.forEach(cust => {
-                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
-                        if (sc <= 0) return;
-
-                        const cNormKey = normalizeNick(cust.nickname);
-                        const cHandleKey = cleanHandle(cust.nickname);
-                        const safeCustKey = String(cust.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-                        const bcastCustomAddr = bcastSpecificAddrs[safeCustKey] || null;
-                        const masterEntry = matchedMasterMap[cNormKey] || (handleCountMap[cHandleKey] === 1 ? matchedMasterMap[cHandleKey] : null);
-                        const directPin = normalizePin4(
-                            (bcastCustomAddr && bcastCustomAddr.phone ? String(bcastCustomAddr.phone).slice(-4) : '') ||
-                            cust.phoneLast4 ||
-                            (cust.address?.phone ? cust.address.phone.slice(-4) : '') ||
-                            (masterEntry ? masterEntry.pin : '')
-                        );
-                        const knownPinSet = knownPinsByNick[cNormKey] || (handleCountMap[cHandleKey] === 1 ? knownPinsByNick[cHandleKey] : null);
-                        const hasAnyKnownPin = Boolean(directPin || (knownPinSet && knownPinSet.size > 0));
-                        const isPinMatched = Boolean(normInPin && ((directPin && directPin === normInPin) || (knownPinSet && knownPinSet.has(normInPin))));
-
-                        const fbCredit = findCreditForNick(cust.nickname) || Number(cust.credit) || 0;
-                        const fbCreditMeta = findCreditMetaForNick(cust.nickname);
-                        const isPortalConfirmed = Boolean(cust.isConfirmed || portalConfMap[`${safeBKey}___${safeCustKey}`] || portalConfMap[safeCustKey]);
-
-                        const resolvedAddrObj = bcastCustomAddr ? {
-                            realname: bcastCustomAddr.realname || '',
-                            phone: fixPhoneStr(bcastCustomAddr.phone || ''),
-                            zipcode: bcastCustomAddr.zipcode || '',
-                            baseAddress: bcastCustomAddr.baseAddress || bcastCustomAddr.address || '',
-                            detailAddress: bcastCustomAddr.detailAddress || '',
-                            memo: bcastCustomAddr.memo || '',
-                            updatedAt: bcastCustomAddr.updatedAt || ''
-                        } : cust.address;
-
-                        if (isPinMatched) {
-                            const effectiveScore = sc + 10;
-                            if (effectiveScore > bestPinScore) {
-                                bestPinScore = effectiveScore;
-                                bestPinCand = {
-                                    ...cust,
-                                    broadcastName: cleanBName,
-                                    sheetTabName: '주문_' + cleanBName,
-                                    _isLiveSource: isLiveNode,
-                                    _fromStaffRealtime: !isLiveNode && nodeData.updatedBy === 'staff',
-                                    _matchScore: effectiveScore,
-                                    credit: fbCredit,
-                                    creditUpdatedAt: fbCreditMeta.updatedAtStr,
-                                    creditLogs: fbCreditMeta.logs,
-                                    phoneLast4: normInPin,
-                                    address: resolvedAddrObj || (masterEntry ? {
-                                        realname: masterEntry.addr.realname || '',
-                                        phone: fixPhoneStr(masterEntry.addr.phone || ''),
-                                        zipcode: '',
-                                        baseAddress: masterEntry.addr.address || '',
-                                        detailAddress: '',
-                                        memo: masterEntry.addr.memo || '',
-                                        updatedAt: ''
-                                    } : null),
-                                    _hasBcastCustomAddr: Boolean(bcastCustomAddr),
-                                    isConfirmed: isPortalConfirmed
-                                };
-                            }
-                        } else if (hasAnyKnownPin && normInPin && !isPinMatched) {
-                            pinMismatchFound = true;
-                        }
-                    });
-
-                    if (bestPinCand) pinVerifiedMatches.push(bestPinCand);
-                };
-
-                // 1) 생방송 진행 중일 때 __MAIN_LIVE__ 스캔
-                if (portalSheetCache.isLiveActive && mainLiveData) {
-                    scanBroadcastNode(mainLiveData, true);
-                }
-
-                // 2) 직원용 시스템이 송장/주문을 동기화해 둔 방송 노드들(staff / staff_init) 스캔 -> 직원이 송장이나 단일주문을 넣자마자 0.1초 만에 포털에 반영!
-                Object.keys(allPortalOrders).forEach(k => {
-                    if (k === '__MAIN_LIVE__') return;
-                    const node = allPortalOrders[k];
-                    if (node && (node.updatedBy === 'staff' || node.updatedBy === 'staff_init')) {
-                        scanBroadcastNode(node, false);
-                    }
-                });
-
-                if (pinVerifiedMatches.length > 0) {
-                    const sorted = sortHistoryByNewestDate(pinVerifiedMatches);
-                    return {
-                        status: 'success',
-                        customerData: sorted[0],
-                        historyList: sorted
-                    };
-                }
-
-                if (bestMasterAddr && bestAddrScore >= 1) {
-                    const aPin = bestMasterAddr.phone && String(bestMasterAddr.phone).length >= 4 ? normalizePin4(String(bestMasterAddr.phone).slice(-4)) : '';
-                    if (aPin && aPin === normInPin) {
-                        const fbMeta = findCreditMetaForNick(bestMasterAddr.nickname);
-                        const emptyCard = {
-                            sheetTabName: '메인주문_빈카드',
-                            nickname: bestMasterAddr.nickname,
-                            phoneLast4: normInPin,
-                            broadcastName: '최근 주문 내역 없음',
-                            isVip: false,
-                            credit: findCreditForNick(bestMasterAddr.nickname),
-                            creditUpdatedAt: fbMeta.updatedAtStr,
-                            creditLogs: fbMeta.logs,
-                            freeShippingThreshold: 70000,
-                            cardFeeRate: 10,
-                            isCard: '',
-                            shipping: 0,
-                            depositTotal: 0,
-                            deposits: [],
-                            items: [],
-                            address: {
-                                realname: bestMasterAddr.realname || '',
-                                phone: fixPhoneStr(bestMasterAddr.phone || ''),
-                                zipcode: bestMasterAddr.zipcode || '',
-                                baseAddress: bestMasterAddr.address || '',
-                                detailAddress: '',
-                                memo: bestMasterAddr.memo || '',
-                                updatedAt: ''
-                            },
-                            trackingNumbers: [],
-                            isConfirmed: false
-                        };
-                        return {
-                            status: 'success',
-                            customerData: emptyCard,
-                            historyList: [emptyCard]
-                        };
-                    }
-                }
-
-                if (pinMismatchFound) {
-                    return { status: 'error', errorType: 'WRONG_PIN' };
-                }
-            } catch (e) {}
-            return null;
-        };
-
-        const SAMPLE_DB = [
-            {
-                nickname: "테스트1",
-                phoneLast4: "1234",
-                broadcastName: "10/18 여성복",
-                isVip: false,
-                freeShippingThreshold: 200000,
-                isCard: false,
-                shipping: 4000,
-                depositTotal: 59000,
-                deposits: [{ id: "dep_1", time: "26-10-18 16:26", name: "김은지", amount: 59000 }],
-                items: [{ id: 1, product: "01 알파카 핸드메이드 코트 베이지 F", qty: 1, price: 55000, isWaitlist: false }],
-                address: {
-                    realname: "김은지",
-                    phone: "01012341234",
-                    zipcode: "06035",
-                    baseAddress: "서울 강남구 가로수길 5 (신사동)",
-                    detailAddress: "101동 502호",
-                    memo: "문 앞에 놓아주세요",
-                    updatedAt: "2026-10-18 14:20"
-                },
-                trackingNumbers: ["2548-1920-3841"],
-                isConfirmed: false
-            }
-        ];
 
         const PortalApp = () => {
             const [nickInput, setNickInput] = useState("");
@@ -1575,327 +909,131 @@
             const [isLoading, setIsLoading] = useState(false);
             const [isRefreshing, setIsRefreshing] = useState(false);
 
-            const [currentUser, setCurrentUser] = useState(null);
             const [orderHistoryList, setOrderHistoryList] = useState([]);
             const [selectedBroadcastIdx, setSelectedBroadcastIdx] = useState(0);
-            const [isEditingAddress, setIsEditingAddress] = useState(false);
-            const [addrForm, setAddrForm] = useState({
-                realname: "",
-                phone: "",
-                zipcode: "",
-                baseAddress: "",
-                detailAddress: "",
-                memo: ""
-            });
-            const [agreePrivacy, setAgreePrivacy] = useState(false);
-            const [agreeThirdParty, setAgreeThirdParty] = useState(false);
-            const [isSavingAddress, setIsSavingAddress] = useState(false);
-            const [toastMsg, setToastMsg] = useState("");
-            const [trackingMap, setTrackingMap] = useState({});
-            const [collapsedTracks, setCollapsedTracks] = useState({});
-            const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
-            const [isCreditHistoryOpen, setIsCreditHistoryOpen] = useState(false);
+            const [currentUser, setCurrentUser] = useState(null);
             const [customerCsList, setCustomerCsList] = useState([]);
             const [editingCsAccountMap, setEditingCsAccountMap] = useState({});
+
+            const [isEditingAddress, setIsEditingAddress] = useState(false);
+            const [isSavingAddress, setIsSavingAddress] = useState(false);
+            const [addrForm, setAddrForm] = useState({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
+            const [agreePrivacy, setAgreePrivacy] = useState(false);
+            const [agreeThirdParty, setAgreeThirdParty] = useState(false);
+
+            const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
+            const [isCreditHistoryOpen, setIsCreditHistoryOpen] = useState(false);
+            const [trackingMap, setTrackingMap] = useState({});
+            const [collapsedTracks, setCollapsedTracks] = useState({});
+            const [toastMsg, setToastMsg] = useState("");
             const [showBizFooter, setShowBizFooter] = useState(false);
-            const touchStartYRef = useRef(null);
-            const bottomReachedAtRef = useRef(0);
-            const wheelOverscrollCountRef = useRef(0);
-
-            useEffect(() => {
-                preloadStaffSheetsInBackground(false);
-            }, []);
-
-            // ✨ 직원이 직원용 시스템에서 주문 품목, 입금액(완납), 송장번호를 추가/수정하면 고객이 새로고침을 누르지 않아도 실시간으로 즉시 자동 업데이트!
-            useEffect(() => {
-                if (!portalFbDb || !currentUser || !currentUser.nickname) return;
-                const ordersRef = portalFbDb.ref('ember_live_data/_portal_orders');
-                const handleOrdersRealtimeChange = () => {
-                    const targetPin = currentUser.phoneLast4 || pinInput;
-                    lookupOrderFromFirebase(currentUser.nickname, targetPin).then(fbData => {
-                        if (fbData && fbData.status === 'success' && Array.isArray(fbData.historyList) && fbData.historyList.length > 0) {
-                            setOrderHistoryList(prevList => {
-                                const merged = sortHistoryByNewestDate(
-                                    removeDummyEmptyOrdersIfRealExists([...fbData.historyList, ...prevList])
-                                );
-                                const nextSelected = merged[selectedBroadcastIdx] || merged[0];
-                                if (nextSelected) {
-                                    setCurrentUser(nextSelected);
-                                }
-                                return merged;
-                            });
-                        }
-                    }).catch(() => {});
-                };
-                ordersRef.on('value', handleOrdersRealtimeChange);
-                return () => ordersRef.off('value', handleOrdersRealtimeChange);
-            }, [currentUser?.nickname, currentUser?.phoneLast4, pinInput, selectedBroadcastIdx]);
-
-            useEffect(() => {
-                if (!portalFbDb || !currentUser || !currentUser.nickname) return;
-                const csRef = portalFbDb.ref('ember_live_data/_portal_cs');
-                const handleCsChange = () => {
-                    const allNicks = Array.from(new Set([
-                        currentUser.nickname,
-                        ...orderHistoryList.map(h => h.nickname)
-                    ].filter(Boolean)));
-                    lookupCustomerCsRecords(allNicks, currentUser.phoneLast4 || pinInput).then(list => {
-                        if (Array.isArray(list)) setCustomerCsList(list);
-                    }).catch(() => {});
-                };
-                csRef.on('value', handleCsChange);
-                return () => csRef.off('value', handleCsChange);
-            }, [currentUser?.nickname, currentUser?.phoneLast4, pinInput, orderHistoryList]);
-
-            useEffect(() => {
-                if (!portalFbDb || !currentUser || !currentUser.nickname) return;
-                const creditsRef = portalFbDb.ref('ember_live_data/_portal_credits');
-                const handleCreditUpdate = (snap) => {
-                    const creditsMap = snap.val() || {};
-                    const tNorm = normalizeNick(currentUser.nickname);
-                    const tClean = cleanHandle(currentUser.nickname);
-                    let foundItem = null;
-                    for (const k in creditsMap) {
-                        const item = creditsMap[k];
-                        if (!item) continue;
-                        const itemNick = item.nickname || k;
-                        if (normalizeNick(itemNick) === tNorm || (tClean && cleanHandle(itemNick) === tClean)) {
-                            foundItem = item;
-                            break;
-                        }
-                    }
-                    if (foundItem) {
-                        const nextCred = Number(foundItem.credit) || 0;
-                        const nextLogs = Array.isArray(foundItem.logs) ? foundItem.logs : [];
-                        const nextUpd = foundItem.updatedAtStr || '';
-                        setCurrentUser(prev => prev ? { ...prev, credit: nextCred, creditLogs: nextLogs, creditUpdatedAt: nextUpd } : prev);
-                        setOrderHistoryList(prev => prev.map(item => ({ ...item, credit: nextCred, creditLogs: nextLogs, creditUpdatedAt: nextUpd })));
-                    }
-                };
-                creditsRef.on('value', handleCreditUpdate);
-                return () => creditsRef.off('value', handleCreditUpdate);
-            }, [currentUser?.nickname]);
-
-            useEffect(() => {
-                if (!currentUser) {
-                    setShowBizFooter(false);
-                    bottomReachedAtRef.current = 0;
-                    wheelOverscrollCountRef.current = 0;
-                    return;
-                }
-                const isAtPageBottom = () => {
-                    const scrollBottom = window.innerHeight + window.scrollY;
-                    const docHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-                    return scrollBottom >= docHeight - 6;
-                };
-                const handleScroll = () => {
-                    if (isAtPageBottom()) {
-                        if (bottomReachedAtRef.current === 0) bottomReachedAtRef.current = Date.now();
-                    } else {
-                        bottomReachedAtRef.current = 0;
-                        wheelOverscrollCountRef.current = 0;
-                    }
-                };
-                const handleTouchStart = (e) => {
-                    if (e.touches && e.touches.length === 1 && isAtPageBottom() && bottomReachedAtRef.current > 0 && (Date.now() - bottomReachedAtRef.current > 450)) {
-                        touchStartYRef.current = e.touches[0].clientY;
-                    } else {
-                        touchStartYRef.current = null;
-                    }
-                };
-                const handleTouchMove = (e) => {
-                    if (touchStartYRef.current !== null && e.touches && e.touches.length === 1) {
-                        const deltaY = touchStartYRef.current - e.touches[0].clientY;
-                        if (deltaY > 95 && isAtPageBottom()) {
-                            setShowBizFooter(true);
-                            touchStartYRef.current = null;
-                        }
-                    }
-                };
-                const handleWheel = (e) => {
-                    if (!isAtPageBottom()) {
-                        wheelOverscrollCountRef.current = 0;
-                        return;
-                    }
-                    if (bottomReachedAtRef.current === 0) {
-                        bottomReachedAtRef.current = Date.now();
-                        return;
-                    }
-                    if (e.deltaY > 30 && (Date.now() - bottomReachedAtRef.current > 450)) {
-                        wheelOverscrollCountRef.current += 1;
-                        if (wheelOverscrollCountRef.current >= 4) {
-                            setShowBizFooter(true);
-                            wheelOverscrollCountRef.current = 0;
-                        }
-                    }
-                };
-                window.addEventListener('scroll', handleScroll, { passive: true });
-                window.addEventListener('touchstart', handleTouchStart, { passive: true });
-                window.addEventListener('touchmove', handleTouchMove, { passive: true });
-                window.addEventListener('wheel', handleWheel, { passive: true });
-                return () => {
-                    window.removeEventListener('scroll', handleScroll);
-                    window.removeEventListener('touchstart', handleTouchStart);
-                    window.removeEventListener('touchmove', handleTouchMove);
-                    window.removeEventListener('wheel', handleWheel);
-                };
-            }, [currentUser]);
 
             const showToast = (msg) => {
                 setToastMsg(msg);
-                setTimeout(() => setToastMsg(""), 2200);
+                setTimeout(() => setToastMsg(""), 2600);
             };
 
-            const copyText = (text, label) => {
+            const copyText = (txt, label = "텍스트가") => {
+                if (!txt) return;
                 const ta = document.createElement("textarea");
-                ta.value = text;
+                ta.value = String(txt);
                 document.body.appendChild(ta);
                 ta.select();
-                try {
-                    document.execCommand("copy");
-                    showToast(`${label} 복사되었습니다.`);
-                } catch (e) {}
+                try { document.execCommand("copy"); showToast(`${label} 복사되었습니다!`); } catch (e) {}
                 document.body.removeChild(ta);
             };
 
+            const initAddressState = (userObj) => {
+                if (userObj && userObj.address && userObj.address.baseAddress) {
+                    setAddrForm({
+                        realname: userObj.address.realname || "",
+                        phone: fixPhoneStr(userObj.address.phone || ""),
+                        zipcode: userObj.address.zipcode || "",
+                        baseAddress: String(userObj.address.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim(),
+                        detailAddress: userObj.address.detailAddress || "",
+                        memo: userObj.address.memo || ""
+                    });
+                    setIsEditingAddress(false);
+                } else {
+                    setAddrForm({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
+                    setIsEditingAddress(true);
+                }
+            };
+
+            const handleSelectBroadcast = (idx) => {
+                if (idx < 0 || idx >= orderHistoryList.length) return;
+                setSelectedBroadcastIdx(idx);
+                setCurrentUser(orderHistoryList[idx]);
+                initAddressState(orderHistoryList[idx]);
+            };
+
+            const fetchInlineTracking = async (cleanDigits, force = false) => {
+                if (!cleanDigits) return;
+                if (!force && trackingMap[cleanDigits] && !trackingMap[cleanDigits].loading) return;
+                setTrackingMap(prev => ({ ...prev, [cleanDigits]: { loading: true, stateText: "조회중...", steps: prev[cleanDigits]?.steps || [] } }));
+                try {
+                    const res = await fetch(`https://apis.tracker.delivery/carriers/kr.lotte/tracks/${cleanDigits}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        const progresses = Array.isArray(data.progresses) ? data.progresses.slice().reverse() : [];
+                        const steps = progresses.map(p => ({
+                            time: p.time ? String(p.time).replace('T', ' ').slice(0, 16) : '',
+                            location: p.location?.name || '롯데택배',
+                            status: p.status?.text ? `${p.status.text}${p.description ? ' · ' + p.description : ''}` : (p.description || '')
+                        }));
+                        setTrackingMap(prev => ({
+                            ...prev,
+                            [cleanDigits]: { loading: false, stateText: data.state?.text || '배송중', steps }
+                        }));
+                        return;
+                    }
+                } catch (e) {}
+                try {
+                    const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_lotte_tracking&invNo=${cleanDigits}&t=${Date.now()}`, {}, 1);
+                    if (gasRes && gasRes.status === 'success') {
+                        setTrackingMap(prev => ({
+                            ...prev,
+                            [cleanDigits]: { loading: false, stateText: gasRes.stateText || '배송중', steps: gasRes.steps || [] }
+                        }));
+                        return;
+                    }
+                } catch (e) {}
+                setTrackingMap(prev => ({
+                    ...prev,
+                    [cleanDigits]: { loading: false, stateText: '집하/상품준비중', steps: [] }
+                }));
+            };
+
             const handleSaveCustomerRefundAccount = async (csId) => {
-                const nextAcc = String(editingCsAccountMap[csId] ?? '').trim();
+                const nextAcc = String(editingCsAccountMap[csId] || '').trim();
                 if (!nextAcc) {
                     showToast("환불받으실 은행명, 계좌번호, 예금주를 입력해 주세요.");
                     return;
                 }
                 setCustomerCsList(prev => prev.map(c => c.id === csId ? { ...c, refundAccount: nextAcc } : c));
                 setEditingCsAccountMap(prev => {
-                    const copy = { ...prev };
-                    delete copy[csId];
-                    return copy;
+                    const next = { ...prev };
+                    delete next[csId];
+                    return next;
                 });
                 if (portalFbDb) {
-                    try {
-                        await portalFbDb.ref(`ember_live_data/_portal_cs_accounts/${csId}`).set({
-                            csId,
-                            nickname: currentUser?.nickname || '',
-                            refundAccount: nextAcc,
-                            updatedAt: getKstNowString()
-                        });
-                    } catch (e) {}
+                    portalFbDb.ref(`ember_live_data/_portal_cs_accounts/${csId}`).set({
+                        csId,
+                        refundAccount: nextAcc,
+                        updatedAt: Date.now()
+                    }).catch(() => {});
                 }
                 showToast("환불 계좌번호가 저장되었습니다!");
             };
 
-            const formatTrackingDisplay = (raw) => {
-                const digits = String(raw || '').replace(/[^0-9]/g, '');
-                if (digits.length === 12) {
-                    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 12)}`;
-                }
-                return String(raw || '').trim();
-            };
-
-            const fetchInlineTracking = async (rawTrackNo, force = false) => {
-                const cleanDigits = String(rawTrackNo || '').replace(/[^0-9]/g, '');
-                if (!cleanDigits) return;
-                if (!force && trackingMap[cleanDigits] && (trackingMap[cleanDigits].loading || trackingMap[cleanDigits].loaded)) {
-                    return;
-                }
-
-                setTrackingMap(prev => ({
-                    ...prev,
-                    [cleanDigits]: { loading: true, loaded: false, stateText: "실시간 위치 조회중...", steps: [] }
-                }));
-
-                try {
-                    const res = await fetch(`https://apis.tracker.delivery/carriers/kr.lotte/tracks/${cleanDigits}`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        const progresses = Array.isArray(data.progresses) ? [...data.progresses].reverse() : [];
-                        if (progresses.length > 0) {
-                            setTrackingMap(prev => ({
-                                ...prev,
-                                [cleanDigits]: {
-                                    loading: false,
-                                    loaded: true,
-                                    stateText: data.state?.text || "배송중",
-                                    steps: progresses.map(p => ({
-                                        time: formatKstDateString(p.time),
-                                        location: p.location?.name || "롯데택배",
-                                        status: p.status?.text ? `${p.status.text}${p.description ? ` · ${p.description}` : ''}` : (p.description || '')
-                                    }))
-                                }
-                            }));
-                            return;
-                        }
-                    }
-                } catch (e) {}
-
-                try {
-                    const gasRes = await fetch(`${DEFAULT_GAS_URL}?action=get_lotte_tracking&invNo=${cleanDigits}&t=${Date.now()}`);
-                    const gasData = await gasRes.json();
-                    if (gasData && gasData.status === 'success' && Array.isArray(gasData.steps) && gasData.steps.length > 0) {
-                        setTrackingMap(prev => ({
-                            ...prev,
-                            [cleanDigits]: {
-                                loading: false,
-                                loaded: true,
-                                stateText: gasData.stateText || "배송중",
-                                steps: gasData.steps
-                            }
-                        }));
-                        return;
-                    }
-                } catch (e) {}
-
-                setTrackingMap(prev => ({
-                    ...prev,
-                    [cleanDigits]: {
-                        loading: false,
-                        loaded: true,
-                        stateText: "📦 포장중 (롯데택배 수거·집하 대기)",
-                        steps: []
-                    }
-                }));
-            };
-
-            const initAddressState = (userObj) => {
-                const hasTrk = Boolean(
-                    (Array.isArray(userObj?.trackingNumbers) && userObj.trackingNumbers.length > 0) ||
-                    (userObj?.trackingNumber && String(userObj.trackingNumber).trim() !== "")
-                );
-                if (userObj && userObj.address && userObj.address.baseAddress) {
-                    setAddrForm(userObj.address);
-                    setIsEditingAddress(false);
-                    setAgreePrivacy(true);
-                    setAgreeThirdParty(true);
-                } else if (hasTrk) {
-                    setAddrForm(userObj?.address || { realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
-                    setIsEditingAddress(false);
-                } else {
-                    setAddrForm({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
-                    setIsEditingAddress(true);
-                    setAgreePrivacy(false);
-                    setAgreeThirdParty(false);
-                }
-            };
-
-            const handleSelectBroadcast = (idx) => {
-                if (!orderHistoryList[idx]) return;
-                setSelectedBroadcastIdx(idx);
-                setIsDepositHistoryOpen(false);
-                const targetOrder = orderHistoryList[idx];
-                setCurrentUser(targetOrder);
-                initAddressState(targetOrder);
-            };
-
-            const handleLogin = async (e, customNick, customPin, isRefreshCall = false) => {
-                if (e) e.preventDefault();
+            const handleLogin = async (e, overrideNick = null, overridePin = null, isRefreshCall = false) => {
+                if (e && e.preventDefault) e.preventDefault();
                 setLoginError("");
 
-                const rawNick = customNick !== undefined ? customNick : nickInput;
-                const rawPin = customPin !== undefined ? customPin : pinInput;
+                const rawNick = String(overrideNick !== null ? overrideNick : nickInput).trim();
+                const cleanPin = String(overridePin !== null ? overridePin : pinInput).replace(/[^0-9]/g, "");
 
-                const cleanNick = cleanHandle(rawNick);
-                const cleanPin = String(rawPin).trim();
-
-                if (!cleanNick) {
+                if (!rawNick) {
                     setLoginError("유튜브 닉네임을 입력해 주세요.");
                     return;
                 }
@@ -1926,93 +1064,84 @@
                     return;
                 }
 
+                const applyAndMergeOrders = (rawList) => {
+                    const verified = filterVerifiedHistoryList(rawList, rawNick, cleanPin);
+                    const cleaned = removeDummyEmptyOrdersIfRealExists(verified);
+                    const sorted = sortHistoryByNewestDate(cleaned);
+                    if (sorted.length === 0) return false;
+
+                    setOrderHistoryList(sorted);
+                    setSelectedBroadcastIdx(0);
+                    setCurrentUser(sorted[0]);
+                    initAddressState(sorted[0]);
+                    setIsLoading(false);
+                    setIsRefreshing(false);
+
+                    const primaryNick = sorted[0].nickname || rawNick;
+                    lookupCustomerCsRecords([primaryNick, rawNick], cleanPin)
+                        .then(csList => {
+                            if (Array.isArray(csList)) setCustomerCsList(csList);
+                        })
+                        .catch(() => {});
+                    return true;
+                };
+
                 try {
-                    const fetchOrderWithPin = async (targetPin, targetNickOverride) => {
-                        const queryNick = targetNickOverride !== undefined ? targetNickOverride : rawNick;
-                        const url = `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(queryNick)}&pin=${encodeURIComponent(targetPin)}&t=${Date.now()}`;
-                        return await fetchGasWithRetry(url, null, 1, 3500);
-                    };
-
-                    const applyAndMergeOrders = (initialList) => {
-                        const cleaned = removeDummyEmptyOrdersIfRealExists(
-                            filterVerifiedHistoryList(initialList, rawNick, cleanPin)
-                        );
-                        if (cleaned.length === 0) return false;
-                        const hList = sortHistoryByNewestDate(cleaned);
-                        setOrderHistoryList(hList);
-                        const nextIdx = (isRefreshCall && selectedBroadcastIdx < hList.length) ? selectedBroadcastIdx : 0;
-                        setSelectedBroadcastIdx(nextIdx);
-                        setCurrentUser(hList[nextIdx]);
-                        initAddressState(hList[nextIdx]);
-                        setIsLoading(false);
-                        setIsRefreshing(false);
-                        if (isRefreshCall) showToast("✨ 최신 주문·입금 내역으로 새로고침되었습니다!");
-
-                        const resolvedFullNick = hList[0]?.nickname || rawNick;
-                        lookupCustomerCsRecords([resolvedFullNick, rawNick], cleanPin).then(csRes => {
-                            if (Array.isArray(csRes)) setCustomerCsList(csRes);
-                        }).catch(() => {});
-
-                        // ⚠️ 핵심: 오직 사장님이 '🔴 생방송중'(isLiveActive === true)을 켜두었을 때만 사장님 메인시트를 추가로 조회!
-                        // '🔒 방송마감' 상태일 때는 사장님 메인시트에 남아있는 주문을 절대 고객에게 노출하지 않음!
-                        if (portalSheetCache.isLiveActive) {
-                            fetchOrderWithPin(cleanPin, resolvedFullNick).then(gasRes => {
-                                if (gasRes && gasRes.status === "success" && Array.isArray(gasRes.historyList) && gasRes.historyList.length > 0) {
-                                    const gasList = filterVerifiedHistoryList(gasRes.historyList, rawNick, cleanPin, resolvedFullNick);
-                                    if (gasList.length === 0) return;
-                                    setOrderHistoryList(prevList => {
-                                        return sortHistoryByNewestDate(removeDummyEmptyOrdersIfRealExists([...prevList, ...gasList]));
-                                    });
-                                }
-                            }).catch(() => {});
+                    // ✨ 1) 직원용 구글 시트('메인주문' 탭) 실시간 앱스 스크립트 조회를 최우선 실행하여 5분 캐시 및 유령 데이터 원천 차단!
+                    let freshStaffRows = null;
+                    try {
+                        const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, {}, 1);
+                        if (gasRes && Array.isArray(gasRes.data) && gasRes.data.length > 0) {
+                            freshStaffRows = gasRes.data;
+                            portalSheetCache.staffOrderRows = freshStaffRows;
                         }
-                        return true;
-                    };
+                    } catch (e) {}
 
-                    // 먼저 최신 생방송 상태(_portal_live_mode)를 실시간으로 확인
-                    if (portalFbDb) {
-                        try {
-                            const liveSnap = await Promise.race([
-                                portalFbDb.ref('ember_live_data/_portal_live_mode').once('value'),
-                                new Promise(r => setTimeout(() => r(null), 1200))
-                            ]);
-                            if (liveSnap) {
-                                const lv = liveSnap.val();
-                                if (lv && typeof lv.isLive === 'boolean') {
-                                    portalSheetCache.isLiveActive = lv.isLive;
-                                    portalSheetCache.activeBroadcastName = cleanBroadcastKey(lv.activeBroadcastName || '');
-                                }
-                            }
-                        } catch (e) {}
-                    }
-
-                    // 1단계: 직원용 시트('주문'), Firebase 클라우드, 그리고 생방송 중일 때만 사장님 생방송 시트('메인주문')를 스캔!
-                    const [staffDirectData, fbInstantData, bossLiveData] = await Promise.all([
-                        lookupOrderFromStaffSheetDirect(rawNick, cleanPin, isRefreshCall),
+                    const [staffDirectData, fbInstantData, liveModeSnap] = await Promise.all([
+                        lookupOrderFromStaffSheetDirect(rawNick, cleanPin, !freshStaffRows),
                         lookupOrderFromFirebase(rawNick, cleanPin),
-                        portalSheetCache.isLiveActive ? lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin) : Promise.resolve(null)
+                        portalFbDb ? portalFbDb.ref('ember_live_data/_portal_live_mode').once('value').catch(() => null) : Promise.resolve(null)
                     ]);
 
-                    // 직원용 시트('메인주문')에 실제로 존재하는 방송 이름 목록 (시트에 없는 테스트 방이나 옛날 이름 차단용)
+                    const liveModeVal = liveModeSnap && typeof liveModeSnap.val === 'function' ? (liveModeSnap.val() || {}) : {};
+                    // 사장님 주문서(index.html) 또는 직원용 라이브에서 현재 생방송 중일 때만 실시간 방송 허용
+                    const isBossLiveNow = Boolean(liveModeVal.isLive && liveModeVal.liveOwner === 'boss');
+                    const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || '');
+
                     const validStaffSheetSet = (staffDirectData && Array.isArray(staffDirectData.validSheetBroadcasts))
                         ? new Set(staffDirectData.validSheetBroadcasts.map(b => cleanBroadcastKey(b)))
                         : new Set();
 
                     const rawCombinedList = [];
-                    if (portalSheetCache.isLiveActive && bossLiveData && bossLiveData.status === "success" && Array.isArray(bossLiveData.historyList)) {
-                        rawCombinedList.push(...bossLiveData.historyList);
-                    }
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
                         rawCombinedList.push(...staffDirectData.historyList);
                     }
                     if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
-                            if (fbItem._isLiveSource && !portalSheetCache.isLiveActive) {
+                            const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
+                            // 테스트 더미 데이터('10/24 라이브' 또는 '222222' 품목)는 무조건 차단 및 파이어베이스에서 즉시 삭제!
+                            const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
+                            if (fbBName === '10/24 라이브' || hasDummyItem) {
+                                if (portalFbDb) {
+                                    const safeDelKey = fbBName.replace(/[.#$\[\]\/]/g, '_');
+                                    portalFbDb.ref(`ember_live_data/_portal_orders/${safeDelKey}`).remove().catch(() => {});
+                                    portalFbDb.ref('ember_live_data/_portal_orders/__MAIN_LIVE__').remove().catch(() => {});
+                                }
                                 return;
                             }
-                            const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
-                            // ⚠️ 핵심: 현재 생방송(_isLiveSource)이 아닌데 직원용 구글 시트('메인주문')에 없는 방송 방(예: 아까 테스트로 만든 임시 방)은 고객 포털에 절대 노출하지 않음!
-                            if (!fbItem._isLiveSource && validStaffSheetSet.size > 0 && !validStaffSheetSet.has(fbBName)) {
+                            if (fbItem._isLiveSource) {
+                                if (isBossLiveNow) {
+                                    rawCombinedList.push(fbItem);
+                                }
+                                return;
+                            }
+                            // 🚨 핵심 수정: 직원용 구글 시트('메인주문')에 존재하지 않는 방송은 _fromStaffRealtime 꼬리표가 있더라도 절대 표시하지 않고 클라우드에서도 즉시 삭제!
+                            const isCurrentlyLiveBroadcast = Boolean(liveModeVal.isLive && activeLiveBName && fbBName === activeLiveBName);
+                            if (!validStaffSheetSet.has(fbBName) && !isCurrentlyLiveBroadcast) {
+                                if (portalFbDb && validStaffSheetSet.size > 0) {
+                                    const safeDelKey = fbBName.replace(/[.#$\[\]\/]/g, '_');
+                                    portalFbDb.ref(`ember_live_data/_portal_orders/${safeDelKey}`).remove().catch(() => {});
+                                }
                                 return;
                             }
                             rawCombinedList.push(fbItem);
@@ -2033,27 +1162,10 @@
                     }
 
                     const matchedFullNickFromStep1 = combinedInstantList[0]?.nickname || rawNick;
-                    // ⚠️ 방송 마감 상태(!portalSheetCache.isLiveActive)일 때는 사장님 메인시트(fetchOrderWithPin)를 절대 호출하지 않음!
-                    const [gasData, csOnlyCheck] = await Promise.all([
-                        portalSheetCache.isLiveActive ? fetchOrderWithPin(cleanPin, matchedFullNickFromStep1).catch(() => null) : Promise.resolve(null),
-                        lookupCustomerCsRecords([matchedFullNickFromStep1, rawNick], cleanPin).catch(() => [])
-                    ]);
-
-                    if (gasData && gasData.status === "success") {
-                        const rawGasList = Array.isArray(gasData.historyList) && gasData.historyList.length > 0 ? gasData.historyList : (gasData.customerData ? [gasData.customerData] : []);
-                        if (hasRealOrderItems(rawGasList) && applyAndMergeOrders(rawGasList)) {
-                            return;
-                        }
-                    }
+                    const csOnlyCheck = await lookupCustomerCsRecords([matchedFullNickFromStep1, rawNick], cleanPin).catch(() => []);
 
                     if (combinedInstantList.length > 0 && applyAndMergeOrders(combinedInstantList)) {
                         return;
-                    }
-                    if (gasData && gasData.status === "success") {
-                        const rawGasList = Array.isArray(gasData.historyList) && gasData.historyList.length > 0 ? gasData.historyList : (gasData.customerData ? [gasData.customerData] : []);
-                        if (applyAndMergeOrders(rawGasList)) {
-                            return;
-                        }
                     }
 
                     if (Array.isArray(csOnlyCheck) && csOnlyCheck.length > 0) {
@@ -2088,12 +1200,7 @@
 
                     setIsLoading(false);
                     setIsRefreshing(false);
-
-                    if (gasData && gasData.errorType === "WRONG_PIN") {
-                        setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다. 첫 구매이거나 열리지 않으면 아래 노란색 카톡 버튼으로 문의해 주세요.");
-                    } else {
-                        setLoginError("주문 내역을 찾을 수 없습니다. (뒤쪽 -영문숫자 핸들을 뺀 한글 닉네임만 입력해 보세요!)");
-                    }
+                    setLoginError("주문 내역을 찾을 수 없습니다. (뒤쪽 -영문숫자 핸들을 뺀 한글 닉네임만 입력해 보세요!)");
                 } catch (err) {
                     setIsLoading(false);
                     setIsRefreshing(false);
