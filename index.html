@@ -66,56 +66,55 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 🛡️ [보안 가드] 무단 소스코드 열람·복제·개발자도구 원천 차단 및 스크립트 태그 자동 소거
+        // 🛡️ 타 업체 무단 코드 열람·저장·드래그·불펌 원천 차단 보안 가드
         if (typeof window !== 'undefined') {
-            const blockEv = (e) => { e.preventDefault(); e.stopPropagation(); return false; };
-            window.addEventListener('contextmenu', blockEv, true);
-            window.addEventListener('dragstart', blockEv, true);
+            window.addEventListener('contextmenu', (e) => {
+                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+                e.preventDefault();
+            });
+            window.addEventListener('dragstart', (e) => { e.preventDefault(); });
+            window.addEventListener('selectstart', (e) => {
+                const tag = e.target?.tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+                e.preventDefault();
+            });
             window.addEventListener('keydown', (e) => {
                 const key = String(e.key || '').toLowerCase();
                 if (
                     e.key === 'F12' ||
-                    (e.ctrlKey && e.shiftKey && (key === 'i' || key === 'j' || key === 'c')) ||
+                    (e.ctrlKey && e.shiftKey && (key === 'i' || key === 'j' || key === 'c' || key === 'k')) ||
                     (e.ctrlKey && (key === 'u' || key === 's' || key === 'p')) ||
-                    (e.metaKey && e.altKey && (key === 'i' || key === 'j' || key === 'u' || key === 'c'))
+                    (e.metaKey && e.altKey && (key === 'i' || key === 'j' || key === 'c' || key === 'u')) ||
+                    (e.metaKey && (key === 's' || key === 'u' || key === 'p'))
                 ) {
-                    return blockEv(e);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
                 }
             }, true);
-            setInterval(() => {
-                if (window.outerWidth - window.innerWidth > 180 || window.outerHeight - window.innerHeight > 180) {
-                    try { console.clear(); } catch (err) {}
-                }
-            }, 1500);
-            setTimeout(() => {
-                document.querySelectorAll('script[type="text/babel"]').forEach(el => el.remove());
-            }, 800);
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 330; // 330 => v3.30
+        const VERSION_STEP = 322; // 322 => v3.22
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
-
-        const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec';
-        const DEFAULT_MASTER_SHEET_ID = '1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ';
-        const DEFAULT_STAFF_SHEET_ID = '1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8';
-        const KAKAO_CHANNEL_URL = 'http://pf.kakao.com/_xxxx';
-        const BANK_NAME_HOLDER = '카카오뱅크 · 김선정';
-        const BANK_ACCOUNT_NUMBER = '7942-32-84990';
-
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec";
+        const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
+        const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
+        const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_xaxkxkG/chat";
+        const BANK_NAME_HOLDER = "카카오뱅크 · 김선정";
+        const BANK_ACCOUNT_NUMBER = "7942-32-84990";
+        const FIXED_AUTUMN_WINTER_HERO = "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=1000&q=80";
+        const FALLBACK_COAT_HERO = "https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=1000&q=80";
         const BUSINESS_INFO = {
-            companyName: "엠버언니",
-            ceoName: "김선정",
-            privacyOfficer: "김선정",
-            bizNumber: "259-20-02160",
-            mailOrderNumber: "2026-서울동대문-1240",
-            csCenter: "카카오톡 채널 '엠버언니'",
-            address: "서울특별시 동대문구"
+            companyName: "엠버(EMBER)",
+            ceoName: "강은지",
+            bizNumber: "410-16-01969",
+            mailOrderNumber: "2023-광주북구-0697",
+            privacyOfficer: "강은지",
+            address: "광주광역시 북구 설죽로 217",
+            csCenter: "카카오채널 [엠버언니]"
         };
-
-        const FIXED_AUTUMN_WINTER_HERO = 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?auto=format&fit=crop&w=720&q=75';
-        const FALLBACK_COAT_HERO = 'https://images.unsplash.com/photo-1548624313-0396c75e4b1a?auto=format&fit=crop&w=720&q=75';
 
         let portalFbDb = null;
         try {
@@ -134,7 +133,7 @@
             }
         } catch (e) {}
 
-        // 백그라운드 프리로드 캐시
+        // 백그라운드 프리로드 캐시 (고객이 닉네임/비번을 입력하는 동안 미리 로드하여 조회 시 0.1초 즉시 오픈!)
         const portalSheetCache = {
             staffOrderRows: null,
             staffCsRows: null,
@@ -142,7 +141,47 @@
             isLiveActive: false,
             activeBroadcastName: '',
             lastFetchedAt: 0,
-            fetchingPromise: null
+            fetchingPromise: null,
+            fbSnapshot: null
+        };
+
+        const preloadPortalDataInBackground = (force = false) => {
+            const now = Date.now();
+            if (!force && portalSheetCache.staffOrderRows && (now - portalSheetCache.lastFetchedAt < 20000)) {
+                return Promise.resolve(portalSheetCache.staffOrderRows);
+            }
+            if (portalSheetCache.fetchingPromise) {
+                return portalSheetCache.fetchingPromise;
+            }
+            // Google GVIZ 직통 리더(0.3초)와 GAS 실시간 리더를 동시에 경주시켜 가장 먼저 도착한 데이터로 즉시 캐시!
+            const gvizPromise = fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문').catch(() => null);
+            const gasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
+                .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
+                .catch(() => null);
+
+            portalSheetCache.fetchingPromise = Promise.race([
+                gvizPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : gasPromise),
+                gasPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : gvizPromise)
+            ]).then(rows => {
+                if (Array.isArray(rows) && rows.length > 0) {
+                    portalSheetCache.staffOrderRows = rows;
+                    portalSheetCache.lastFetchedAt = Date.now();
+                }
+                // GAS 최신본이 뒤이어 도착하면 조용히 최신본으로 한 번 더 갱신
+                gasPromise.then(freshRows => {
+                    if (Array.isArray(freshRows) && freshRows.length > 0) {
+                        portalSheetCache.staffOrderRows = freshRows;
+                        portalSheetCache.lastFetchedAt = Date.now();
+                    }
+                });
+                portalSheetCache.fetchingPromise = null;
+                return portalSheetCache.staffOrderRows;
+            }).catch(() => {
+                portalSheetCache.fetchingPromise = null;
+                return null;
+            });
+
+            return portalSheetCache.fetchingPromise;
         };
 
         const Icon = ({ name, className = "", weight = "regular", size = 16 }) => (
@@ -590,17 +629,7 @@
             const normInPin = normalizePin4(cleanPin);
             let rows = (!forceFresh && portalSheetCache.staffOrderRows) ? portalSheetCache.staffOrderRows : null;
             if (!rows) {
-                    rows = await fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문');
-                if (!Array.isArray(rows) || rows.length === 0) {
-                    try {
-                        const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, {}, 1);
-                        if (gasRes && Array.isArray(gasRes.data)) rows = gasRes.data;
-                    } catch (e) {}
-                }
-                if (Array.isArray(rows) && rows.length > 0) {
-                    portalSheetCache.staffOrderRows = rows;
-                    portalSheetCache.lastFetchedAt = Date.now();
-                }
+                rows = await preloadPortalDataInBackground(forceFresh);
             }
             if (!Array.isArray(rows) || rows.length === 0) {
                 return { status: 'not_found', historyList: [], validSheetBroadcasts: [] };
@@ -613,6 +642,9 @@
 
             const ensureBlock = (bTitle) => {
                 const cleanB = cleanBroadcastKey(bTitle) || '기본방송';
+                if (cleanB === '10/24 라이브' || cleanB === '오늘의방송' || cleanB === '기본방송') {
+                    return { bName: cleanB, fThresh: 70000, dShip: 4000, cRate: 10, custMap: {} };
+                }
                 validBroadcastNames.add(cleanB);
                 if (!blocks[cleanB]) {
                     blocks[cleanB] = {
@@ -647,6 +679,8 @@
                     return;
                 }
                 if (!nick || nick === '닉네임' || nick === '주문자') return;
+                if (curBName === '10/24 라이브' || curBName === '오늘의방송' || curBName === '기본방송') return;
+                if (prod.includes('222222')) return;
                 const blk = ensureBlock(curBName);
                 if (!blk.custMap[nick]) blk.custMap[nick] = [];
                 blk.custMap[nick].push({ r, idx });
@@ -658,7 +692,7 @@
             let wrongPinDetected = false;
 
             Object.values(blocks).forEach(blk => {
-                if (blk.bName === '기본방송') return;
+                if (blk.bName === '기본방송' || blk.bName === '오늘의방송' || blk.bName === '10/24 라이브') return;
                 Object.keys(blk.custMap).forEach(custNick => {
                     const entries = blk.custMap[custNick];
                     const firstR = entries[0].r;
@@ -796,17 +830,17 @@
             if (!portalFbDb) return { status: 'not_found', historyList: [] };
             const normInPin = normalizePin4(cleanPin);
             try {
-                const [ordersSnap, bcastAddrSnap, confSnap, credSnap] = await Promise.all([
-                    portalFbDb.ref('ember_live_data/_portal_orders').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_broadcast_addresses').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_confirmed').once('value'),
-                    portalFbDb.ref('ember_live_data/_portal_credits').once('value')
-                ]);
+                let rootVal = portalSheetCache.fbSnapshot;
+                if (!rootVal) {
+                    const snap = await portalFbDb.ref('ember_live_data').once('value');
+                    rootVal = snap.val() || {};
+                    portalSheetCache.fbSnapshot = rootVal;
+                }
 
-                const ordersVal = ordersSnap.val() || {};
-                const bcastAddrsVal = bcastAddrSnap.val() || {};
-                const confVal = confSnap.val() || {};
-                const credVal = credSnap.val() || {};
+                const ordersVal = rootVal._portal_orders || {};
+                const bcastAddrsVal = rootVal._portal_broadcast_addresses || {};
+                const confVal = rootVal._portal_confirmed || {};
+                const credVal = rootVal._portal_credits || {};
 
                 const matchedList = [];
                 let wrongPinDetected = false;
@@ -877,13 +911,15 @@
             const normInPin = normalizePin4(cleanPin);
 
             try {
-                if (portalFbDb) {
-                    const [csSnap, accSnap] = await Promise.all([
-                        portalFbDb.ref('ember_live_data/_portal_cs').once('value'),
-                        portalFbDb.ref('ember_live_data/_portal_cs_accounts').once('value')
-                    ]);
-                    const csVal = csSnap.val();
-                    const accVal = accSnap.val() || {};
+                let rootVal = portalSheetCache.fbSnapshot;
+                if (!rootVal && portalFbDb) {
+                    const snap = await portalFbDb.ref('ember_live_data').once('value');
+                    rootVal = snap.val() || {};
+                    portalSheetCache.fbSnapshot = rootVal;
+                }
+                if (rootVal) {
+                    const csVal = rootVal._portal_cs;
+                    const accVal = rootVal._portal_cs_accounts || {};
                     if (csVal && Array.isArray(csVal.items)) {
                         return csVal.items.filter(c => {
                             if (!c || !c.nick) return false;
@@ -899,8 +935,6 @@
             } catch (e) {}
             return [];
         };
-
-        const SAMPLE_DB = [];
 
         const formatTrackingDisplay = (trk) => {
             const d = String(trk || '').replace(/[^0-9]/g, '');
@@ -930,9 +964,24 @@
             const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
             const [isCreditHistoryOpen, setIsCreditHistoryOpen] = useState(false);
             const [trackingMap, setTrackingMap] = useState({});
-            const [collapsedTracks, setCollapsedTracks] = useState({});
             const [toastMsg, setToastMsg] = useState("");
             const [showBizFooter, setShowBizFooter] = useState(false);
+
+            // ⚡ 고객이 포털에 접속하여 닉네임과 비밀번호를 입력하는 동안 백그라운드에서 시트와 파이어베이스 데이터를 미리 로드!
+            useEffect(() => {
+                preloadPortalDataInBackground(false);
+                if (!portalFbDb) return;
+                const ref = portalFbDb.ref('ember_live_data');
+                const handleSnap = (snap) => {
+                    const val = snap.val() || {};
+                    portalSheetCache.fbSnapshot = val;
+                    const lm = val._portal_live_mode || {};
+                    portalSheetCache.isLiveActive = Boolean(lm.isLive);
+                    portalSheetCache.activeBroadcastName = cleanBroadcastKey(lm.activeBroadcastName || '');
+                };
+                ref.on('value', handleSnap);
+                return () => ref.off('value', handleSnap);
+            }, []);
 
             const showToast = (msg) => {
                 setToastMsg(msg);
@@ -1052,24 +1101,6 @@
                 if (isRefreshCall) setIsRefreshing(true);
                 setTrackingMap({});
 
-                const sampleMatch = SAMPLE_DB.find(u => isFlexibleNickMatch(u.nickname, rawNick, u.address?.realname));
-                if (sampleMatch) {
-                    setTimeout(() => {
-                        setIsLoading(false);
-                        setIsRefreshing(false);
-                        if (normalizePin4(sampleMatch.phoneLast4) === normalizePin4(cleanPin)) {
-                            const hList = sortHistoryByNewestDate([sampleMatch]);
-                            setOrderHistoryList(hList);
-                            setSelectedBroadcastIdx(0);
-                            setCurrentUser(hList[0]);
-                            initAddressState(hList[0]);
-                        } else {
-                            setLoginError("비밀번호(뒷 4자리)가 일치하지 않습니다.");
-                        }
-                    }, 150);
-                    return;
-                }
-
                 const applyAndMergeOrders = (rawList) => {
                     const verified = filterVerifiedHistoryList(rawList, rawNick, cleanPin);
                     const cleaned = removeDummyEmptyOrdersIfRealExists(verified);
@@ -1093,54 +1124,67 @@
                 };
 
                 try {
-                    // ✨ 1) 직원용 구글 시트('메인주문' 탭) 실시간 앱스 스크립트 조회를 최우선 실행하여 5분 캐시 및 유령 데이터 원천 차단!
-                    let freshStaffRows = null;
-                    try {
-                        const gasRes = await fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${Date.now()}`, {}, 1);
-                        if (gasRes && Array.isArray(gasRes.data) && gasRes.data.length > 0) {
-                            freshStaffRows = gasRes.data;
-                            portalSheetCache.staffOrderRows = freshStaffRows;
-                        }
-                    } catch (e) {}
+                    // ⚡ [새로고침] 버튼을 직접 누른 경우에만 서버 강제 재요청을 하고, 첫 로그인 시에는 백그라운드에 미리 준비된 캐시로 0.1초 만에 즉시 오픈!
+                    if (isRefreshCall) {
+                        await Promise.all([
+                            preloadPortalDataInBackground(true),
+                            portalFbDb ? portalFbDb.ref('ember_live_data').once('value').then(s => { portalSheetCache.fbSnapshot = s.val() || {}; }).catch(() => {}) : Promise.resolve()
+                        ]);
+                    }
 
-                    const [staffDirectData, fbInstantData, liveModeSnap] = await Promise.all([
-                        lookupOrderFromStaffSheetDirect(rawNick, cleanPin, !freshStaffRows),
-                        lookupOrderFromFirebase(rawNick, cleanPin),
-                        portalFbDb ? portalFbDb.ref('ember_live_data/_portal_live_mode').once('value').catch(() => null) : Promise.resolve(null)
+                    const [staffDirectData, fbInstantData] = await Promise.all([
+                        lookupOrderFromStaffSheetDirect(rawNick, cleanPin, false),
+                        lookupOrderFromFirebase(rawNick, cleanPin)
                     ]);
 
-                    const liveModeVal = liveModeSnap && typeof liveModeSnap.val === 'function' ? (liveModeSnap.val() || {}) : {};
-                    // ✨ 사장님 주문서(owner.html) 또는 직원용 라이브(staff.html) 어느 쪽에서든 현재 생방송 중(isLive === true)이면 실시간 주문서(__MAIN_LIVE__)를 즉시 노출!
-                    const isAnyLiveNow = Boolean(liveModeVal.isLive);
+                    const rootFb = portalSheetCache.fbSnapshot || {};
+                    const liveModeVal = rootFb._portal_live_mode || {};
+                    const isLiveNow = Boolean(liveModeVal.isLive);
                     const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || '');
-                    portalSheetCache.isLiveActive = isAnyLiveNow;
-                    portalSheetCache.activeBroadcastName = activeLiveBName;
 
-                    const validStaffSheetSet = (staffDirectData && Array.isArray(staffDirectData.validSheetBroadcasts))
-                        ? new Set(staffDirectData.validSheetBroadcasts.map(b => cleanBroadcastKey(b)))
-                        : new Set();
+                    const bcastAddrsVal = rootFb._portal_broadcast_addresses || {};
+                    const confVal = rootFb._portal_confirmed || {};
+                    const credVal = rootFb._portal_credits || {};
 
                     const rawCombinedList = [];
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
-                        rawCombinedList.push(...staffDirectData.historyList);
+                        staffDirectData.historyList.forEach(sheetCard => {
+                            const bName = cleanBroadcastKey(sheetCard.broadcastName || '');
+                            if (!bName || bName === '10/24 라이브' || bName === '오늘의방송') return;
+                            const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
+                            const safeNickKey = String(sheetCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                            const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey];
+                            const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
+                            const isConf = Boolean(sheetCard.isConfirmed || confVal[safeNickKey]);
+
+                            rawCombinedList.push({
+                                ...sheetCard,
+                                credit: credEntry ? Number(credEntry.credit || 0) : (Number(sheetCard.credit) || 0),
+                                creditLogs: credEntry && Array.isArray(credEntry.logs) ? credEntry.logs : [],
+                                creditUpdatedAt: credEntry?.updatedAtStr || '',
+                                address: bAddr ? {
+                                    realname: bAddr.realname || sheetCard.address?.realname || '',
+                                    phone: fixPhoneStr(bAddr.phone || sheetCard.address?.phone || ''),
+                                    zipcode: '',
+                                    baseAddress: String(bAddr.address || bAddr.baseAddress || '').replace(/^\(\d{5}\)\s*/, '').trim(),
+                                    detailAddress: '',
+                                    memo: bAddr.memo ?? sheetCard.address?.memo ?? '',
+                                    updatedAt: bAddr.updatedAt || ''
+                                } : sheetCard.address,
+                                isConfirmed: isConf
+                            });
+                        });
                     }
-                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
+
+                    // 오직 현재 생방송(isLiveNow)이 켜져 있을 때만 __MAIN_LIVE__ 실시간 주문서를 추가! (파이어베이스의 해묵은 과거 방송 방은 절대 합치지 않음!)
+                    if (isLiveNow && fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
                             const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
-                            if (hasDummyItem) return;
-
-                            if (fbItem._isLiveSource) {
-                                if (isAnyLiveNow) {
-                                    rawCombinedList.push(fbItem);
-                                }
-                                return;
+                            if (fbBName === '10/24 라이브' || hasDummyItem) return;
+                            if (fbItem._isLiveSource || (activeLiveBName && fbBName === activeLiveBName)) {
+                                rawCombinedList.push(fbItem);
                             }
-                            const isCurrentlyLiveBroadcast = Boolean(isAnyLiveNow && activeLiveBName && fbBName === activeLiveBName);
-                            if (validStaffSheetSet.size > 0 && !validStaffSheetSet.has(fbBName) && !isCurrentlyLiveBroadcast && !fbItem._fromStaffRealtime) {
-                                return;
-                            }
-                            rawCombinedList.push(fbItem);
                         });
                     }
 
@@ -2117,7 +2161,6 @@
                                                 {userTrackingList.map((trk, tIdx) => {
                                                     const cleanDigits = String(trk).replace(/[^0-9]/g, '');
                                                     const trkInfo = trackingMap[cleanDigits] || { loading: true, steps: [] };
-                                                    const isCollapsed = Boolean(collapsedTracks[cleanDigits]);
                                                     return (
                                                         <div key={tIdx} className="bg-white border-2 border-red-200 rounded-xl overflow-hidden shadow-sm">
                                                             <div className="bg-red-50/80 px-3 py-2.5 border-b border-red-100 flex items-center justify-between gap-2">
@@ -2150,42 +2193,40 @@
                                                                     </button>
                                                                 </div>
                                                             </div>
-                                                            {!isCollapsed && (
-                                                                <div className="p-3 bg-white">
-                                                                    {trkInfo.loading ? (
-                                                                        <div className="py-4 flex items-center justify-center gap-2 text-[12.5px] font-bold text-gray-500">
-                                                                            <Icon name="spinner" className="animate-spin text-[#E60012]" size={18} />
-                                                                            <span>실시간 택배 이동흐름을 불러오고 있습니다...</span>
-                                                                        </div>
-                                                                    ) : trkInfo.steps && trkInfo.steps.length > 0 ? (
-                                                                        <div className="relative pl-3.5 border-l-2 border-red-200 space-y-3 my-1 ml-1">
-                                                                            {trkInfo.steps.map((st, sIdx) => (
-                                                                                <div key={sIdx} className="relative">
-                                                                                    <span className={`absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white ${sIdx === 0 ? 'bg-[#E60012] ring-2 ring-red-200' : 'bg-gray-300'}`}></span>
-                                                                                    <div className={`text-[13px] font-extrabold leading-snug ${sIdx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
-                                                                                        {st.status}
-                                                                                    </div>
-                                                                                    <div className="text-[11.5px] font-semibold text-gray-500 flex items-center gap-1.5 mt-0.5">
-                                                                                        <span className="text-gray-700 font-bold">📍 {st.location}</span>
-                                                                                        <span>·</span>
-                                                                                        <span className="tabular-nums">{st.time}</span>
-                                                                                    </div>
+                                                            <div className="p-3 bg-white">
+                                                                {trkInfo.loading ? (
+                                                                    <div className="py-4 flex items-center justify-center gap-2 text-[12.5px] font-bold text-gray-500">
+                                                                        <Icon name="spinner" className="animate-spin text-[#E60012]" size={18} />
+                                                                        <span>실시간 택배 이동흐름을 불러오고 있습니다...</span>
+                                                                    </div>
+                                                                ) : trkInfo.steps && trkInfo.steps.length > 0 ? (
+                                                                    <div className="relative pl-3.5 border-l-2 border-red-200 space-y-3 my-1 ml-1">
+                                                                        {trkInfo.steps.map((st, sIdx) => (
+                                                                            <div key={sIdx} className="relative">
+                                                                                <span className={`absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white ${sIdx === 0 ? 'bg-[#E60012] ring-2 ring-red-200' : 'bg-gray-300'}`}></span>
+                                                                                <div className={`text-[13px] font-extrabold leading-snug ${sIdx === 0 ? 'text-gray-900' : 'text-gray-600'}`}>
+                                                                                    {st.status}
                                                                                 </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="py-3 px-3 bg-amber-50/80 border border-amber-200 rounded-lg text-center space-y-1">
-                                                                            <div className="text-[13px] font-extrabold text-amber-900 flex items-center justify-center gap-1.5">
-                                                                                <span>📦 현재 상품을 꼼꼼하게 포장 중입니다!</span>
+                                                                                <div className="text-[11.5px] font-semibold text-gray-500 flex items-center gap-1.5 mt-0.5">
+                                                                                    <span className="text-gray-700 font-bold">📍 {st.location}</span>
+                                                                                    <span>·</span>
+                                                                                    <span className="tabular-nums">{st.time}</span>
+                                                                                </div>
                                                                             </div>
-                                                                            <div className="text-[11.5px] text-amber-800 font-semibold leading-relaxed">
-                                                                                롯데택배 운송장이 먼저 출력되어 포장 작업이 진행 중이며,<br/>
-                                                                                롯데택배 기사님 수거(집하) 후 저녁부터 실시간 이동흐름이 표시됩니다.
-                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="py-3 px-3 bg-amber-50/80 border border-amber-200 rounded-lg text-center space-y-1">
+                                                                        <div className="text-[13px] font-extrabold text-amber-900 flex items-center justify-center gap-1.5">
+                                                                            <span>📦 현재 상품을 꼼꼼하게 포장 중입니다!</span>
                                                                         </div>
-                                                                    )}
-                                                                </div>
-                                                            )}
+                                                                        <div className="text-[11.5px] text-amber-800 font-semibold leading-relaxed">
+                                                                            롯데택배 운송장이 먼저 출력되어 포장 작업이 진행 중이며,<br/>
+                                                                            롯데택배 기사님 수거(집하) 후 저녁부터 실시간 이동흐름이 표시됩니다.
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
