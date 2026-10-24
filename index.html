@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 322; // 322 => v3.22
+        const VERSION_STEP = 323; // 323 => v3.23
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.24";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec";
@@ -1155,8 +1155,9 @@
 
                     const rootFb = portalSheetCache.fbSnapshot || {};
                     const liveModeVal = rootFb._portal_live_mode || {};
-                    const isLiveNow = Boolean(liveModeVal.isLive);
-                    const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || '');
+                    const hasMainLiveCustomers = Array.isArray(rootFb._portal_orders?.__MAIN_LIVE__?.customers) && rootFb._portal_orders.__MAIN_LIVE__.customers.length > 0;
+                    const isLiveNow = Boolean(liveModeVal.isLive || hasMainLiveCustomers);
+                    const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || rootFb._portal_orders?.__MAIN_LIVE__?.broadcastName || '');
 
                     const bcastAddrsVal = rootFb._portal_broadcast_addresses || {};
                     const confVal = rootFb._portal_confirmed || {};
@@ -1166,7 +1167,7 @@
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
                         staffDirectData.historyList.forEach(sheetCard => {
                             const bName = cleanBroadcastKey(sheetCard.broadcastName || '');
-                            if (!bName || bName === '10/24 라이브' || bName === '오늘의방송') return;
+                            if (!bName || bName === '오늘의방송' || bName === '기본방송') return;
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
                             const safeNickKey = String(sheetCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
                             const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey];
@@ -1192,14 +1193,17 @@
                         });
                     }
 
-                    // 오직 현재 생방송(isLiveNow)이 켜져 있을 때만 __MAIN_LIVE__ 실시간 주문서를 추가! (파이어베이스의 해묵은 과거 방송 방은 절대 합치지 않음!)
+                    // 현재 생방송 중이거나 __MAIN_LIVE__ 실시간 주문서에 고객 주문이 들어있으면 방송 이름과 관계없이 100% 최우선으로 합쳐서 표시!
                     if (isLiveNow && fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
                             const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
-                            if (fbBName === '10/24 라이브' || hasDummyItem) return;
+                            if (hasDummyItem) return;
                             if (fbItem._isLiveSource || (activeLiveBName && fbBName === activeLiveBName)) {
-                                rawCombinedList.push(fbItem);
+                                rawCombinedList.push({
+                                    ...fbItem,
+                                    broadcastName: fbBName || activeLiveBName || '실시간 라이브'
+                                });
                             }
                         });
                     }
