@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 328; // 328 => v3.28
+        const VERSION_STEP = 329; // 329 => v3.29
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.27";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyVKpxs5-zeLVKZ3cBXrma01YbGZUYdubGeeo6m-LoXnoE810HUc1lNJUBnJfz4Kgqg/exec";
@@ -1256,6 +1256,16 @@
             const [toastMsg, setToastMsg] = useState("");
             const [showBizFooter, setShowBizFooter] = useState(false);
 
+            // 📢 실시간 공지사항 팝업 상태 및 관리자 바로 수정 모달 상태
+            const [noticeConfig, setNoticeConfig] = useState({ enabled: false, title: "📢 엠버언니 공지사항", content: "", updatedAt: 0 });
+            const [isNoticePopupOpen, setIsNoticePopupOpen] = useState(false);
+            const [isAdminNoticeModalOpen, setIsAdminNoticeModalOpen] = useState(false);
+            const [adminPinInput, setAdminPinInput] = useState("");
+            const [isAdminVerified, setIsAdminVerified] = useState(false);
+            const [editNoticeForm, setEditNoticeForm] = useState({ enabled: true, title: "📢 엠버언니 공지사항", content: "" });
+            const logoClickCountRef = useRef(0);
+            const logoClickTimerRef = useRef(null);
+
             // ⚡ 고객이 포털에 접속하여 닉네임과 비밀번호를 입력하는 동안 백그라운드에서 시트와 파이어베이스 데이터를 미리 로드!
             useEffect(() => {
                 preloadPortalDataInBackground(false);
@@ -1267,10 +1277,79 @@
                     const lm = val._portal_live_mode || {};
                     portalSheetCache.isLiveActive = Boolean(lm.isLive);
                     portalSheetCache.activeBroadcastName = cleanBroadcastKey(lm.activeBroadcastName || '');
+
+                    // 📢 실시간 공지사항 동기화
+                    const nc = val._global_config?.customerNotice || null;
+                    if (nc && typeof nc === 'object') {
+                        setNoticeConfig({
+                            enabled: Boolean(nc.enabled),
+                            title: nc.title || "📢 엠버언니 공지사항",
+                            content: nc.content || "",
+                            updatedAt: Number(nc.updatedAt) || 0
+                        });
+                        if (nc.enabled && String(nc.content || "").trim() !== "") {
+                            const todayStr = new Date().toLocaleDateString('ko-KR');
+                            const dismissKey = `ember_notice_hide_${nc.updatedAt || 0}`;
+                            let isDismissedToday = false;
+                            try {
+                                isDismissedToday = localStorage.getItem(dismissKey) === todayStr;
+                            } catch (e) {}
+                            if (!isDismissedToday) {
+                                setIsNoticePopupOpen(true);
+                            }
+                        } else {
+                            setIsNoticePopupOpen(false);
+                        }
+                    }
                 };
                 ref.on('value', handleSnap);
                 return () => ref.off('value', handleSnap);
             }, []);
+
+            const handleDismissNoticeToday = () => {
+                try {
+                    const todayStr = new Date().toLocaleDateString('ko-KR');
+                    const dismissKey = `ember_notice_hide_${noticeConfig.updatedAt || 0}`;
+                    localStorage.setItem(dismissKey, todayStr);
+                } catch (e) {}
+                setIsNoticePopupOpen(false);
+            };
+
+            const handleOpenAdminNoticeEditor = () => {
+                setEditNoticeForm({
+                    enabled: noticeConfig.enabled,
+                    title: noticeConfig.title || "📢 엠버언니 공지사항",
+                    content: noticeConfig.content || ""
+                });
+                setIsAdminNoticeModalOpen(true);
+            };
+
+            const handleLogoSecretClick = () => {
+                logoClickCountRef.current += 1;
+                clearTimeout(logoClickTimerRef.current);
+                if (logoClickCountRef.current >= 3) {
+                    logoClickCountRef.current = 0;
+                    handleOpenAdminNoticeEditor();
+                } else {
+                    logoClickTimerRef.current = setTimeout(() => {
+                        logoClickCountRef.current = 0;
+                    }, 900);
+                }
+            };
+
+            const handleSaveAdminNotice = async (e) => {
+                if (e && e.preventDefault) e.preventDefault();
+                if (!portalFbDb) return;
+                const payload = {
+                    enabled: Boolean(editNoticeForm.enabled),
+                    title: String(editNoticeForm.title || "📢 엠버언니 공지사항").trim(),
+                    content: String(editNoticeForm.content || "").trim(),
+                    updatedAt: Date.now()
+                };
+                await portalFbDb.ref('ember_live_data/_global_config/customerNotice').set(payload);
+                setIsAdminNoticeModalOpen(false);
+                showToast(payload.enabled ? "📢 고객 공지사항 팝업이 즉시 반영되었습니다!" : "공지사항 팝업이 숨김(OFF) 처리되었습니다.");
+            };
 
             const showToast = (msg) => {
                 setToastMsg(msg);
@@ -1839,6 +1918,143 @@
                         </div>
                     )}
 
+                    {/* 📢 고객용 공지사항 팝업 모달 */}
+                    {isNoticePopupOpen && noticeConfig.enabled && noticeConfig.content && (
+                        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsNoticePopupOpen(false)}>
+                            <div className="bg-white w-full max-w-[360px] rounded-2xl shadow-2xl overflow-hidden border border-gray-200 flex flex-col max-h-[82vh]" onClick={e => e.stopPropagation()}>
+                                <div className="bg-gray-950 text-white px-4 py-3.5 flex items-center justify-between">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+                                        <h3 className="font-extrabold text-[15px] tracking-tight truncate">
+                                            {noticeConfig.title || "📢 엠버언니 공지사항"}
+                                        </h3>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsNoticePopupOpen(false)}
+                                        className="text-gray-400 hover:text-white p-1"
+                                    >
+                                        <Icon name="x" weight="bold" size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="p-4 overflow-y-auto text-[13.5px] text-gray-800 font-semibold leading-relaxed whitespace-pre-wrap break-words bg-amber-50/30">
+                                    {noticeConfig.content}
+                                </div>
+
+                                <div className="px-3.5 py-2.5 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleDismissNoticeToday}
+                                        className="text-[12px] font-bold text-gray-500 hover:text-gray-800 px-2 py-1.5 rounded transition"
+                                    >
+                                        오늘 하루 보지 않기
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsNoticePopupOpen(false)}
+                                        className="px-5 py-2 bg-gray-900 hover:bg-black text-white text-[13px] font-extrabold rounded-lg shadow-sm transition"
+                                    >
+                                        확인 (닫기)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 🛠️ 포털 내 관리자 공지사항 즉시 수정 모달 (EMBER 로고 연속 3번 터치 시 오픈) */}
+                    {isAdminNoticeModalOpen && (
+                        <div className="fixed inset-0 z-[130] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsAdminNoticeModalOpen(false)}>
+                            <div className="bg-white w-full max-w-[380px] rounded-2xl shadow-2xl p-5 border border-gray-200" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-200">
+                                    <h3 className="font-extrabold text-[15px] text-gray-900 flex items-center gap-1.5">
+                                        <Icon name="megaphone" weight="fill" className="text-red-600" size={18} />
+                                        <span>고객 공지사항 팝업 관리</span>
+                                    </h3>
+                                    <button type="button" onClick={() => setIsAdminNoticeModalOpen(false)} className="text-gray-400 hover:text-gray-700">
+                                        <Icon name="x" weight="bold" size={18} />
+                                    </button>
+                                </div>
+
+                                {!isAdminVerified ? (
+                                    <form
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            const savedStaffPass = portalSheetCache.fbSnapshot?._global_config?.staffAccessPasscode || "1234";
+                                            if (adminPinInput === "003637" || adminPinInput === String(savedStaffPass)) {
+                                                setIsAdminVerified(true);
+                                                setAdminPinInput("");
+                                            } else {
+                                                showToast("관리자 비밀번호가 일치하지 않습니다.");
+                                            }
+                                        }}
+                                        className="space-y-3"
+                                    >
+                                        <p className="text-xs text-gray-600 font-semibold">관리자 비밀번호를 입력해 주세요.</p>
+                                        <input
+                                            type="password"
+                                            value={adminPinInput}
+                                            onChange={e => setAdminPinInput(e.target.value)}
+                                            placeholder="관리자 비밀번호 입력"
+                                            autoFocus
+                                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm font-bold outline-none focus:border-black"
+                                        />
+                                        <div className="flex gap-2">
+                                            <button type="button" onClick={() => setIsAdminNoticeModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">취소</button>
+                                            <button type="submit" className="flex-1 py-2.5 bg-gray-900 text-white rounded-lg text-xs font-extrabold">확인</button>
+                                        </div>
+                                    </form>
+                                ) : (
+                                    <form onSubmit={handleSaveAdminNotice} className="space-y-3 text-xs">
+                                        <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-lg border border-gray-200">
+                                            <span className="font-extrabold text-gray-800">고객 접속 시 팝업 띄우기</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditNoticeForm(p => ({ ...p, enabled: !p.enabled }))}
+                                                className={`px-3 py-1 rounded-full font-extrabold text-xs transition ${
+                                                    editNoticeForm.enabled
+                                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                                        : 'bg-gray-300 text-gray-700'
+                                                }`}
+                                            >
+                                                {editNoticeForm.enabled ? '🟢 팝업 켜짐 (ON)' : '⚫ 팝업 꺼짐 (OFF)'}
+                                            </button>
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-extrabold text-gray-700 mb-1">공지 제목</label>
+                                            <input
+                                                type="text"
+                                                value={editNoticeForm.title}
+                                                onChange={e => setEditNoticeForm(p => ({ ...p, title: e.target.value }))}
+                                                placeholder="📢 엠버언니 공지사항"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg font-bold text-gray-900 outline-none focus:border-blue-600"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-extrabold text-gray-700 mb-1">공지 내용 (줄바꿈 그대로 표시됩니다)</label>
+                                            <textarea
+                                                value={editNoticeForm.content}
+                                                onChange={e => setEditNoticeForm(p => ({ ...p, content: e.target.value }))}
+                                                placeholder="예: 택배사 물량 증가로 인해 이번 주 출고분은 평일 기준 2~3일 소요됩니다. 감사합니다 💖"
+                                                rows={6}
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg font-semibold text-gray-900 outline-none focus:border-blue-600 resize-y leading-relaxed"
+                                            />
+                                        </div>
+
+                                        <div className="flex gap-2 pt-1">
+                                            <button type="button" onClick={() => setIsAdminNoticeModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-bold">닫기</button>
+                                            <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-extrabold shadow-sm">
+                                                저장 및 즉시 반영
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {!currentUser ? (
                         <div className="w-full max-w-[420px] min-h-[100dvh] sm:min-h-[760px] bg-[#2c2a29] sm:rounded-2xl shadow-lg border-0 sm:border border-gray-300 relative flex flex-col justify-end overflow-y-auto">
                             <img 
@@ -1851,8 +2067,27 @@
                                 className="absolute inset-0 w-full h-full object-cover object-top select-none pointer-events-none transition-all duration-300"
                             />
 
+                            {noticeConfig.enabled && noticeConfig.content && (
+                                <div className="absolute top-3 right-3 z-30">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsNoticePopupOpen(true)}
+                                        className="px-3 py-1.5 bg-black/75 hover:bg-black text-amber-300 backdrop-blur-md rounded-full text-xs font-extrabold shadow-lg border border-white/20 flex items-center gap-1.5 transition"
+                                    >
+                                        <Icon name="megaphone" weight="fill" size={14} />
+                                        <span>공지사항 보기</span>
+                                    </button>
+                                </div>
+                            )}
+
                             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-4">
-                                <h1 className="text-[#f8f5f0] text-[48px] sm:text-[54px] font-serif tracking-[0.3em] pl-[0.3em] font-medium drop-shadow-2xl translate-y-2" style={{ textShadow: '0 4px 25px rgba(0,0,0,0.75)' }}>EMBER</h1>
+                                <h1
+                                    onClick={handleLogoSecretClick}
+                                    className="text-[#f8f5f0] text-[48px] sm:text-[54px] font-serif tracking-[0.3em] pl-[0.3em] font-medium drop-shadow-2xl translate-y-2 pointer-events-auto cursor-default select-none"
+                                    style={{ textShadow: '0 4px 25px rgba(0,0,0,0.75)' }}
+                                >
+                                    EMBER
+                                </h1>
                             </div>
 
                             <div className="relative z-20 px-3 pb-6 pt-2 safe-bottom mt-auto">
@@ -1963,6 +2198,16 @@
                                         )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
+                                        {noticeConfig.enabled && noticeConfig.content && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsNoticePopupOpen(true)}
+                                                className="text-[12px] font-extrabold bg-amber-50 hover:bg-amber-100 text-amber-800 px-2.5 py-1.5 rounded-lg border border-amber-300 flex items-center gap-1 transition-all"
+                                            >
+                                                <Icon name="megaphone" weight="fill" size={13} className="text-amber-600" />
+                                                <span>공지</span>
+                                            </button>
+                                        )}
                                         <button 
                                             onClick={() => handleLogin(null, currentUser.nickname, currentUser.phoneLast4 || pinInput, true)}
                                             disabled={isRefreshing || isLoading}
