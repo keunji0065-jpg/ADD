@@ -95,10 +95,10 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 326; // 326 => v3.26
+        const VERSION_STEP = 328; // 328 => v3.28
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
-        const PORTAL_UPDATED_DATE = "2026.10.24";
-        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbx_kCIKu48TAyTmxSv0lu_DUk-rPeth_v0dDf9QCDC03cHEX43Zd3inDJ3Q6cFv87Q/exec";
+        const PORTAL_UPDATED_DATE = "2026.10.27";
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyVKpxs5-zeLVKZ3cBXrma01YbGZUYdubGeeo6m-LoXnoE810HUc1lNJUBnJfz4Kgqg/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
         const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_IuqtG/chat";
@@ -263,15 +263,31 @@
 
         const getNickMatchScore = (dbNick, dbRealname, userInput) => {
             if (!userInput || !dbNick) return 0;
-            const nDb = normalizeNick(dbNick);
-            const nIn = normalizeNick(userInput);
+            const rawDb = String(dbNick).trim();
+            const rawIn = String(userInput).trim();
+            const nDb = normalizeNick(rawDb);
+            const nIn = normalizeNick(rawIn);
             if (!nIn || !nDb) return 0;
 
-            if (nDb === nIn) return 3;
-            const cDb = cleanHandle(dbNick);
-            const cIn = cleanHandle(userInput);
+            // 1순위: 전체 닉네임 100% 완전 일치 (점수 4점)
+            if (nDb === nIn) return 4;
+
+            // ⚠️ 만약 사용자가 직접 핸들(-3k4)이나 뒤에 숫자(홍당무1)를 붙여서 입력했는데 DB 닉네임과 다르다면 다른 사람이므로 즉시 0점 차단!
+            const inHasHandle = /-[a-zA-Z0-9_]{1,10}$/.test(rawIn);
+            const dbHasHandle = /-[a-zA-Z0-9_]{1,10}$/.test(rawDb);
+            if (inHasHandle && nDb !== nIn) return 0;
+
+            const inTrailingNum = (rawIn.replace(/-[a-zA-Z0-9_]{1,10}$/, '').match(/(\d+)$/) || [])[1] || '';
+            const dbTrailingNum = (rawDb.replace(/-[a-zA-Z0-9_]{1,10}$/, '').match(/(\d+)$/) || [])[1] || '';
+            // 홍당무1 vs 홍당무2 처럼 뒤 숫자가 다르면 완전히 다른 사람!
+            if (inTrailingNum !== dbTrailingNum) return 0;
+
+            // 2순위: 유튜브 자동 핸들(-3k4 등)만 뗀 기본 닉네임이 100% 일치할 때 (점수 3점)
+            const cDb = cleanHandle(rawDb);
+            const cIn = cleanHandle(rawIn);
             if (cDb && cIn && cDb === cIn) return 3;
 
+            // 3순위: 한글 부분 일치 (단, 숫자가 붙은 다른 닉네임끼리는 위에서 이미 차단됨)
             const kDb = extractKorean(cDb || nDb);
             const kIn = extractKorean(cIn || nIn);
             if (kDb && kIn) {
@@ -282,9 +298,6 @@
                 if (vDb.length >= 2 && vDb === vIn) return 2;
                 if (vIn.length >= 2 && vDb.length >= 2 && vDb.includes(vIn)) return 2;
             }
-
-            if (nIn.length >= 2 && nDb.length >= 2 && nDb.includes(nIn)) return 2;
-            if (cIn.length >= 2 && cDb.length >= 2 && cDb.includes(cIn)) return 2;
 
             const nReal = normalizeNick(dbRealname);
             if (nReal && nIn.length >= 2 && nReal === nIn) return 1;
@@ -567,42 +580,70 @@
             if (!Array.isArray(rawList) || rawList.length === 0) return [];
             const normInPin = normalizePin4(cleanPinInput);
 
-            // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 카드가 하나라도 있는지 확인 (본인 인증 완료 여부)
-            const hasAnyPinVerifiedCard = rawList.some(item => {
-                if (!item || !item.nickname) return false;
+            // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 정확한 닉네임들을 먼저 찾음!
+            // ⚠️ 핵심: 홍당무-3k4(비번 1111)와 홍당무-5kj(비번 2222)가 있을 때, 비번 1111을 친 사람에게는 오직 홍당무-3k4만 허용하고 홍당무-5kj는 100% 배제!
+            const pinVerifiedNicks = new Set();
+            const pinMismatchedNicks = new Set();
+
+            rawList.forEach(item => {
+                if (!item || !item.nickname) return;
                 const itemPin = normalizePin4(
                     item.phoneLast4 ||
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
                 const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput);
-                return sc > 0 && itemPin && normInPin && itemPin === normInPin;
+                if (sc <= 0) return;
+
+                const exactKey = normalizeNick(item.nickname);
+                if (itemPin && normInPin) {
+                    if (itemPin === normInPin) {
+                        pinVerifiedNicks.add(exactKey);
+                    } else {
+                        pinMismatchedNicks.add(exactKey);
+                    }
+                }
             });
 
             const step1 = rawList.filter(item => {
                 if (!item || !item.nickname) return false;
+                const exactKey = normalizeNick(item.nickname);
                 const itemPin = normalizePin4(
                     item.phoneLast4 ||
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
-                // 다른 번호가 명시적으로 적혀 있는 타인의 주문은 무조건 차단
-                if (itemPin && normInPin && itemPin !== normInPin) {
-                    return false;
-                }
+                // 비밀번호가 다르면 무조건 차단!
+                if (itemPin && normInPin && itemPin !== normInPin) return false;
+                if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
+
                 const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput);
                 const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick) : 0;
-                if (sc <= 0 && lockedSc <= 0) {
-                    return false;
-                }
-                // 다른 방송 카드에서 이미 본인 비밀번호(뒷4자리) 인증이 통과되었다면, 오늘 생방송 카드에 아직 전화번호가 없더라도 통과!
-                if (!itemPin && !hasAnyPinVerifiedCard && sc < 2 && lockedSc < 2) {
-                    return false;
+                if (sc <= 0 && lockedSc <= 0) return false;
+
+                // 이 닉네임(예: 홍당무-3k4)이 다른 방송에서라도 본인 비번 인증이 완료된 닉네임이면 통과!
+                if (pinVerifiedNicks.has(exactKey)) return true;
+
+                // 만약 비밀번호가 아직 없는 신규 생방송 카드인데, 다른 동명이인(홍당무-5kj)이 이미 비번 인증된 상태라면, 핸들이 다른 카드는 절대 끼어들지 못하게 차단!
+                if (!itemPin) {
+                    if (pinVerifiedNicks.size > 0) {
+                        // 오직 비번 인증된 닉네임과 전체 닉네임이 같거나, 한쪽이 핸들 없는 순수 동일 닉네임일 때만 허용
+                        const itemHasHandle = /-[a-zA-Z0-9_]{1,10}$/.test(String(item.nickname).trim());
+                        if (itemHasHandle) return false;
+                        const cHandle = cleanHandle(item.nickname);
+                        const matchesVerifiedBase = Array.from(pinVerifiedNicks).some(vn => cleanHandle(vn) === cHandle);
+                        return matchesVerifiedBase;
+                    }
+                    return sc >= 3;
                 }
                 return true;
             });
 
             if (step1.length === 0) return [];
 
+            // 점수 및 비밀번호 일치 여부에 따라 가장 정확한 주인공 닉네임 1개(예: 홍당무-3k4)를 확정!
             step1.sort((a, b) => {
+                const aPinOk = pinVerifiedNicks.has(normalizeNick(a.nickname)) ? 10 : 0;
+                const bPinOk = pinVerifiedNicks.has(normalizeNick(b.nickname)) ? 10 : 0;
+                if (aPinOk !== bPinOk) return bPinOk - aPinOk;
                 const scA = getNickMatchScore(a.nickname, a.address?.realname || "", lockedFullNick || rawNickInput);
                 const scB = getNickMatchScore(b.nickname, b.address?.realname || "", lockedFullNick || rawNickInput);
                 return scB - scA;
@@ -611,17 +652,28 @@
             const bestNick = lockedFullNick || step1[0].nickname;
             const bestNorm = normalizeNick(bestNick);
             const bestHandle = cleanHandle(bestNick);
-            const bestKor = extractKorean(bestHandle || bestNorm);
+            const bestHasExplicitHandle = /-[a-zA-Z0-9_]{1,10}$/.test(String(bestNick).trim());
 
-            // 핸들 꼬리표(-ab12 등)가 붙어 있거나 빠진 동일 고객의 이전/현재 방송 주문이 절대 누락되지 않도록 통합 유지!
+            // ⚠️ 최종 필터: 홍당무-3k4와 홍당무-5kj가 절대 한 화면에 섞이지 않도록 분리!
             return step1.filter(item => {
                 const itemNorm = normalizeNick(item.nickname);
-                const itemHandle = cleanHandle(item.nickname);
-                const itemKor = extractKorean(itemHandle || itemNorm);
                 if (itemNorm === bestNorm) return true;
-                if (bestHandle && itemHandle && itemHandle === bestHandle) return true;
-                if (bestKor && itemKor && bestKor.length >= 2 && itemKor === bestKor) return true;
-                if (getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput) >= 2) return true;
+
+                // 만약 둘 다 서로 다른 명시적 핸들(-3k4 vs -5kj)을 가지고 있다면, 설령 비밀번호 뒷자리가 우연히 같더라도 다른 계정일 수 있으므로 비밀번호까지 둘 다 일치할 때만 허용하고 그 외에는 칼같이 분리!
+                const itemHasExplicitHandle = /-[a-zA-Z0-9_]{1,10}$/.test(String(item.nickname).trim());
+                if (bestHasExplicitHandle && itemHasExplicitHandle && itemNorm !== bestNorm) {
+                    const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
+                    return Boolean(itemPin && normInPin && itemPin === normInPin);
+                }
+
+                // 한쪽은 핸들이 있고(홍당무-3k4) 예전 방송에는 핸들 없이(홍당무) 적힌 경우: 뒷 4자리 번호가 다르면 차단, 같거나 없을 때만 같은 사람으로 연결
+                if (bestHandle && cleanHandle(item.nickname) === bestHandle) {
+                    const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
+                    if (itemPin && normInPin && itemPin !== normInPin) return false;
+                    // 홍당무1 vs 홍당무2 처럼 숫자가 다르면 차단
+                    if (getNickMatchScore(item.nickname, "", bestNick) <= 0) return false;
+                    return true;
+                }
                 return false;
             });
         };
@@ -642,48 +694,32 @@
             }
         };
 
-        const fetchSheetDirectGviz = (sheetId, sheetName) => {
-            return new Promise((resolve) => {
-                let settled = false;
-                const cbName = `portal_gviz_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-                const timer = setTimeout(() => {
-                    if (!settled) { settled = true; window[cbName] = () => {}; resolve(null); }
-                }, 5500);
-
-                window[cbName] = (res) => {
-                    if (settled) return;
-                    settled = true;
-                    clearTimeout(timer);
-                    window[cbName] = () => {};
-                    if (!res || res.status === 'error' || !res.table) {
-                        resolve(null);
-                        return;
-                    }
-                    const cols = (res.table.cols || []).map((c, idx) => String(c?.label || '').trim() || `col_${idx}`);
-                    const rows = (res.table.rows || []).map(r => {
-                        const obj = {};
-                        (r.c || []).forEach((cell, idx) => {
-                            const val = cell ? (cell.f !== undefined && cell.f !== null ? String(cell.f) : (cell.v !== undefined && cell.v !== null ? String(cell.v) : '')) : '';
-                            obj[cols[idx] || `col_${idx}`] = val;
-                            obj[`col_${idx}`] = val;
-                        });
-                        return obj;
+        const fetchSheetDirectGviz = async (sheetId, sheetName) => {
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 5500);
+                const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&headers=1&t=${Date.now()}`;
+                const response = await fetch(url, { signal: controller.signal });
+                clearTimeout(timer);
+                const text = await response.text();
+                const jsonStart = text.indexOf('{');
+                const jsonEnd = text.lastIndexOf('}');
+                if (jsonStart === -1 || jsonEnd === -1) return null;
+                const res = JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+                if (!res || res.status === 'error' || !res.table) return null;
+                const cols = (res.table.cols || []).map((c, idx) => String(c?.label || '').trim() || `col_${idx}`);
+                return (res.table.rows || []).map(r => {
+                    const obj = {};
+                    (r.c || []).forEach((cell, idx) => {
+                        const val = cell ? (cell.f !== undefined && cell.f !== null ? String(cell.f) : (cell.v !== undefined && cell.v !== null ? String(cell.v) : '')) : '';
+                        obj[cols[idx] || `col_${idx}`] = val;
+                        obj[`col_${idx}`] = val;
                     });
-                    resolve(rows);
-                };
-
-                try {
-                    const script = document.createElement('script');
-                    script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${encodeURIComponent(sheetName)}&headers=1&t=${Date.now()}`;
-                    script.onerror = () => {
-                        if (!settled) { settled = true; clearTimeout(timer); window[cbName] = () => {}; resolve(null); }
-                    };
-                    document.body.appendChild(script);
-                    setTimeout(() => { try { if (script.parentNode) script.parentNode.removeChild(script); } catch (e) {} }, 6000);
-                } catch (e) {
-                    if (!settled) { settled = true; clearTimeout(timer); resolve(null); }
-                }
-            });
+                    return obj;
+                });
+            } catch (e) {
+                return null;
+            }
         };
 
         const lookupOrderFromStaffSheetDirect = async (rawNick, cleanPin, forceFresh = false) => {
