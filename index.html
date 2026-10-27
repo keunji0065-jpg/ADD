@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 329; // 329 => v3.29
+        const VERSION_STEP = 330; // 330 => v3.30
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.27";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyVKpxs5-zeLVKZ3cBXrma01YbGZUYdubGeeo6m-LoXnoE810HUc1lNJUBnJfz4Kgqg/exec";
@@ -451,12 +451,12 @@
             return 0;
         };
 
-        // 방송 이름(broadcastName) + 방송 날짜(MM/DD) + 품목 구성을 모두 대조하여 옛날 이름('10/20 악세사리', '10/18 여성복') 중복을 100% 하나로 합치는 함수
+        // 방송 이름(broadcastName) 기준으로만 정확히 중복을 제거하여, 같은 날짜의 서로 다른 방송('10/26 스카프' vs '10/26 사무실악세', '10/20 악세사리' vs '10/20 모이사')이 절대 합쳐지거나 누락되지 않도록 보호하는 함수!
         const deduplicateHistoryByBroadcastName = (list) => {
             if (!Array.isArray(list)) return [];
             const map = new Map();
 
-            // 실시간 생방송 데이터(_isLiveSource) > 직원이 수정한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 시트 데이터(_fromStaffSheet) 순으로 우선 정렬
+            // 실시간 생방송 데이터(_isLiveSource) > 직원이 수정한 실시간 클라우드 데이터(_fromStaffRealtime) > 실제 직원 시트 데이터(_fromStaffSheet) 순으로 우선 정렬
             const prioritized = [...list].sort((a, b) => {
                 const aScore = (a?._isLiveSource ? 8 : 0) + (a?._fromStaffRealtime ? 4 : 0) + (a?._fromStaffSheet ? 2 : 0);
                 const bScore = (b?._isLiveSource ? 8 : 0) + (b?._fromStaffRealtime ? 4 : 0) + (b?._fromStaffSheet ? 2 : 0);
@@ -473,29 +473,12 @@
                     bKey = `${bKey} (실시간 라이브)`;
                 }
 
-                const itemMd = extractMonthDayKey(bKey);
-                const itemSig = getOrderItemsSignature(item);
-
+                // 오직 방송 이름(bKey)이 100% 똑같고 생방송 여부가 같을 때만 병합! (같은 날짜라도 '10/26 스카프'와 '10/26 사무실악세'는 절대 합치지 않음!)
                 let matchedKey = null;
                 if (map.has(bKey)) {
                     const ex = map.get(bKey);
-                    // 생방송 카드와 일반 마감 시트 카드는 이름이 같아도 합치지 않고 별도 탭으로 분리 보호!
                     if (Boolean(ex._isLiveSource) === Boolean(item._isLiveSource)) {
                         matchedKey = bKey;
-                    }
-                } else if (!item._isLiveSource) {
-                    for (const [existKey, existVal] of map.entries()) {
-                        if (existVal._isLiveSource) continue;
-                        const existMd = extractMonthDayKey(existKey);
-                        const existSig = getOrderItemsSignature(existVal);
-                        if (itemMd && existMd && itemMd === existMd) {
-                            matchedKey = existKey;
-                            break;
-                        }
-                        if (itemSig && existSig && itemSig === existSig) {
-                            matchedKey = existKey;
-                            break;
-                        }
                     }
                 }
 
@@ -509,10 +492,12 @@
                     const existing = map.get(matchedKey);
                     const exItems = Array.isArray(existing.items) ? existing.items : [];
                     const newItems = Array.isArray(item.items) ? item.items : [];
-                    const bestItems = (existing._isLiveSource || existing._fromStaffRealtime)
+                    const preferExisting = Boolean(existing._isLiveSource || existing._fromStaffRealtime);
+                    const preferIncoming = Boolean(!preferExisting && (item._isLiveSource || item._fromStaffRealtime));
+                    const bestItems = preferExisting
                         ? exItems
-                        : ((item._isLiveSource || item._fromStaffRealtime) ? newItems : (newItems.length >= exItems.length ? newItems : exItems));
-                    const finalBName = existing._isLiveSource ? existing.broadcastName : (existing._fromStaffSheet ? existing.broadcastName : (item._fromStaffSheet ? bKey : existing.broadcastName));
+                        : (preferIncoming ? newItems : (newItems.length >= exItems.length ? newItems : exItems));
+                    const finalBName = existing.broadcastName || bKey;
 
                     const mergedCard = {
                         ...item,
@@ -523,23 +508,21 @@
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
                         items: bestItems,
-                        depositTotal: (existing._fromStaffRealtime || existing._isLiveSource)
+                        shipping: preferExisting
+                            ? (Number(existing.shipping) || 0)
+                            : (preferIncoming ? (Number(item.shipping) || 0) : (existing.shipping !== undefined ? Number(existing.shipping) : Number(item.shipping) || 0)),
+                        depositTotal: preferExisting
                             ? (Number(existing.depositTotal) || 0)
-                            : ((item._fromStaffRealtime || item._isLiveSource) ? (Number(item.depositTotal) || 0) : Math.max(Number(existing.depositTotal) || 0, Number(item.depositTotal) || 0)),
-                        deposits: (existing._fromStaffRealtime || existing._isLiveSource)
+                            : (preferIncoming ? (Number(item.depositTotal) || 0) : Math.max(Number(existing.depositTotal) || 0, Number(item.depositTotal) || 0)),
+                        deposits: preferExisting
                             ? (Array.isArray(existing.deposits) ? existing.deposits : [])
-                            : ((Array.isArray(existing.deposits) && existing.deposits.length > 0) ? existing.deposits : (item.deposits || [])),
-                        address: existing._hasBcastCustomAddr ? existing.address : (existing.address || item.address),
+                            : (preferIncoming ? (Array.isArray(item.deposits) ? item.deposits : []) : ((Array.isArray(existing.deposits) && existing.deposits.length > 0) ? existing.deposits : (item.deposits || []))),
+                        address: existing._hasBcastCustomAddr ? existing.address : (item._hasBcastCustomAddr ? item.address : (existing.address || item.address)),
                         trackingNumbers: (Array.isArray(existing.trackingNumbers) && existing.trackingNumbers.length > 0) ? existing.trackingNumbers : (item.trackingNumbers || []),
                         isConfirmed: Boolean(existing.isConfirmed || item.isConfirmed)
                     };
 
-                    if (finalBName !== matchedKey) {
-                        map.delete(matchedKey);
-                        map.set(finalBName, mergedCard);
-                    } else {
-                        map.set(matchedKey, mergedCard);
-                    }
+                    map.set(finalBName, mergedCard);
                 }
             });
             return Array.from(map.values());
@@ -1510,15 +1493,47 @@
                     const rootFb = portalSheetCache.fbSnapshot || {};
                     const liveModeVal = rootFb._portal_live_mode || {};
                     const hasMainLiveCustomers = Array.isArray(rootFb._portal_orders?.__MAIN_LIVE__?.customers) && rootFb._portal_orders.__MAIN_LIVE__.customers.length > 0;
-                    const hasBossSheetCustomers = bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList) && bossLiveSheetData.historyList.length > 0;
-                    const isLiveNow = Boolean(liveModeVal.isLive || hasMainLiveCustomers || hasBossSheetCustomers);
+                    const isLiveNow = Boolean(liveModeVal.isLive && hasMainLiveCustomers);
                     const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || rootFb._portal_orders?.__MAIN_LIVE__?.broadcastName || '');
 
                     const bcastAddrsVal = rootFb._portal_broadcast_addresses || {};
                     const confVal = rootFb._portal_confirmed || {};
                     const credVal = rootFb._portal_credits || {};
+                    const validSheetSet = new Set(Array.isArray(staffDirectData?.validSheetBroadcasts) ? staffDirectData.validSheetBroadcasts : []);
 
                     const rawCombinedList = [];
+
+                    // 1순위: 직원용 시스템에서 실시간으로 동기화한 클라우드 데이터(_portal_orders) 및 직원용 구글 시트(staffDirectData) 모두 가져오기!
+                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
+                        fbInstantData.historyList.forEach(fbItem => {
+                            const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
+                            const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
+                            if (hasDummyItem) return;
+
+                            if (fbItem._isLiveSource) {
+                                // 현재 사장님 주문서가 진짜 생방송 중일 때만 __MAIN_LIVE__ 표시
+                                if (isLiveNow) {
+                                    const displayLiveTitle = (!fbBName || fbBName === '오늘의방송' || fbBName === '기본방송') ? '오늘의 라이브' : fbBName;
+                                    rawCombinedList.push({
+                                        ...fbItem,
+                                        broadcastName: displayLiveTitle,
+                                        _isLiveSource: true
+                                    });
+                                }
+                            } else if (fbBName && fbBName !== '오늘의방송' && fbBName !== '기본방송' && fbBName !== '10/24 라이브') {
+                                // 직원용 시스템에 있는 모든 마감 방송 데이터 반영 (시트가 로드된 경우 시트에 존재하는 방송이거나 방금 마감된 방송 모두 포함)
+                                if (validSheetSet.size === 0 || validSheetSet.has(fbBName) || fbItem._fromStaffRealtime) {
+                                    rawCombinedList.push({
+                                        ...fbItem,
+                                        broadcastName: fbBName,
+                                        _isLiveSource: false
+                                    });
+                                }
+                            }
+                        });
+                    }
+
+                    // 2순위: 직원용 구글 시트('메인주문')에서 직접 읽어온 모든 방송 블록 병합
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
                         staffDirectData.historyList.forEach(sheetCard => {
                             const bName = cleanBroadcastKey(sheetCard.broadcastName || '');
@@ -1550,8 +1565,8 @@
                         });
                     }
 
-                    // 1순위: 사장님의 마스터 구글 시트(DEFAULT_MASTER_SHEET_ID) '메인주문' 탭에 현재 생방송 중인 주문이 있다면 최우선으로 추가!
-                    if (bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
+                    // 3순위: 사장님 주문서가 현재 실시간 생방송 중(isLiveNow === true)일 때만 사장님 마스터 시트의 '메인주문'을 추가로 병합! (생방송 중이 아닐 때는 직원용 시스템 데이터만 깨끗하게 사용)
+                    if (isLiveNow && bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
                         bossLiveSheetData.historyList.forEach(liveCard => {
                             const bName = cleanBroadcastKey(liveCard.broadcastName || activeLiveBName || '오늘의 라이브');
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
@@ -1580,46 +1595,6 @@
                                 _isLiveSource: true
                             });
                         });
-                    }
-
-                    // 2순위: 파이어베이스 실시간 주문서(__MAIN_LIVE__) 및 파이어베이스에 백업된 방송 데이터도 함께 병합!
-                    if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
-                        fbInstantData.historyList.forEach(fbItem => {
-                            const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
-                            const hasDummyItem = Array.isArray(fbItem.items) && fbItem.items.some(it => String(it.product || '').includes('222222'));
-                            if (hasDummyItem) return;
-                            if (fbItem._isLiveSource || (isLiveNow && activeLiveBName && fbBName === activeLiveBName)) {
-                                const displayLiveTitle = (!fbBName || fbBName === '오늘의방송' || fbBName === '기본방송') ? '오늘의 라이브' : fbBName;
-                                rawCombinedList.push({
-                                    ...fbItem,
-                                    broadcastName: displayLiveTitle,
-                                    _isLiveSource: true
-                                });
-                            }
-                        });
-                    }
-
-                    // 3순위: 만약 사장님 시트에 '주문_...' 별도 탭으로 저장된 오늘/최근 방송이 있는 경우를 위해 GAS 백엔드(DEFAULT_MASTER_SHEET_ID)도 함께 병합!
-                    if (!hasBossSheetCustomers) {
-                        try {
-                            const bossGasRes = await fetchGasWithRetry(
-                                `${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`,
-                                {},
-                                1
-                            );
-                            if (bossGasRes && bossGasRes.status === "success" && Array.isArray(bossGasRes.historyList)) {
-                                bossGasRes.historyList.forEach(bCard => {
-                                    if (!bCard || bCard.sheetTabName === '메인주문_빈카드' || !Array.isArray(bCard.items) || bCard.items.length === 0) return;
-                                    const bName = cleanBroadcastKey(bCard.broadcastName || bCard.sheetTabName || '');
-                                    const isMainOrderTab = String(bCard.sheetTabName || '').includes('메인주문') || bName === '오늘의방송';
-                                    rawCombinedList.push({
-                                        ...bCard,
-                                        broadcastName: (!bName || bName === '오늘의방송' || bName === '기본방송') ? '오늘의 라이브' : bName,
-                                        _isLiveSource: isMainOrderTab
-                                    });
-                                });
-                            }
-                        } catch (e) {}
                     }
 
                     const combinedInstantList = deduplicateHistoryByBroadcastName(rawCombinedList);
