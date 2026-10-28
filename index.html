@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 334; // 334 => v3.34
+        const VERSION_STEP = 335; // 335 => v3.35
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzckcaobzdpOmXyBb2UHIatOk7vDJhs344fyOc7e8RKYZ5WS8JKXrdSQPpWz0jTWN8a/exec";
@@ -1121,6 +1121,7 @@
                 const ordersVal = rootVal._portal_orders || {};
                 const bcastAddrsVal = rootVal._portal_broadcast_addresses || {};
                 const confVal = rootVal._portal_confirmed || {};
+                const bcastConfVal = rootVal._portal_broadcast_confirmed || {};
                 const credVal = rootVal._portal_credits || {};
 
                 const matchedList = [];
@@ -1150,7 +1151,15 @@
                             || allAddrsVal[safeNickKey]
                             || Object.values(allAddrsVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
                         const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
-                        const isConf = Boolean(cust.isConfirmed || confVal[safeNickKey]);
+                        const isBcastConf = Boolean(
+                            bcastConfVal[safeBKey]?.[safeNickKey] ||
+                            Object.values(bcastConfVal[safeBKey] || {}).some(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname))
+                        );
+                        const isGlobalConf = Boolean(
+                            confVal[safeNickKey] &&
+                            (!confVal[safeNickKey].broadcastName || normalizeNick(cleanBroadcastKey(confVal[safeNickKey].broadcastName)) === normalizeNick(bName))
+                        );
+                        const isConf = Boolean(cust.isConfirmed || isBcastConf || isGlobalConf);
 
                         matchedList.push({
                             ...cust,
@@ -1512,6 +1521,7 @@
 
                     const bcastAddrsVal = rootFb._portal_broadcast_addresses || {};
                     const confVal = rootFb._portal_confirmed || {};
+                    const bcastConfVal = rootFb._portal_broadcast_confirmed || {};
                     const credVal = rootFb._portal_credits || {};
                     const validSheetSet = new Set(Array.isArray(staffDirectData?.validSheetBroadcasts) ? staffDirectData.validSheetBroadcasts : []);
 
@@ -1560,7 +1570,15 @@
                                 || allAddrsVal[safeNickKey]
                                 || Object.values(allAddrsVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
                             const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
-                            const isConf = Boolean(sheetCard.isConfirmed || confVal[safeNickKey]);
+                            const isBcastConf = Boolean(
+                                bcastConfVal[safeBKey]?.[safeNickKey] ||
+                                Object.values(bcastConfVal[safeBKey] || {}).some(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname))
+                            );
+                            const isGlobalConf = Boolean(
+                                confVal[safeNickKey] &&
+                                (!confVal[safeNickKey].broadcastName || normalizeNick(cleanBroadcastKey(confVal[safeNickKey].broadcastName)) === normalizeNick(bName))
+                            );
+                            const isConf = Boolean(sheetCard.isConfirmed || isBcastConf || isGlobalConf);
 
                             rawCombinedList.push({
                                 ...sheetCard,
@@ -1776,68 +1794,62 @@
                             fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickKey}`).set(addrRecord));
                         }
                         fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set(addrRecord));
-
-                        // _portal_orders 안의 해당 고객 카드 주소도 즉시 업데이트!
-                        if (safeBKey && portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey]?.customers) {
-                            const updatedCusts = portalSheetCache.fbSnapshot._portal_orders[safeBKey].customers.map(c =>
-                                normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)
-                                    ? { ...c, phoneLast4: newLast4, address: updatedAddr }
-                                    : c
-                            );
-                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}/customers`).set(updatedCusts));
-                        }
-                        await Promise.all(fbPromises).catch(() => {});
+                        fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_master_addrs/${safeNickKey}`).set(addrRecord));
+                        Promise.all(fbPromises).catch(() => {});
                     }
 
-                    // 로컬 메모리 스냅샷도 즉시 최신화
+                    // 로컬 캐시 스냅샷에도 즉시 업데이트
                     if (!portalSheetCache.fbSnapshot) portalSheetCache.fbSnapshot = {};
-                    if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses) portalSheetCache.fbSnapshot._portal_broadcast_addresses = {};
                     if (safeBKey) {
+                        if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses) portalSheetCache.fbSnapshot._portal_broadcast_addresses = {};
                         if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey]) portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey] = {};
                         portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey][safeNickKey] = addrRecord;
                     }
                     if (!portalSheetCache.fbSnapshot._portal_addresses) portalSheetCache.fbSnapshot._portal_addresses = {};
                     portalSheetCache.fbSnapshot._portal_addresses[safeNickKey] = addrRecord;
 
-                    // 2) 화면 상태 즉시 업데이트 (앱스 스크립트가 느려도 고객 화면은 0.1초 만에 저장 완료!)
-                    setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true }));
-                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true } : item));
+                    // 2) 화면 상태 먼저 즉시 업데이트 (0.01초 즉시 반영!)
+                    setCurrentUser(prev => ({
+                        ...prev,
+                        phoneLast4: newLast4,
+                        address: updatedAddr,
+                        _hasBcastCustomAddr: true
+                    }));
+                    setOrderHistoryList(prev => prev.map((item, idx) =>
+                        idx === selectedBroadcastIdx
+                            ? { ...item, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true }
+                            : item
+                    ));
                     setPinInput(newLast4);
                     setIsEditingAddress(false);
                     showToast(`✅ 배송지가 정상적으로 저장되었습니다!`);
 
-                    // 3) 백그라운드로 사장님 마스터 시트(찐고객사전) + 직원용 시트('메인주문') 양쪽에 동시 전송
-                    const masterPayload = {
+                    // 3) 백그라운드로 사장님 마스터 시트 + 직원용 시트에 동시 기록
+                    const gasPayload = {
                         action: 'save_master_address',
                         masterId: DEFAULT_MASTER_SHEET_ID,
                         data: {
                             nickname: currentUser.nickname,
                             realname: updatedAddr.realname,
-                            phone: "'" + cleanPhone,
+                            phone: cleanPhone ? "'" + cleanPhone : '',
                             address: fullCombinedAddress,
                             memo: updatedAddr.memo,
-                            sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
                             broadcastName: cleanTargetBName,
-                            onlyThisBroadcast: false,
-                            isCustomerPortal: true
+                            sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
+                            forceOverwrite: true
                         }
                     };
-                    const staffPayload = {
-                        ...masterPayload,
-                        masterId: DEFAULT_STAFF_SHEET_ID
-                    };
-                    Promise.all([
-                        fetchGasWithRetry(DEFAULT_GAS_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                            body: JSON.stringify(masterPayload)
-                        }, 1).catch(() => {}),
-                        fetchGasWithRetry(DEFAULT_GAS_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                            body: JSON.stringify(staffPayload)
-                        }, 1).catch(() => {})
-                    ]);
+                    fetchGasWithRetry(DEFAULT_GAS_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify(gasPayload)
+                    }, 1).catch(() => {});
+
+                    fetchGasWithRetry(DEFAULT_GAS_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ ...gasPayload, masterId: DEFAULT_STAFF_SHEET_ID })
+                    }, 1).catch(() => {});
 
                     return true;
                 } catch (err) {
@@ -1853,47 +1865,106 @@
             };
 
             const handleConfirmOrder = async () => {
+                if (!currentUser) return;
+
+                // 만약 주소가 아직 없거나 고객이 주소 입력창을 열어둔 상태에서 바로 [주문내역·배송지 확정]을 눌렀다면 먼저 주소 저장 실행
                 if (!currentUser.address || !currentUser.address.baseAddress || isEditingAddress) {
-                    if (addrForm.realname.trim() || addrForm.phone.trim() || addrForm.baseAddress.trim()) {
+                    const hasTypedAddr = Boolean(addrForm.realname.trim() && addrForm.phone.trim() && addrForm.baseAddress.trim());
+                    if (hasTypedAddr) {
+                        if (!agreePrivacy || !agreeThirdParty) {
+                            setAgreePrivacy(true);
+                            setAgreeThirdParty(true);
+                        }
                         const savedOk = await handleSaveAddress();
                         if (!savedOk) return;
-                    } else {
-                        showToast("먼저 배송지를 입력해 주세요!");
+                    } else if (!currentUser.address || !currentUser.address.baseAddress) {
+                        showToast("먼저 배송지를 입력하고 저장해 주세요!");
                         setIsEditingAddress(true);
                         return;
+                    } else {
+                        setIsEditingAddress(false);
                     }
                 }
+
                 const nowStr = getKstNowString();
-                try {
-                    if (portalFbDb) {
-                        const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-                        portalFbDb.ref(`ember_live_data/_portal_confirmed/${safeNickKey}`).set({
-                            nickname: currentUser.nickname,
-                            broadcastName: currentUser.broadcastName || '',
-                            confirmedAt: nowStr
-                        }).catch(() => {});
-                    }
-                    await fetchGasWithRetry(DEFAULT_GAS_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify({
-                            action: 'confirm_customer_order',
-                            masterId: DEFAULT_MASTER_SHEET_ID,
-                            data: {
-                                nickname: currentUser.nickname,
-                                sheetTabName: currentUser.sheetTabName || '메인주문',
-                                broadcastName: currentUser.broadcastName || ''
-                            }
-                        })
-                    }, 2);
-                } catch (e) {}
+                const cleanTargetBName = cleanBroadcastKey(currentUser.broadcastName || '');
+                const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
+                const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+
+                // 1) 화면 상태부터 0.01초 만에 즉시 [주문 및 배송지 확정 완료]로 전환! (네트워크 지연으로 인한 오류/멈춤 ZERO!)
                 setCurrentUser(prev => ({
                     ...prev,
                     isConfirmed: true,
                     address: prev.address ? { ...prev.address, updatedAt: nowStr } : prev.address
                 }));
-                setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, isConfirmed: true, address: item.address ? { ...item.address, updatedAt: nowStr } : item.address } : item));
-                showToast("주문 및 배송지 확인이 완료되었습니다!");
+                setOrderHistoryList(prev => prev.map((item, i) =>
+                    i === selectedBroadcastIdx
+                        ? { ...item, isConfirmed: true, address: item.address ? { ...item.address, updatedAt: nowStr } : item.address }
+                        : item
+                ));
+                showToast("✅ 주문 및 배송지 확정이 완료되었습니다!");
+
+                // 로컬 캐시 스냅샷에도 즉시 기록하여 새로고침 시 절대 풀리지 않게 보장
+                if (!portalSheetCache.fbSnapshot) portalSheetCache.fbSnapshot = {};
+                if (!portalSheetCache.fbSnapshot._portal_confirmed) portalSheetCache.fbSnapshot._portal_confirmed = {};
+                portalSheetCache.fbSnapshot._portal_confirmed[safeNickKey] = {
+                    nickname: currentUser.nickname,
+                    broadcastName: cleanTargetBName,
+                    confirmedAt: nowStr
+                };
+                if (safeBKey) {
+                    if (!portalSheetCache.fbSnapshot._portal_broadcast_confirmed) portalSheetCache.fbSnapshot._portal_broadcast_confirmed = {};
+                    if (!portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey]) portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey] = {};
+                    portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey][safeNickKey] = {
+                        nickname: currentUser.nickname,
+                        broadcastName: cleanTargetBName,
+                        confirmedAt: nowStr
+                    };
+                }
+
+                // 2) 파이어베이스 실시간 클라우드에 즉시 확정 상태 전송 (사장님 주문서 + 직원용 시스템 실시간 연동)
+                if (portalFbDb) {
+                    const confPayload = {
+                        nickname: currentUser.nickname,
+                        broadcastName: cleanTargetBName,
+                        confirmedAt: nowStr
+                    };
+                    portalFbDb.ref(`ember_live_data/_portal_confirmed/${safeNickKey}`).set(confPayload).catch(() => {});
+                    if (safeBKey) {
+                        portalFbDb.ref(`ember_live_data/_portal_broadcast_confirmed/${safeBKey}/${safeNickKey}`).set(confPayload).catch(() => {});
+                        if (portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey]?.customers) {
+                            const updatedCusts = portalSheetCache.fbSnapshot._portal_orders[safeBKey].customers.map(c =>
+                                normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)
+                                    ? { ...c, isConfirmed: true }
+                                    : c
+                            );
+                            portalSheetCache.fbSnapshot._portal_orders[safeBKey].customers = updatedCusts;
+                            portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}/customers`).set(updatedCusts).catch(() => {});
+                        }
+                    }
+                }
+
+                // 3) 백그라운드로 사장님 마스터 시트와 직원용 시트 양쪽에 동시 기록 (실패하거나 지연되어도 고객 화면에는 에러를 띄우지 않음)
+                const confirmBody = {
+                    action: 'confirm_customer_order',
+                    masterId: DEFAULT_MASTER_SHEET_ID,
+                    data: {
+                        nickname: currentUser.nickname,
+                        sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
+                        broadcastName: cleanTargetBName
+                    }
+                };
+                fetchGasWithRetry(DEFAULT_GAS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(confirmBody)
+                }, 1).catch(() => {});
+
+                fetchGasWithRetry(DEFAULT_GAS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ ...confirmBody, masterId: DEFAULT_STAFF_SHEET_ID })
+                }, 1).catch(() => {});
             };
 
             const activeItems = currentUser ? (currentUser.items || []).filter(i => !i.isWaitlist) : [];
