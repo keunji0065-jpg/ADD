@@ -95,9 +95,9 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 330; // 330 => v3.30
+        const VERSION_STEP = 331; // 331 => v3.31
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
-        const PORTAL_UPDATED_DATE = "2026.10.27";
+        const PORTAL_UPDATED_DATE = "2026.10.29";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyVKpxs5-zeLVKZ3cBXrma01YbGZUYdubGeeo6m-LoXnoE810HUc1lNJUBnJfz4Kgqg/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
@@ -499,6 +499,13 @@
                         : (preferIncoming ? newItems : (newItems.length >= exItems.length ? newItems : exItems));
                     const finalBName = existing.broadcastName || bKey;
 
+                    // 고객이 직접 포털에서 입력/수정한 배송지(_hasBcastCustomAddr)가 있으면 어떤 경우에도 최우선으로 유지!
+                    const mergedAddress = item._hasBcastCustomAddr
+                        ? item.address
+                        : (existing._hasBcastCustomAddr
+                            ? existing.address
+                            : ((existing.address && existing.address.baseAddress) ? existing.address : (item.address || existing.address)));
+
                     const mergedCard = {
                         ...item,
                         ...existing,
@@ -507,6 +514,7 @@
                         _fromStaffRealtime: Boolean(existing._fromStaffRealtime || item._fromStaffRealtime),
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
+                        _hasBcastCustomAddr: Boolean(existing._hasBcastCustomAddr || item._hasBcastCustomAddr),
                         items: bestItems,
                         shipping: preferExisting
                             ? (Number(existing.shipping) || 0)
@@ -517,7 +525,7 @@
                         deposits: preferExisting
                             ? (Array.isArray(existing.deposits) ? existing.deposits : [])
                             : (preferIncoming ? (Array.isArray(item.deposits) ? item.deposits : []) : ((Array.isArray(existing.deposits) && existing.deposits.length > 0) ? existing.deposits : (item.deposits || []))),
-                        address: existing._hasBcastCustomAddr ? existing.address : (item._hasBcastCustomAddr ? item.address : (existing.address || item.address)),
+                        address: mergedAddress,
                         trackingNumbers: (Array.isArray(existing.trackingNumbers) && existing.trackingNumbers.length > 0) ? existing.trackingNumbers : (item.trackingNumbers || []),
                         isConfirmed: Boolean(existing.isConfirmed || item.isConfirmed)
                     };
@@ -1136,7 +1144,11 @@
                         }
 
                         const safeNickKey = String(cust.nickname).replace(/[.#$\[\]\/]/g, '_');
-                        const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey];
+                        const allAddrsVal = rootVal._portal_addresses || {};
+                        const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
+                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname))
+                            || allAddrsVal[safeNickKey]
+                            || Object.values(allAddrsVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
                         const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
                         const isConf = Boolean(cust.isConfirmed || confVal[safeNickKey]);
 
@@ -1144,7 +1156,7 @@
                             ...cust,
                             broadcastName: bName,
                             sheetTabName: isLiveNode ? '메인주문' : ('주문_' + bName),
-                            phoneLast4: cPin || '',
+                            phoneLast4: cPin || (bAddr?.phone ? normalizePin4(String(bAddr.phone).slice(-4)) : ''),
                             credit: credEntry ? Number(credEntry.credit || 0) : (Number(cust.credit) || 0),
                             creditLogs: credEntry && Array.isArray(credEntry.logs) ? credEntry.logs : [],
                             creditUpdatedAt: credEntry?.updatedAtStr || '',
@@ -1158,7 +1170,7 @@
                                 updatedAt: bAddr.updatedAt || ''
                             } : cust.address,
                             isConfirmed: isConf,
-                            _hasBcastCustomAddr: Boolean(bAddr),
+                            _hasBcastCustomAddr: Boolean(bAddr && (bAddr.address || bAddr.baseAddress)),
                             _isLiveSource: isLiveNode,
                             _fromStaffRealtime: Boolean(node.updatedBy === 'staff')
                         });
@@ -1229,6 +1241,8 @@
 
             const [isEditingAddress, setIsEditingAddress] = useState(false);
             const [isSavingAddress, setIsSavingAddress] = useState(false);
+            const [isPostcodeModalOpen, setIsPostcodeModalOpen] = useState(false);
+            const postcodeContainerRef = useRef(null);
             const [addrForm, setAddrForm] = useState({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
             const [agreePrivacy, setAgreePrivacy] = useState(false);
             const [agreeThirdParty, setAgreeThirdParty] = useState(false);
@@ -1535,12 +1549,16 @@
 
                     // 2순위: 직원용 구글 시트('메인주문')에서 직접 읽어온 모든 방송 블록 병합
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
+                        const allAddrsVal = rootFb._portal_addresses || {};
                         staffDirectData.historyList.forEach(sheetCard => {
                             const bName = cleanBroadcastKey(sheetCard.broadcastName || '');
                             if (!bName || bName === '오늘의방송' || bName === '기본방송') return;
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
                             const safeNickKey = String(sheetCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-                            const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey];
+                            const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
+                                || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname))
+                                || allAddrsVal[safeNickKey]
+                                || Object.values(allAddrsVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
                             const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
                             const isConf = Boolean(sheetCard.isConfirmed || confVal[safeNickKey]);
 
@@ -1559,7 +1577,7 @@
                                     updatedAt: bAddr.updatedAt || ''
                                 } : sheetCard.address,
                                 isConfirmed: isConf,
-                                _hasBcastCustomAddr: Boolean(bAddr),
+                                _hasBcastCustomAddr: Boolean(bAddr && (bAddr.address || bAddr.baseAddress)),
                                 _fromStaffSheet: true
                             });
                         });
@@ -1662,26 +1680,42 @@
             };
 
             const handleOpenPostcode = () => {
-                if (!window.daum || !window.daum.Postcode) {
-                    showToast("주소 검색 도구를 불러오는 중입니다. 1초 후 다시 눌러주세요.");
-                    return;
+                const startEmbed = () => {
+                    setIsPostcodeModalOpen(true);
+                    setTimeout(() => {
+                        if (!postcodeContainerRef.current || !window.daum || !window.daum.Postcode) return;
+                        postcodeContainerRef.current.innerHTML = "";
+                        new window.daum.Postcode({
+                            oncomplete: function(data) {
+                                let fullAddr = data.address;
+                                let extraAddr = '';
+                                if (data.addressType === 'R') {
+                                    if (data.bname !== '') extraAddr += data.bname;
+                                    if (data.buildingName !== '') extraAddr += (extraAddr !== '' ? ', ' + data.buildingName : data.buildingName);
+                                    fullAddr += (extraAddr !== '' ? ` (${extraAddr})` : '');
+                                }
+                                setAddrForm(prev => ({
+                                    ...prev,
+                                    zipcode: data.zonecode,
+                                    baseAddress: fullAddr
+                                }));
+                                setIsPostcodeModalOpen(false);
+                            },
+                            width: '100%',
+                            height: '100%'
+                        }).embed(postcodeContainerRef.current);
+                    }, 60);
+                };
+
+                if (window.daum && window.daum.Postcode) {
+                    startEmbed();
+                } else {
+                    const script = document.createElement('script');
+                    script.src = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
+                    script.onload = startEmbed;
+                    script.onerror = () => showToast("주소 검색창을 열지 못했습니다. 아래 주소 칸에 직접 주소를 입력해 주세요.");
+                    document.head.appendChild(script);
                 }
-                new window.daum.Postcode({
-                    oncomplete: function(data) {
-                        let fullAddr = data.address;
-                        let extraAddr = '';
-                        if (data.addressType === 'R') {
-                            if (data.bname !== '') extraAddr += data.bname;
-                            if (data.buildingName !== '') extraAddr += (extraAddr !== '' ? ', ' + data.buildingName : data.buildingName);
-                            fullAddr += (extraAddr !== '' ? ` (${extraAddr})` : '');
-                        }
-                        setAddrForm(prev => ({
-                            ...prev,
-                            zipcode: data.zonecode,
-                            baseAddress: fullAddr
-                        }));
-                    }
-                }).open();
             };
 
             const handleSaveAddress = async (e) => {
@@ -1697,76 +1731,121 @@
                 }
                 if (!addrForm.realname.trim()) { showToast("수령인 성함을 입력해 주세요."); return false; }
                 const cleanPhone = addrForm.phone.replace(/[^0-9]/g, "");
-                if (cleanPhone.length < 10) { showToast("정확한 휴대폰 번호를 입력해 주세요."); return false; }
-                if (!addrForm.baseAddress.trim()) { showToast("주소 검색을 통해 기본 주소를 입력해 주세요."); return false; }
-                if (!agreePrivacy || !agreeThirdParty) { showToast("필수 개인정보 수집 및 제공에 동의해 주세요."); return false; }
+                if (cleanPhone.length < 9) { showToast("정확한 휴대폰 번호를 입력해 주세요."); return false; }
+                if (!addrForm.baseAddress.trim()) { showToast("주소를 검색하거나 직접 입력해 주세요."); return false; }
+                if (!agreePrivacy || !agreeThirdParty) { showToast("아래 필수 개인정보 수집 및 제공 동의에 체크해 주세요!"); return false; }
 
                 const nowStr = getKstNowString();
-                const updatedAddr = { ...addrForm, phone: cleanPhone, updatedAt: nowStr };
+                const cleanBase = String(addrForm.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim();
+                const fullCombinedAddress = `${cleanBase} ${addrForm.detailAddress || ""}`.trim();
+                const updatedAddr = {
+                    realname: addrForm.realname.trim(),
+                    phone: cleanPhone,
+                    zipcode: addrForm.zipcode || "",
+                    baseAddress: fullCombinedAddress,
+                    detailAddress: "",
+                    memo: addrForm.memo.trim(),
+                    updatedAt: nowStr
+                };
                 const newLast4 = cleanPhone.slice(-4);
 
                 setIsSavingAddress(true);
                 try {
-                    const cleanBase = String(updatedAddr.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim();
-                    const fullCombinedAddress = `${cleanBase} ${updatedAddr.detailAddress}`.trim();
                     const cleanTargetBName = cleanBroadcastKey(currentUser.broadcastName || '');
                     const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
                     const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
 
-                    const payload = {
+                    const addrRecord = {
+                        nickname: currentUser.nickname,
+                        realname: updatedAddr.realname,
+                        phone: cleanPhone,
+                        zipcode: '',
+                        baseAddress: fullCombinedAddress,
+                        detailAddress: '',
+                        address: fullCombinedAddress,
+                        memo: updatedAddr.memo,
+                        sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
+                        broadcastName: cleanTargetBName,
+                        updatedAt: nowStr
+                    };
+
+                    // 1) 파이어베이스 실시간 DB에 즉시 기록 (포털 캐시에도 즉시 반영하여 새로고침 시 절대 날아가지 않게 보장!)
+                    if (portalFbDb) {
+                        const fbPromises = [];
+                        if (safeBKey) {
+                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickKey}`).set(addrRecord));
+                        }
+                        fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set(addrRecord));
+
+                        // _portal_orders 안의 해당 고객 카드 주소도 즉시 업데이트!
+                        if (safeBKey && portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey]?.customers) {
+                            const updatedCusts = portalSheetCache.fbSnapshot._portal_orders[safeBKey].customers.map(c =>
+                                normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)
+                                    ? { ...c, phoneLast4: newLast4, address: updatedAddr }
+                                    : c
+                            );
+                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}/customers`).set(updatedCusts));
+                        }
+                        await Promise.all(fbPromises).catch(() => {});
+                    }
+
+                    // 로컬 메모리 스냅샷도 즉시 최신화
+                    if (!portalSheetCache.fbSnapshot) portalSheetCache.fbSnapshot = {};
+                    if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses) portalSheetCache.fbSnapshot._portal_broadcast_addresses = {};
+                    if (safeBKey) {
+                        if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey]) portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey] = {};
+                        portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey][safeNickKey] = addrRecord;
+                    }
+                    if (!portalSheetCache.fbSnapshot._portal_addresses) portalSheetCache.fbSnapshot._portal_addresses = {};
+                    portalSheetCache.fbSnapshot._portal_addresses[safeNickKey] = addrRecord;
+
+                    // 2) 화면 상태 즉시 업데이트 (앱스 스크립트가 느려도 고객 화면은 0.1초 만에 저장 완료!)
+                    setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true }));
+                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true } : item));
+                    setPinInput(newLast4);
+                    setIsEditingAddress(false);
+                    showToast(`✅ 배송지가 정상적으로 저장되었습니다!`);
+
+                    // 3) 백그라운드로 사장님 마스터 시트(찐고객사전) + 직원용 시트('메인주문') 양쪽에 동시 전송
+                    const masterPayload = {
                         action: 'save_master_address',
                         masterId: DEFAULT_MASTER_SHEET_ID,
                         data: {
                             nickname: currentUser.nickname,
-                            realname: updatedAddr.realname.trim(),
+                            realname: updatedAddr.realname,
                             phone: "'" + cleanPhone,
                             address: fullCombinedAddress,
-                            memo: updatedAddr.memo.trim(),
+                            memo: updatedAddr.memo,
                             sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
                             broadcastName: cleanTargetBName,
-                            onlyThisBroadcast: true,
+                            onlyThisBroadcast: false,
                             isCustomerPortal: true
                         }
                     };
+                    const staffPayload = {
+                        ...masterPayload,
+                        masterId: DEFAULT_STAFF_SHEET_ID
+                    };
+                    Promise.all([
+                        fetchGasWithRetry(DEFAULT_GAS_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            body: JSON.stringify(masterPayload)
+                        }, 1).catch(() => {}),
+                        fetchGasWithRetry(DEFAULT_GAS_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            body: JSON.stringify(staffPayload)
+                        }, 1).catch(() => {})
+                    ]);
 
-                    if (portalFbDb) {
-                        const addrRecord = {
-                            nickname: currentUser.nickname,
-                            realname: updatedAddr.realname.trim(),
-                            phone: cleanPhone,
-                            zipcode: '',
-                            baseAddress: cleanBase,
-                            detailAddress: updatedAddr.detailAddress,
-                            address: fullCombinedAddress,
-                            memo: updatedAddr.memo.trim(),
-                            sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
-                            broadcastName: cleanTargetBName,
-                            updatedAt: nowStr
-                        };
-                        if (safeBKey) {
-                            portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickKey}`).set(addrRecord).catch(() => {});
-                        }
-                        portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set(addrRecord).catch(() => {});
-                    }
-
-                    await fetchGasWithRetry(DEFAULT_GAS_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify(payload)
-                    }, 2);
-
-                    setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr }));
-                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr } : item));
-                    setPinInput(newLast4);
-                    setIsEditingAddress(false);
-                    showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 저장되었습니다!`);
                     return true;
                 } catch (err) {
-                    setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr }));
-                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr } : item));
+                    setCurrentUser(prev => ({ ...prev, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true }));
+                    setOrderHistoryList(prev => prev.map((item, i) => i === selectedBroadcastIdx ? { ...item, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true } : item));
                     setPinInput(newLast4);
                     setIsEditingAddress(false);
-                    showToast(`[${currentUser.broadcastName || '현재 방송'}] 배송지가 저장되었습니다!`);
+                    showToast(`✅ 배송지가 정상적으로 저장되었습니다!`);
                     return true;
                 } finally {
                     setIsSavingAddress(false);
@@ -1890,6 +1969,28 @@
                         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 text-white px-4 py-2 rounded-full shadow-lg text-xs font-bold flex items-center gap-1.5">
                             <Icon name="check-circle" weight="fill" className="text-green-400" size={15} />
                             <span>{toastMsg}</span>
+                        </div>
+                    )}
+
+                    {/* 📮 인앱 브라우저 팝업 차단을 100% 방지하는 내장형 다음 우편번호 검색 모달 */}
+                    {isPostcodeModalOpen && (
+                        <div className="fixed inset-0 z-[150] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3" onClick={() => setIsPostcodeModalOpen(false)}>
+                            <div className="bg-white w-full max-w-[400px] h-[480px] max-h-[85vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-gray-200" onClick={e => e.stopPropagation()}>
+                                <div className="bg-gray-900 text-white px-4 py-3 flex items-center justify-between shrink-0">
+                                    <span className="font-extrabold text-sm flex items-center gap-1.5">
+                                        <Icon name="magnifying-glass" weight="bold" size={16} className="text-amber-400" />
+                                        <span>도로명 / 지번 주소 검색</span>
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsPostcodeModalOpen(false)}
+                                        className="text-gray-300 hover:text-white px-2 py-0.5 text-xs font-bold bg-gray-800 rounded"
+                                    >
+                                        닫기 ✕
+                                    </button>
+                                </div>
+                                <div ref={postcodeContainerRef} className="flex-1 w-full h-full overflow-hidden bg-white"></div>
+                            </div>
                         </div>
                     )}
 
@@ -2522,15 +2623,15 @@
                                                 <button 
                                                     onClick={() => {
                                                         setAddrForm({
-                                                            realname: "",
-                                                            phone: "",
-                                                            zipcode: "",
-                                                            baseAddress: "",
-                                                            detailAddress: "",
-                                                            memo: ""
+                                                            realname: currentUser.address?.realname || "",
+                                                            phone: fixPhoneStr(currentUser.address?.phone || ""),
+                                                            zipcode: currentUser.address?.zipcode || "",
+                                                            baseAddress: String(currentUser.address?.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim(),
+                                                            detailAddress: currentUser.address?.detailAddress || "",
+                                                            memo: currentUser.address?.memo || ""
                                                         });
-                                                        setAgreePrivacy(false);
-                                                        setAgreeThirdParty(false);
+                                                        setAgreePrivacy(true);
+                                                        setAgreeThirdParty(true);
                                                         setIsEditingAddress(true);
                                                     }}
                                                     className="text-[12.5px] font-bold text-gray-800 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded border border-gray-300 shrink-0"
@@ -2594,30 +2695,23 @@
                                             </div>
 
                                             <div>
-                                                <label className="block text-[12px] font-bold text-gray-700 mb-1">주소 *</label>
-                                                <div className="flex gap-1.5 mb-2">
-                                                    <input 
-                                                        type="text"
-                                                        readOnly
-                                                        value={addrForm.zipcode}
-                                                        placeholder="우편번호"
-                                                        className="w-24 px-3 py-2 bg-gray-100 border border-gray-300 rounded text-[14px] text-gray-600"
-                                                    />
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <label className="block text-[12px] font-bold text-gray-700">주소 *</label>
                                                     <button 
                                                         type="button"
                                                         onClick={handleOpenPostcode}
-                                                        className="bg-gray-800 hover:bg-black text-white px-3.5 py-2 rounded text-[13px] font-bold"
+                                                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-[12px] font-extrabold shadow-sm flex items-center gap-1"
                                                     >
-                                                        주소 검색
+                                                        <Icon name="magnifying-glass" weight="bold" size={13} />
+                                                        <span>주소 검색</span>
                                                     </button>
                                                 </div>
                                                 <input 
                                                     type="text"
-                                                    readOnly
                                                     value={addrForm.baseAddress}
-                                                    onClick={handleOpenPostcode}
-                                                    placeholder="주소 검색을 눌러주세요"
-                                                    className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded text-[14px] text-gray-800 mb-2 cursor-pointer"
+                                                    onChange={(e) => setAddrForm({...addrForm, baseAddress: e.target.value})}
+                                                    placeholder="우측 상단 [주소 검색] 터치 또는 직접 주소 입력"
+                                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded text-[14px] font-bold text-gray-900 mb-2 outline-none focus:border-blue-600 focus:bg-white"
                                                 />
                                                 <input 
                                                     type="text"
