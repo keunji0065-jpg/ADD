@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 336; // 336 => v3.36
+        const VERSION_STEP = 337; // 337 => v3.37
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzckcaobzdpOmXyBb2UHIatOk7vDJhs344fyOc7e8RKYZ5WS8JKXrdSQPpWz0jTWN8a/exec";
@@ -1488,14 +1488,18 @@
                     const sorted = sortHistoryByNewestDate(cleaned);
                     if (sorted.length === 0) return false;
 
+                    // 노쇼된 방송이 있더라도 다른 정상 주문 방송이 있으면 정상 주문 방송 탭을 제일 먼저 열어서 보여줌! (모든 방송 탭은 상단에 전부 표시됨)
+                    const firstNormalIdx = sorted.findIndex(item => !item.isNoShow);
+                    const initialIdx = firstNormalIdx !== -1 ? firstNormalIdx : 0;
+
                     setOrderHistoryList(sorted);
-                    setSelectedBroadcastIdx(0);
-                    setCurrentUser(sorted[0]);
-                    initAddressState(sorted[0]);
+                    setSelectedBroadcastIdx(initialIdx);
+                    setCurrentUser(sorted[initialIdx]);
+                    initAddressState(sorted[initialIdx]);
                     setIsLoading(false);
                     setIsRefreshing(false);
 
-                    const primaryNick = sorted[0].nickname || rawNick;
+                    const primaryNick = sorted[initialIdx].nickname || rawNick;
                     lookupCustomerCsRecords([primaryNick, rawNick], cleanPin)
                         .then(csList => {
                             if (Array.isArray(csList)) setCustomerCsList(csList);
@@ -2441,13 +2445,17 @@
                                     <section className="bg-red-600 text-white rounded-xl p-4 border-4 border-red-800 shadow-xl space-y-2 text-center animate-pulse">
                                         <div className="text-[20px] font-black tracking-tight flex items-center justify-center gap-1.5">
                                             <Icon name="prohibit" weight="bold" size={26} />
-                                            <span>노쇼 (미입금 주문취소)</span>
+                                            <span>[{cleanBroadcastKey(currentUser.broadcastName)}] 노쇼 취소</span>
                                         </div>
                                         <div className="bg-white text-red-700 font-black text-[15px] py-2.5 px-3 rounded-lg shadow-inner leading-snug">
-                                            ⚠️ 절대 입금하지 마세요! ⚠️<br/>
+                                            ⚠️ 이 방송 주문건은 절대 입금하지 마세요! ⚠️<br/>
                                             <span className="text-[12.5px] font-extrabold text-gray-900">
                                                 입금 기한 경과로 이미 취소된 주문서입니다.<br/>
-                                                지금 임의로 입금하셔도 상품이 발송되지 않습니다.
+                                                {orderHistoryList.some(h => !h.isNoShow) && (
+                                                    <span className="text-blue-700 block mt-1 underline">
+                                                        👉 다른 날짜의 정상 주문 건은 위 [방송 날짜별 주문서 선택] 버튼을 눌러 확인하실 수 있습니다!
+                                                    </span>
+                                                )}
                                             </span>
                                         </div>
                                     </section>
