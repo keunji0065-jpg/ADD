@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 335; // 335 => v3.35
+        const VERSION_STEP = 336; // 336 => v3.36
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzckcaobzdpOmXyBb2UHIatOk7vDJhs344fyOc7e8RKYZ5WS8JKXrdSQPpWz0jTWN8a/exec";
@@ -515,6 +515,7 @@
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
                         _hasBcastCustomAddr: Boolean(existing._hasBcastCustomAddr || item._hasBcastCustomAddr),
+                        isNoShow: Boolean(existing.isNoShow || item.isNoShow),
                         items: bestItems,
                         shipping: preferExisting
                             ? (Number(existing.shipping) || 0)
@@ -793,6 +794,7 @@
                     let sheetAddr = '';
                     let sheetMemo = '';
                     let isVip = false;
+                    let isNoShow = false;
                     let isConfirmed = false;
                     let cardStr = '';
                     let shipNum = blk.dShip;
@@ -819,6 +821,7 @@
                         if (rawM && !sheetMemo) sheetMemo = rawM;
 
                         if (String(row['VIP여부'] || row[`col_${11 + shift}`] || '').trim() === 'O') isVip = true;
+                        if (String(row['노쇼여부'] || row[`col_${12 + shift}`] || '').trim() === 'O') isNoShow = true;
                         if (String(row['주문확인'] || row[`col_${15 + shift}`] || '').trim() === 'O') isConfirmed = true;
                         if (row['카드결제'] && !cardStr) cardStr = String(row['카드결제']).trim();
 
@@ -867,6 +870,7 @@
                         phoneLast4: effPin || '',
                         broadcastName: blk.bName,
                         isVip: isVip,
+                        isNoShow: isNoShow,
                         credit: 0,
                         freeShippingThreshold: blk.fThresh,
                         cardFeeRate: blk.cRate,
@@ -998,6 +1002,7 @@
                     let sheetAddr = '';
                     let sheetMemo = '';
                     let isVip = false;
+                    let isNoShow = false;
                     let isConfirmed = false;
                     let cardStr = '';
                     let shipNum = blk.dShip;
@@ -1024,6 +1029,7 @@
                         if (rawM && !sheetMemo) sheetMemo = rawM;
 
                         if (String(row['VIP여부'] || row[`col_${11 + shift}`] || '').trim() === 'O') isVip = true;
+                        if (String(row['노쇼여부'] || row[`col_${12 + shift}`] || '').trim() === 'O') isNoShow = true;
                         if (String(row['주문확인'] || row[`col_${15 + shift}`] || '').trim() === 'O') isConfirmed = true;
                         if (row['카드결제'] && !cardStr) cardStr = String(row['카드결제']).trim();
 
@@ -1074,6 +1080,7 @@
                         phoneLast4: effPin || '',
                         broadcastName: blk.bName,
                         isVip: isVip,
+                        isNoShow: isNoShow,
                         credit: 0,
                         freeShippingThreshold: blk.fThresh,
                         cardFeeRate: blk.cRate,
@@ -1990,9 +1997,10 @@
             const cardFee = (isCard && rawBalance > 0) ? Math.round(rawBalance * (cardFeeRate / 100)) : 0;
             const finalBalance = rawBalance + cardFee;
 
-            const isPaid = activeItems.length > 0 && finalBalance === 0 && !isCard;
-            const isOverpaid = finalBalance < 0 && !isCard;
-            const isUnpaid = finalBalance > 0 && !isCard;
+            const isNoShowOrder = Boolean(currentUser && currentUser.isNoShow);
+            const isPaid = !isNoShowOrder && activeItems.length > 0 && finalBalance === 0 && !isCard;
+            const isOverpaid = !isNoShowOrder && finalBalance < 0 && !isCard;
+            const isUnpaid = !isNoShowOrder && finalBalance > 0 && !isCard;
             // 고객의 현재 보유적립금은 시트/클라우드에 저장된 최종 잔액 그대로 표시! (과납 등으로 재적립된 적립금이 사라지지 않도록 보호)
             const customerCredit = currentUser ? Math.max(0, Number(currentUser.credit) || 0) : 0;
             const customerCreditLogs = (currentUser && Array.isArray(currentUser.creditLogs)) ? currentUser.creditLogs : [];
@@ -2331,6 +2339,7 @@
                                 <header className="bg-white text-gray-900 px-3.5 py-3 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
                                     <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                         <span className="font-extrabold text-[16px] text-gray-900 truncate">{currentUser.nickname} 님</span>
+                                        {isNoShowOrder && <span className="bg-red-600 text-white border border-red-700 text-[12px] font-black px-2 py-0.5 rounded-md animate-pulse">🚫 노쇼(주문취소)</span>}
                                         {isPaid && <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">완납</span>}
                                         {isUnpaid && <span className="bg-red-50 text-red-600 border border-red-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">미입금</span>}
                                         {isOverpaid && <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[11.5px] font-extrabold px-2 py-0.5 rounded-md">과납</span>}
@@ -2405,12 +2414,17 @@
                                                         onClick={() => handleSelectBroadcast(idx)}
                                                         className={`px-3 py-2 rounded-lg text-[13px] font-extrabold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 border ${
                                                             isSelected
-                                                                ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
-                                                                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                                                                ? (hist.isNoShow ? 'bg-red-600 text-white border-red-700 shadow-sm' : 'bg-blue-600 text-white border-blue-700 shadow-sm')
+                                                                : (hist.isNoShow ? 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100')
                                                         }`}
                                                     >
                                                         <span>{cleanTitle}</span>
-                                                        {idx === 0 && (
+                                                        {hist.isNoShow && (
+                                                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${isSelected ? 'bg-white text-red-700' : 'bg-red-600 text-white'}`}>
+                                                                노쇼
+                                                            </span>
+                                                        )}
+                                                        {idx === 0 && !hist.isNoShow && (
                                                             <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${isSelected ? 'bg-white text-blue-700' : 'bg-blue-100 text-blue-700'}`}>
                                                                 최신
                                                             </span>
@@ -2422,8 +2436,34 @@
                                     </section>
                                 )}
 
+                                {/* 🚨 노쇼 고객 전용 최상단 입금 금지 강력 경고 배너 */}
+                                {isNoShowOrder && (
+                                    <section className="bg-red-600 text-white rounded-xl p-4 border-4 border-red-800 shadow-xl space-y-2 text-center animate-pulse">
+                                        <div className="text-[20px] font-black tracking-tight flex items-center justify-center gap-1.5">
+                                            <Icon name="prohibit" weight="bold" size={26} />
+                                            <span>노쇼 (미입금 주문취소)</span>
+                                        </div>
+                                        <div className="bg-white text-red-700 font-black text-[15px] py-2.5 px-3 rounded-lg shadow-inner leading-snug">
+                                            ⚠️ 절대 입금하지 마세요! ⚠️<br/>
+                                            <span className="text-[12.5px] font-extrabold text-gray-900">
+                                                입금 기한 경과로 이미 취소된 주문서입니다.<br/>
+                                                지금 임의로 입금하셔도 상품이 발송되지 않습니다.
+                                            </span>
+                                        </div>
+                                    </section>
+                                )}
+
                                 {/* 1. 주문 품목 및 금액 영수증 */}
-                                <section className="bg-white rounded-lg p-3.5 border border-gray-200 shadow-sm">
+                                <section className={`bg-white rounded-lg p-3.5 border shadow-sm relative overflow-hidden ${isNoShowOrder ? 'border-2 border-red-500 bg-red-50/20' : 'border-gray-200'}`}>
+                                    {/* 🚨 주문서 한가운데 박히는 초대형 빨간색 노쇼 도장 */}
+                                    {isNoShowOrder && (
+                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20 select-none">
+                                            <div className="border-[6px] border-red-600 text-red-600 px-5 py-2.5 rounded-2xl transform -rotate-12 bg-white/85 backdrop-blur-[1px] shadow-[0_0_25px_rgba(220,38,38,0.45)] flex flex-col items-center">
+                                                <span className="font-black text-[38px] leading-none tracking-tighter">노 쇼</span>
+                                                <span className="font-black text-[15px] tracking-widest mt-1 bg-red-600 text-white px-2.5 py-0.5 rounded">절대 입금 금지</span>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between pb-2.5 mb-2 border-b border-gray-200">
                                         <span className="text-[14px] font-extrabold text-gray-900">
                                             {currentUser.broadcastName || '주문 목록'}
@@ -2438,7 +2478,7 @@
                                     ) : (
                                         <div className="divide-y divide-gray-100">
                                             {activeItems.map((item, idx) => (
-                                                <div key={item.id || idx} className="py-2 flex items-center justify-between gap-2 text-[14px]">
+                                                <div key={item.id || idx} className={`py-2 flex items-center justify-between gap-2 text-[14px] ${isNoShowOrder ? 'opacity-50 line-through decoration-red-500 decoration-2' : ''}`}>
                                                     <div className="font-bold text-gray-900 flex-1 min-w-0 break-words leading-snug">
                                                         {item.product}
                                                     </div>
@@ -2559,6 +2599,17 @@
                                                 >
                                                     <Icon name="copy" weight="bold" size={14} /> 계좌복사
                                                 </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {isNoShowOrder && (
+                                        <div className="bg-red-50 border-2 border-red-600 rounded-lg p-3.5 text-center space-y-1">
+                                            <div className="text-[16px] font-black text-red-600">
+                                                🚫 노쇼 처리되어 입금 계좌가 차단되었습니다
+                                            </div>
+                                            <div className="text-[12.5px] font-bold text-red-800 leading-snug">
+                                                절대 입금하지 마세요! 문의사항은 아래 노란색 카카오채널 버튼으로 연락해 주세요.
                                             </div>
                                         </div>
                                     )}
@@ -3115,7 +3166,12 @@
 
                                 {/* 4. 하단 최종 확인 버튼 & 카톡 채널 문의 */}
                                 <section className="pt-0.5 space-y-2 safe-bottom">
-                                    {currentUser.isConfirmed ? (
+                                    {isNoShowOrder ? (
+                                        <div className="w-full py-3.5 bg-red-600 text-white font-black rounded-lg text-center text-[14px] flex items-center justify-center gap-1.5 shadow-sm">
+                                            <Icon name="prohibit" weight="bold" size={18} />
+                                            <span>노쇼 (취소된 주문서 · 입금 불가)</span>
+                                        </div>
+                                    ) : currentUser.isConfirmed ? (
                                         <div className="w-full py-3 bg-green-600 text-white font-extrabold rounded-lg text-center text-[14px] flex items-center justify-center gap-1.5 shadow-sm">
                                             <Icon name="check-circle" weight="fill" size={17} />
                                             <span>주문 및 배송지 확정 완료</span>
