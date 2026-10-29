@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 344; // 344 => v3.44
+        const VERSION_STEP = 346; // 346 => v3.46
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
@@ -1784,73 +1784,132 @@
                 if (window.daum && window.daum.Postcode) {
                     startEmbed();
                 } else {
-                    const script = document.createElement('script');
+                    const script = document.createElement("script");
                     script.src = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
                     script.onload = startEmbed;
-                    script.onerror = () => showToast("주소 검색창을 열지 못했습니다. 아래 주소 칸에 직접 주소를 입력해 주세요.");
                     document.head.appendChild(script);
                 }
             };
 
             const handleSaveAddress = async (e) => {
                 if (e && e.preventDefault) e.preventDefault();
-                const hasTrackingNow = Boolean(
-                    (Array.isArray(currentUser?.trackingNumbers) && currentUser.trackingNumbers.length > 0) ||
-                    (currentUser?.trackingNumber && String(currentUser.trackingNumber).trim() !== "")
-                );
-                if (hasTrackingNow) {
+                if (!currentUser) return false;
+
+                if (userTrackingList.length > 0) {
+                    showToast("이미 운송장이 등록(출고)되어 배송지를 변경할 수 없습니다.");
                     setIsEditingAddress(false);
-                    showToast("이미 송장번호가 등록(출고)된 방송의 배송지는 변경할 수 없습니다.");
                     return false;
                 }
-                if (!addrForm.realname.trim()) { showToast("수령인 성함을 입력해 주세요."); return false; }
-                const cleanPhone = addrForm.phone.replace(/[^0-9]/g, "");
-                if (cleanPhone.length < 9) { showToast("정확한 휴대폰 번호를 입력해 주세요."); return false; }
-                if (!addrForm.baseAddress.trim()) { showToast("주소를 검색하거나 직접 입력해 주세요."); return false; }
-                if (!agreePrivacy || !agreeThirdParty) { showToast("아래 필수 개인정보 수집 및 제공 동의에 체크해 주세요!"); return false; }
 
-                const nowStr = getKstNowString();
+                const cleanRealname = String(addrForm.realname || "").trim();
+                const cleanPhone = fixPhoneStr(addrForm.phone);
                 const cleanBase = String(addrForm.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim();
-                const fullCombinedAddress = `${cleanBase} ${addrForm.detailAddress || ""}`.trim();
+                const cleanDetail = String(addrForm.detailAddress || "").trim();
+                const cleanMemo = String(addrForm.memo || "").trim();
+
+                if (!cleanRealname) {
+                    showToast("수령인 성함을 입력해 주세요.");
+                    return false;
+                }
+                if (cleanPhone.length < 9) {
+                    showToast("올바른 연락처(휴대폰번호)를 입력해 주세요.");
+                    return false;
+                }
+                if (!cleanBase) {
+                    showToast("주소를 검색하거나 입력해 주세요.");
+                    return false;
+                }
+                if (!agreePrivacy || !agreeThirdParty) {
+                    showToast("필수 개인정보 수집 및 제3자 제공에 동의해 주세요.");
+                    return false;
+                }
+
+                const fullCombinedAddress = `${cleanBase} ${cleanDetail}`.trim();
+                const newLast4 = cleanPhone.slice(-4);
+                const nowStr = getKstNowString();
+                const cleanTargetBName = cleanBroadcastKey(currentUser.broadcastName || '');
+                const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
+                const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+
                 const updatedAddr = {
-                    realname: addrForm.realname.trim(),
+                    realname: cleanRealname,
                     phone: cleanPhone,
-                    zipcode: addrForm.zipcode || "",
+                    zipcode: "",
                     baseAddress: fullCombinedAddress,
                     detailAddress: "",
-                    memo: addrForm.memo.trim(),
+                    memo: cleanMemo,
                     updatedAt: nowStr
                 };
-                const newLast4 = cleanPhone.slice(-4);
+
+                const addrRecord = {
+                    nickname: currentUser.nickname,
+                    realname: cleanRealname,
+                    phone: cleanPhone,
+                    address: fullCombinedAddress,
+                    baseAddress: fullCombinedAddress,
+                    memo: cleanMemo,
+                    broadcastName: cleanTargetBName,
+                    updatedAt: nowStr
+                };
 
                 setIsSavingAddress(true);
                 try {
-                    const cleanTargetBName = cleanBroadcastKey(currentUser.broadcastName || '');
-                    const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
-                    const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-
-                    const addrRecord = {
-                        nickname: currentUser.nickname,
-                        realname: updatedAddr.realname,
-                        phone: cleanPhone,
-                        zipcode: '',
-                        baseAddress: fullCombinedAddress,
-                        detailAddress: '',
-                        address: fullCombinedAddress,
-                        memo: updatedAddr.memo,
-                        sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
-                        broadcastName: cleanTargetBName,
-                        updatedAt: nowStr
-                    };
-
-                    // 1) 파이어베이스 실시간 DB에 즉시 기록 (포털 캐시에도 즉시 반영하여 새로고침 시 절대 날아가지 않게 보장!)
+                    // 1) 파이어베이스 실시간 DB에 즉시 기록 (1차: 직원용 시스템의 해당 방송 주문서 + 2차: 사장님 찐고객사전 마스터 주소록 동시 갱신!)
                     if (portalFbDb) {
                         const fbPromises = [];
                         if (safeBKey) {
                             fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickKey}`).set(addrRecord));
+                            // ✨ 1차: 직원용 시스템이 바라보는 _portal_orders/${safeBKey}/customers 안의 해당 고객 주소 직접 즉시 업데이트!
+                            const targetOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey];
+                            if (targetOrderNode && Array.isArray(targetOrderNode.customers)) {
+                                const updatedCustomers = targetOrderNode.customers.map(c => {
+                                    if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
+                                        return {
+                                            ...c,
+                                            phoneLast4: newLast4 || c.phoneLast4,
+                                            address: {
+                                                realname: updatedAddr.realname,
+                                                phone: cleanPhone,
+                                                zipcode: '',
+                                                baseAddress: fullCombinedAddress,
+                                                detailAddress: '',
+                                                memo: updatedAddr.memo,
+                                                updatedAt: nowStr
+                                            }
+                                        };
+                                    }
+                                    return c;
+                                });
+                                targetOrderNode.customers = updatedCustomers;
+                                fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}/customers`).set(updatedCustomers));
+                                fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}/updatedAt`).set(Date.now()));
+                            }
                         }
                         if (currentUser._isLiveSource) {
                             fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/__MAIN_LIVE__/${safeNickKey}`).set(addrRecord));
+                            const liveOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.__MAIN_LIVE__;
+                            if (liveOrderNode && Array.isArray(liveOrderNode.customers)) {
+                                const updatedLiveCustomers = liveOrderNode.customers.map(c => {
+                                    if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
+                                        return {
+                                            ...c,
+                                            phoneLast4: newLast4 || c.phoneLast4,
+                                            address: {
+                                                realname: updatedAddr.realname,
+                                                phone: cleanPhone,
+                                                zipcode: '',
+                                                baseAddress: fullCombinedAddress,
+                                                detailAddress: '',
+                                                memo: updatedAddr.memo,
+                                                updatedAt: nowStr
+                                            }
+                                        };
+                                    }
+                                    return c;
+                                });
+                                liveOrderNode.customers = updatedLiveCustomers;
+                                fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/__MAIN_LIVE__/customers`).set(updatedLiveCustomers));
+                            }
                         }
                         fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set(addrRecord));
                         fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_master_addrs/${safeNickKey}`).set(addrRecord));
@@ -1883,32 +1942,45 @@
                     setIsEditingAddress(false);
                     showToast(`✅ 배송지가 정상적으로 저장되었습니다!`);
 
-                    // 3) 백그라운드로 사장님 마스터 시트 + 직원용 시트에 동시 기록
-                    const gasPayload = {
-                        action: 'save_master_address',
-                        masterId: DEFAULT_MASTER_SHEET_ID,
-                        data: {
-                            nickname: currentUser.nickname,
-                            realname: updatedAddr.realname,
-                            phone: cleanPhone ? "'" + cleanPhone : '',
-                            address: fullCombinedAddress,
-                            memo: updatedAddr.memo,
-                            broadcastName: cleanTargetBName,
-                            sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
-                            forceOverwrite: true
-                        }
+                    // 3) 백그라운드로 1차: 직원용 시트('메인주문' 해당 방송 블록) + 2차: 사장님 마스터 시트('찐고객사전' 최신 변경/신규 등록) 동시 기록!
+                    const baseAddrData = {
+                        nickname: currentUser.nickname,
+                        '닉네임': currentUser.nickname,
+                        realname: updatedAddr.realname,
+                        '수령인명': updatedAddr.realname,
+                        phone: cleanPhone ? "'" + cleanPhone : '',
+                        '연락처': cleanPhone ? "'" + cleanPhone : '',
+                        address: fullCombinedAddress,
+                        '주소': fullCombinedAddress,
+                        memo: updatedAddr.memo,
+                        '배송메모': updatedAddr.memo,
+                        '요청사항': updatedAddr.memo,
+                        broadcastName: cleanTargetBName,
+                        sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
+                        forceOverwrite: true
                     };
-                    fetchGasWithRetry(DEFAULT_GAS_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify(gasPayload)
-                    }, 1).catch(() => {});
 
+                    // 3-1) [1차] 직원용 시트('메인주문' 해당 방송 블록) 최우선 직접 업데이트
                     fetchGasWithRetry(DEFAULT_GAS_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify({ ...gasPayload, masterId: DEFAULT_STAFF_SHEET_ID })
-                    }, 1).catch(() => {});
+                        body: JSON.stringify({
+                            action: 'save_master_address',
+                            masterId: DEFAULT_STAFF_SHEET_ID,
+                            data: { ...baseAddrData, onlyThisBroadcast: true }
+                        })
+                    }, 2).catch(() => {});
+
+                    // 3-2) [2차] 사장님 마스터 시트('찐고객사전' 최신 1건으로 변경 또는 신규 등록 + 해당 방송 주문서 업데이트)
+                    fetchGasWithRetry(DEFAULT_GAS_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({
+                            action: 'save_master_address',
+                            masterId: DEFAULT_MASTER_SHEET_ID,
+                            data: baseAddrData
+                        })
+                    }, 2).catch(() => {});
 
                     return true;
                 } catch (err) {
