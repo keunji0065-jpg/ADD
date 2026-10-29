@@ -95,10 +95,10 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 337; // 337 => v3.37
+        const VERSION_STEP = 341; // 341 => v3.41
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
-        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzckcaobzdpOmXyBb2UHIatOk7vDJhs344fyOc7e8RKYZ5WS8JKXrdSQPpWz0jTWN8a/exec";
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxhX10VQMbxZIWrIGJGHZp7POtTh9zmqa4awhOpLFJTs58L_nrg5Opw8ha2IFVLU-b_/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
         const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_IuqtG/chat";
@@ -228,7 +228,8 @@
         const cleanHandle = (str) => {
             if (!str) return "";
             let s = String(str).trim();
-            s = s.replace(/-[a-zA-Z0-9_]{1,10}$/, "");
+            // 실제 유튜브 핸들(-영문포함 3~10자)만 제거하고 '별1', '별3' 등의 숫자는 절대 지우지 않음!
+            s = s.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, "");
             return s.replace(/[\s\(\)\[\]\{\}\-\_\.\,\/]/g, "").toLowerCase();
         };
 
@@ -272,15 +273,16 @@
             // 1순위: 전체 닉네임 100% 완전 일치 (점수 4점)
             if (nDb === nIn) return 4;
 
-            // ⚠️ 만약 사용자가 직접 핸들(-3k4)이나 뒤에 숫자(홍당무1)를 붙여서 입력했는데 DB 닉네임과 다르다면 다른 사람이므로 즉시 0점 차단!
-            const inHasHandle = /-[a-zA-Z0-9_]{1,10}$/.test(rawIn);
-            const dbHasHandle = /-[a-zA-Z0-9_]{1,10}$/.test(rawDb);
+            // ⚠️ 만약 사용자가 직접 핸들(-3k4)을 붙여서 입력했는데 DB 닉네임과 다르다면 다른 사람이므로 즉시 0점 차단!
+            const inHasHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(rawIn);
             if (inHasHandle && nDb !== nIn) return 0;
 
-            const inTrailingNum = (rawIn.replace(/-[a-zA-Z0-9_]{1,10}$/, '').match(/(\d+)$/) || [])[1] || '';
-            const dbTrailingNum = (rawDb.replace(/-[a-zA-Z0-9_]{1,10}$/, '').match(/(\d+)$/) || [])[1] || '';
-            // 홍당무1 vs 홍당무2 처럼 뒤 숫자가 다르면 완전히 다른 사람!
-            if (inTrailingNum !== dbTrailingNum) return 0;
+            // ⚠️ '별1' vs '별3', '별' vs '별1' 처럼 숫자가 다르면 완전히 다른 사람이므로 무조건 0점 차단!
+            const inCleanBase = rawIn.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+            const dbCleanBase = rawDb.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+            const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
+            const dbNums = (dbCleanBase.match(/\d+/g) || []).join('_');
+            if (inNums !== dbNums) return 0;
 
             // 2순위: 유튜브 자동 핸들(-3k4 등)만 뗀 기본 닉네임이 100% 일치할 때 (점수 3점)
             const cDb = cleanHandle(rawDb);
@@ -290,7 +292,7 @@
             // 3순위: 한글 부분 일치 (단, 숫자가 붙은 다른 닉네임끼리는 위에서 이미 차단됨)
             const kDb = extractKorean(cDb || nDb);
             const kIn = extractKorean(cIn || nIn);
-            if (kDb && kIn) {
+            if (kDb && kIn && !inNums && !dbNums) {
                 if (kDb.length >= 2 && kDb === kIn) return 3;
                 if (kIn.length >= 2 && kDb.length >= 2 && kDb.includes(kIn)) return 2;
                 const vDb = normalizeKoreanVowel(kDb);
@@ -618,7 +620,7 @@
                 if (!itemPin) {
                     if (pinVerifiedNicks.size > 0) {
                         // 오직 비번 인증된 닉네임과 전체 닉네임이 같거나, 한쪽이 핸들 없는 순수 동일 닉네임일 때만 허용
-                        const itemHasHandle = /-[a-zA-Z0-9_]{1,10}$/.test(String(item.nickname).trim());
+                        const itemHasHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(item.nickname).trim());
                         if (itemHasHandle) return false;
                         const cHandle = cleanHandle(item.nickname);
                         const matchesVerifiedBase = Array.from(pinVerifiedNicks).some(vn => cleanHandle(vn) === cHandle);
@@ -644,7 +646,7 @@
             const bestNick = lockedFullNick || step1[0].nickname;
             const bestNorm = normalizeNick(bestNick);
             const bestHandle = cleanHandle(bestNick);
-            const bestHasExplicitHandle = /-[a-zA-Z0-9_]{1,10}$/.test(String(bestNick).trim());
+            const bestHasExplicitHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(bestNick).trim());
 
             // ⚠️ 최종 필터: 홍당무-3k4와 홍당무-5kj가 절대 한 화면에 섞이지 않도록 분리!
             return step1.filter(item => {
@@ -652,7 +654,7 @@
                 if (itemNorm === bestNorm) return true;
 
                 // 만약 둘 다 서로 다른 명시적 핸들(-3k4 vs -5kj)을 가지고 있다면, 설령 비밀번호 뒷자리가 우연히 같더라도 다른 계정일 수 있으므로 비밀번호까지 둘 다 일치할 때만 허용하고 그 외에는 칼같이 분리!
-                const itemHasExplicitHandle = /-[a-zA-Z0-9_]{1,10}$/.test(String(item.nickname).trim());
+                const itemHasExplicitHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(item.nickname).trim());
                 if (bestHasExplicitHandle && itemHasExplicitHandle && itemNorm !== bestNorm) {
                     const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
                     return Boolean(itemPin && normInPin && itemPin === normInPin);
@@ -1152,11 +1154,9 @@
                         }
 
                         const safeNickKey = String(cust.nickname).replace(/[.#$\[\]\/]/g, '_');
-                        const allAddrsVal = rootVal._portal_addresses || {};
+                        // ⚠️ 핵심: 해당 방송(safeBKey) 전용으로 입력한 주소만 가져오고, 다른 방송에서 바꾼 전체 주소(_portal_addresses)는 이전 방송에 절대 덮어씌우지 않음!
                         const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
-                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname))
-                            || allAddrsVal[safeNickKey]
-                            || Object.values(allAddrsVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
+                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
                         const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
                         const isBcastConf = Boolean(
                             bcastConfVal[safeBKey]?.[safeNickKey] ||
@@ -1570,16 +1570,13 @@
 
                     // 2순위: 직원용 구글 시트('메인주문')에서 직접 읽어온 모든 방송 블록 병합
                     if (staffDirectData && staffDirectData.status === "success" && Array.isArray(staffDirectData.historyList)) {
-                        const allAddrsVal = rootFb._portal_addresses || {};
                         staffDirectData.historyList.forEach(sheetCard => {
                             const bName = cleanBroadcastKey(sheetCard.broadcastName || '');
                             if (!bName || bName === '오늘의방송' || bName === '기본방송') return;
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
                             const safeNickKey = String(sheetCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
                             const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
-                                || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname))
-                                || allAddrsVal[safeNickKey]
-                                || Object.values(allAddrsVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
+                                || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
                             const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
                             const isBcastConf = Boolean(
                                 bcastConfVal[safeBKey]?.[safeNickKey] ||
