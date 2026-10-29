@@ -95,10 +95,10 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 342; // 342 => v3.42
+        const VERSION_STEP = 344; // 344 => v3.44
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
-        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxhX10VQMbxZIWrIGJGHZp7POtTh9zmqa4awhOpLFJTs58L_nrg5Opw8ha2IFVLU-b_/exec";
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
         const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_IuqtG/chat";
@@ -262,7 +262,7 @@
             return out;
         };
 
-        const getNickMatchScore = (dbNick, dbRealname, userInput) => {
+        const getNickMatchScore = (dbNick, dbRealname, userInput, isPinAlreadyMatched = false) => {
             if (!userInput || !dbNick) return 0;
             const rawDb = String(dbNick).trim();
             const rawIn = String(userInput).trim();
@@ -273,23 +273,34 @@
             // 1순위: 전체 닉네임 100% 완전 일치 (점수 4점)
             if (nDb === nIn) return 4;
 
-            // ⚠️ 만약 사용자가 직접 핸들(-3k4)을 붙여서 입력했는데 DB 닉네임과 다르다면 다른 사람이므로 즉시 0점 차단!
+            // ⚠️ 만약 사용자가 직접 핸들(-3k4)을 붙여서 입력했는데 DB 닉네임과 다르다면, 비밀번호가 같지 않은 이상 0점 차단
             const inHasHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(rawIn);
-            if (inHasHandle && nDb !== nIn) return 0;
+            if (inHasHandle && nDb !== nIn && !isPinAlreadyMatched) return 0;
 
-            // ⚠️ '별1' vs '별3', '별' vs '별1' 처럼 숫자가 다르면 완전히 다른 사람이므로 무조건 0점 차단!
             const inCleanBase = rawIn.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
             const dbCleanBase = rawDb.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
             const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
             const dbNums = (dbCleanBase.match(/\d+/g) || []).join('_');
-            if (inNums !== dbNums) return 0;
+
+            // ⚠️ 숫자가 다른 경우(예: '별1' vs '별3', '별' vs '별1'):
+            // 비밀번호가 없는 상태에서는 다른 사람일 수 있으므로 0점 차단하지만,
+            // 비밀번호(뒷 4자리)가 똑같다면(isPinAlreadyMatched === true) 기본 한글 이름이 같을 때 동일인물로 인정!
+            if (inNums !== dbNums) {
+                if (!isPinAlreadyMatched) return 0;
+                const kDbNumRemoved = extractKorean(dbCleanBase);
+                const kInNumRemoved = extractKorean(inCleanBase);
+                if (kDbNumRemoved && kInNumRemoved && kDbNumRemoved === kInNumRemoved) {
+                    return 3;
+                }
+                return 0;
+            }
 
             // 2순위: 유튜브 자동 핸들(-3k4 등)만 뗀 기본 닉네임이 100% 일치할 때 (점수 3점)
             const cDb = cleanHandle(rawDb);
             const cIn = cleanHandle(rawIn);
             if (cDb && cIn && cDb === cIn) return 3;
 
-            // 3순위: 한글 부분 일치 (단, 숫자가 붙은 다른 닉네임끼리는 위에서 이미 차단됨)
+            // 3순위: 한글 부분 일치
             const kDb = extractKorean(cDb || nDb);
             const kIn = extractKorean(cIn || nIn);
             if (kDb && kIn && !inNums && !dbNums) {
@@ -575,7 +586,7 @@
             const normInPin = normalizePin4(cleanPinInput);
 
             // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 정확한 닉네임들을 먼저 찾음!
-            // ⚠️ 핵심: 홍당무-3k4(비번 1111)와 홍당무-5kj(비번 2222)가 있을 때, 비번 1111을 친 사람에게는 오직 홍당무-3k4만 허용하고 홍당무-5kj는 100% 배제!
+            // ✅ 핵심: 동명이인(별1, 별1)이 여러 명 있더라도 비밀번호(normInPin)가 일치하는 카드는 100% 통과시켜 찾아줌!
             const pinVerifiedNicks = new Set();
             const pinMismatchedNicks = new Set();
 
@@ -585,7 +596,8 @@
                     item.phoneLast4 ||
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
-                const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput);
+                const isThisItemPinMatch = Boolean(itemPin && normInPin && itemPin === normInPin);
+                const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, isThisItemPinMatch);
                 if (sc <= 0) return;
 
                 const exactKey = normalizeNick(item.nickname);
@@ -605,21 +617,31 @@
                     item.phoneLast4 ||
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
-                // 비밀번호가 다르면 무조건 차단!
+                const isThisItemPinMatch = Boolean(itemPin && normInPin && itemPin === normInPin);
+
+                // 1순위: 이 카드의 비밀번호가 고객이 입력한 비밀번호와 정확히 일치하면 무조건 통과!
+                if (isThisItemPinMatch) {
+                    const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, true);
+                    const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick, true) : 0;
+                    return sc > 0 || lockedSc > 0;
+                }
+
+                // 비밀번호가 있는데 입력한 번호와 다르면 무조건 다른 사람이므로 차단!
                 if (itemPin && normInPin && itemPin !== normInPin) return false;
+
+                // 비밀번호가 아직 안 적힌 카드인 경우:
+                // 만약 같은 닉네임으로 다른 비밀번호를 쓰는 동명이인이 있고 본인 비번 인증된 기록은 없다면 차단
                 if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
 
-                const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput);
-                const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick) : 0;
+                const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, false);
+                const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick, false) : 0;
                 if (sc <= 0 && lockedSc <= 0) return false;
 
-                // 이 닉네임(예: 홍당무-3k4)이 다른 방송에서라도 본인 비번 인증이 완료된 닉네임이면 통과!
+                // 이 닉네임이 다른 방송에서 이미 본인 비번으로 인증된 닉네임이면 통과!
                 if (pinVerifiedNicks.has(exactKey)) return true;
 
-                // 만약 비밀번호가 아직 없는 신규 생방송 카드인데, 다른 동명이인(홍당무-5kj)이 이미 비번 인증된 상태라면, 핸들이 다른 카드는 절대 끼어들지 못하게 차단!
                 if (!itemPin) {
                     if (pinVerifiedNicks.size > 0) {
-                        // 오직 비번 인증된 닉네임과 전체 닉네임이 같거나, 한쪽이 핸들 없는 순수 동일 닉네임일 때만 허용
                         const itemHasHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(item.nickname).trim());
                         if (itemHasHandle) return false;
                         const cHandle = cleanHandle(item.nickname);
@@ -633,39 +655,37 @@
 
             if (step1.length === 0) return [];
 
-            // 점수 및 비밀번호 일치 여부에 따라 가장 정확한 주인공 닉네임 1개(예: 홍당무-3k4)를 확정!
+            // 점수 및 비밀번호 일치 여부에 따라 정렬 (비번 직접 일치 카드 최우선)
             step1.sort((a, b) => {
-                const aPinOk = pinVerifiedNicks.has(normalizeNick(a.nickname)) ? 10 : 0;
-                const bPinOk = pinVerifiedNicks.has(normalizeNick(b.nickname)) ? 10 : 0;
-                if (aPinOk !== bPinOk) return bPinOk - aPinOk;
-                const scA = getNickMatchScore(a.nickname, a.address?.realname || "", lockedFullNick || rawNickInput);
-                const scB = getNickMatchScore(b.nickname, b.address?.realname || "", lockedFullNick || rawNickInput);
+                const aPin = normalizePin4(a.phoneLast4 || (a.address?.phone ? String(a.address.phone).slice(-4) : ""));
+                const bPin = normalizePin4(b.phoneLast4 || (b.address?.phone ? String(b.address.phone).slice(-4) : ""));
+                const aDirectMatch = (aPin && normInPin && aPin === normInPin) ? 20 : (pinVerifiedNicks.has(normalizeNick(a.nickname)) ? 10 : 0);
+                const bDirectMatch = (bPin && normInPin && bPin === normInPin) ? 20 : (pinVerifiedNicks.has(normalizeNick(b.nickname)) ? 10 : 0);
+                if (aDirectMatch !== bDirectMatch) return bDirectMatch - aDirectMatch;
+                const scA = getNickMatchScore(a.nickname, a.address?.realname || "", lockedFullNick || rawNickInput, aDirectMatch > 0);
+                const scB = getNickMatchScore(b.nickname, b.address?.realname || "", lockedFullNick || rawNickInput, bDirectMatch > 0);
                 return scB - scA;
             });
 
             const bestNick = lockedFullNick || step1[0].nickname;
             const bestNorm = normalizeNick(bestNick);
             const bestHandle = cleanHandle(bestNick);
-            const bestHasExplicitHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(bestNick).trim());
 
-            // ⚠️ 최종 필터: 홍당무-3k4와 홍당무-5kj가 절대 한 화면에 섞이지 않도록 분리!
+            // ✅ 최종 필터: 비밀번호(뒷 4자리)가 일치하는 본인 카드는 설령 예전 방송에서 '별'이었다가 '별1'로 바뀌었더라도 모두 보여주며, 비밀번호가 없거나 다른 동명이인 카드만 걸러냄!
             return step1.filter(item => {
                 const itemNorm = normalizeNick(item.nickname);
+                const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
+
+                // 비밀번호가 입력한 번호와 똑같으면 100% 본인 주문서이므로 무조건 포함!
+                if (itemPin && normInPin && itemPin === normInPin) return true;
+
+                // 닉네임이 완전히 같고 비밀번호 충돌이 없는 경우 포함
                 if (itemNorm === bestNorm) return true;
 
-                // 만약 둘 다 서로 다른 명시적 핸들(-3k4 vs -5kj)을 가지고 있다면, 설령 비밀번호 뒷자리가 우연히 같더라도 다른 계정일 수 있으므로 비밀번호까지 둘 다 일치할 때만 허용하고 그 외에는 칼같이 분리!
-                const itemHasExplicitHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(item.nickname).trim());
-                if (bestHasExplicitHandle && itemHasExplicitHandle && itemNorm !== bestNorm) {
-                    const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
-                    return Boolean(itemPin && normInPin && itemPin === normInPin);
-                }
-
-                // 한쪽은 핸들이 있고(홍당무-3k4) 예전 방송에는 핸들 없이(홍당무) 적힌 경우: 뒷 4자리 번호가 다르면 차단, 같거나 없을 때만 같은 사람으로 연결
+                // 핸들만 없는 동일 닉네임이고 비밀번호 충돌이 없는 경우 포함
                 if (bestHandle && cleanHandle(item.nickname) === bestHandle) {
-                    const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
                     if (itemPin && normInPin && itemPin !== normInPin) return false;
-                    // 홍당무1 vs 홍당무2 처럼 숫자가 다르면 차단
-                    if (getNickMatchScore(item.nickname, "", bestNick) <= 0) return false;
+                    if (getNickMatchScore(item.nickname, "", bestNick, false) <= 0) return false;
                     return true;
                 }
                 return false;
@@ -788,7 +808,21 @@
                     const entries = blk.custMap[custNick];
                     const firstR = entries[0].r;
                     const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
-                    const sc = getNickMatchScore(custNick, rReal, rawNick);
+
+                    // 먼저 이 줄들의 비밀번호/전화번호 뒷 4자리를 확인하여 비번이 일치하는지 체크!
+                    let previewPin = '';
+                    entries.forEach(ent => {
+                        const row = ent.r;
+                        const col9Val = String(row.col_9 || '').trim();
+                        const shift = (/^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val)) ? 1 : 0;
+                        const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                        const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                        if (p && !previewPin) previewPin = p;
+                        else if (ph.length >= 4 && !previewPin) previewPin = normalizePin4(ph.slice(-4));
+                    });
+                    const isPinMatchHere = Boolean(previewPin && normInPin && previewPin === normInPin);
+
+                    const sc = getNickMatchScore(custNick, rReal, rawNick, isPinMatchHere);
                     if (sc <= 0) return;
 
                     let sheetPin = '';
@@ -996,7 +1030,20 @@
                     const entries = blk.custMap[custNick];
                     const firstR = entries[0].r;
                     const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
-                    const sc = getNickMatchScore(custNick, rReal, rawNick);
+
+                    let previewPin = '';
+                    entries.forEach(ent => {
+                        const row = ent.r;
+                        const col9Val = String(row.col_9 || '').trim();
+                        const shift = (/^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val)) ? 1 : 0;
+                        const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                        const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                        if (p && !previewPin) previewPin = p;
+                        else if (ph.length >= 4 && !previewPin) previewPin = normalizePin4(ph.slice(-4));
+                    });
+                    const isPinMatchHere = Boolean(previewPin && normInPin && previewPin === normInPin);
+
+                    const sc = getNickMatchScore(custNick, rReal, rawNick, isPinMatchHere);
                     if (sc <= 0) return;
 
                     let sheetPin = '';
@@ -1144,10 +1191,11 @@
 
                     node.customers.forEach(cust => {
                         if (!cust || !cust.nickname) return;
-                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick);
+                        const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
+                        const isPinMatchHere = Boolean(cPin && normInPin && cPin === normInPin);
+                        const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick, isPinMatchHere);
                         if (sc <= 0) return;
 
-                        const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
                         if (cPin && normInPin && cPin !== normInPin) {
                             wrongPinDetected = true;
                             return;
