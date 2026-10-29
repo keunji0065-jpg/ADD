@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 341; // 341 => v3.41
+        const VERSION_STEP = 342; // 342 => v3.42
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.10.29";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxhX10VQMbxZIWrIGJGHZp7POtTh9zmqa4awhOpLFJTs58L_nrg5Opw8ha2IFVLU-b_/exec";
@@ -1800,6 +1800,9 @@
                         const fbPromises = [];
                         if (safeBKey) {
                             fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickKey}`).set(addrRecord));
+                        }
+                        if (currentUser._isLiveSource) {
+                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/__MAIN_LIVE__/${safeNickKey}`).set(addrRecord));
                         }
                         fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set(addrRecord));
                         fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_master_addrs/${safeNickKey}`).set(addrRecord));
