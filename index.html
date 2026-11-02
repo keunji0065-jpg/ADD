@@ -95,9 +95,9 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 346; // 346 => v3.46
+        const VERSION_STEP = 348; // 348 => v3.48
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
-        const PORTAL_UPDATED_DATE = "2026.10.29";
+        const PORTAL_UPDATED_DATE = "2026.11.03";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
@@ -528,7 +528,10 @@
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
                         _hasBcastCustomAddr: Boolean(existing._hasBcastCustomAddr || item._hasBcastCustomAddr),
-                        isNoShow: Boolean(existing.isNoShow || item.isNoShow),
+                        // ✨ 직원이 실시간으로 노쇼를 해제(isNoShow: false)했을 때 옛날 시트 데이터의 true가 덮어쓰지 않도록 우선순위 데이터 기준 적용!
+                        isNoShow: preferExisting
+                            ? Boolean(existing.isNoShow)
+                            : (preferIncoming ? Boolean(item.isNoShow) : Boolean(existing.isNoShow || item.isNoShow)),
                         items: bestItems,
                         shipping: preferExisting
                             ? (Number(existing.shipping) || 0)
@@ -1576,6 +1579,7 @@
                     const liveModeVal = rootFb._portal_live_mode || {};
                     const hasMainLiveCustomers = Array.isArray(rootFb._portal_orders?.__MAIN_LIVE__?.customers) && rootFb._portal_orders.__MAIN_LIVE__.customers.length > 0;
                     const isLiveNow = Boolean(liveModeVal.isLive && hasMainLiveCustomers);
+                    const isBossLiveNow = Boolean(isLiveNow && liveModeVal.liveOwner !== 'staff');
                     const activeLiveBName = cleanBroadcastKey(liveModeVal.activeBroadcastName || rootFb._portal_orders?.__MAIN_LIVE__?.broadcastName || '');
 
                     const bcastAddrsVal = rootFb._portal_broadcast_addresses || {};
@@ -1657,8 +1661,8 @@
                         });
                     }
 
-                    // 3순위: 사장님 주문서가 현재 실시간 생방송 중(isLiveNow === true)일 때만 사장님 마스터 시트의 '메인주문'을 추가로 병합! (생방송 중이 아닐 때는 직원용 시스템 데이터만 깨끗하게 사용)
-                    if (isLiveNow && bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
+                    // 3순위: 사장님 주문서가 현재 실시간 생방송 중(isBossLiveNow === true)일 때만 사장님 마스터 시트의 '메인주문'을 추가로 병합! (직원용 라이브 중이거나 마감 상태일 때는 사장님 시트의 옛날 잔여 데이터가 섞이지 않도록 차단)
+                    if (isBossLiveNow && bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
                         bossLiveSheetData.historyList.forEach(liveCard => {
                             const bName = cleanBroadcastKey(liveCard.broadcastName || activeLiveBName || '오늘의 라이브');
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
