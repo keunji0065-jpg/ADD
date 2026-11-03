@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 350; // 350 => v3.50
+        const VERSION_STEP = 351; // 351 => v3.51
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.11.04";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
@@ -153,6 +153,7 @@
         const portalSheetCache = {
             staffOrderRows: null,
             bossLiveOrderRows: null,
+            masterDictRows: null,
             staffCsRows: null,
             validSheetBroadcasts: null,
             isLiveActive: false,
@@ -170,7 +171,7 @@
             if (portalSheetCache.fetchingPromise) {
                 return portalSheetCache.fetchingPromise;
             }
-            // 1) 직원용 시트('메인주문') + 2) 사장님 실시간 생방송 시트(DEFAULT_MASTER_SHEET_ID '메인주문') 동시 초고속 로드!
+            // 1) 직원용 시트('메인주문') + 2) 사장님 실시간 생방송 시트('메인주문') + 3) 사장님 '찐고객사전'(1풍선1 / 0풍선0 등 전체 고객 고유 전화번호 사전) 동시 초고속 로드!
             const staffGvizPromise = fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문').catch(() => null);
             const staffGasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
                 .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
@@ -180,6 +181,12 @@
             const bossGasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_MASTER_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
                 .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
                 .catch(() => null);
+
+            fetchSheetDirectGviz(DEFAULT_MASTER_SHEET_ID, '찐고객사전').then(dictRows => {
+                if (Array.isArray(dictRows) && dictRows.length > 0) {
+                    portalSheetCache.masterDictRows = dictRows;
+                }
+            }).catch(() => {});
 
             Promise.race([
                 bossGvizPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : bossGasPromise),
@@ -528,95 +535,130 @@
                         _fromStaffSheet: Boolean(existing._fromStaffSheet || item._fromStaffSheet),
                         _isLiveSource: Boolean(existing._isLiveSource || item._isLiveSource),
                         _hasBcastCustomAddr: Boolean(existing._hasBcastCustomAddr || item._hasBcastCustomAddr),
-                        // ✨ 직원이 실시간으로 노쇼를 해제(isNoShow: false)했을 때 옛날 시트 데이터의 true가 덮어쓰지 않도록 우선순위 데이터 기준 적용!
+                        isVip: Boolean(existing.isVip || item.isVip),
                         isNoShow: preferExisting
                             ? Boolean(existing.isNoShow)
                             : (preferIncoming ? Boolean(item.isNoShow) : Boolean(existing.isNoShow || item.isNoShow)),
-                        items: bestItems,
+                        isConfirmed: Boolean(existing.isConfirmed || item.isConfirmed),
+                        credit: Math.max(Number(existing.credit) || 0, Number(item.credit) || 0),
+                        creditLogs: (Array.isArray(existing.creditLogs) && existing.creditLogs.length > 0) ? existing.creditLogs : (item.creditLogs || []),
+                        creditUpdatedAt: existing.creditUpdatedAt || item.creditUpdatedAt || '',
+                        isCard: preferExisting
+                            ? (existing.isCard ?? item.isCard)
+                            : (preferIncoming ? (item.isCard ?? existing.isCard) : (existing.isCard || item.isCard)),
+                        cashReceipt: preferExisting
+                            ? (existing.cashReceipt || item.cashReceipt)
+                            : (preferIncoming ? (item.cashReceipt || existing.cashReceipt) : (existing.cashReceipt || item.cashReceipt)),
                         shipping: preferExisting
-                            ? (Number(existing.shipping) || 0)
-                            : (preferIncoming ? (Number(item.shipping) || 0) : (existing.shipping !== undefined ? Number(existing.shipping) : Number(item.shipping) || 0)),
+                            ? (existing.shipping !== undefined ? existing.shipping : item.shipping)
+                            : (preferIncoming
+                                ? (item.shipping !== undefined ? item.shipping : existing.shipping)
+                                : (existing.shipping !== undefined ? existing.shipping : item.shipping)),
                         depositTotal: preferExisting
                             ? (Number(existing.depositTotal) || 0)
-                            : (preferIncoming ? (Number(item.depositTotal) || 0) : Math.max(Number(existing.depositTotal) || 0, Number(item.depositTotal) || 0)),
-                        deposits: preferExisting
-                            ? (Array.isArray(existing.deposits) ? existing.deposits : [])
-                            : (preferIncoming ? (Array.isArray(item.deposits) ? item.deposits : []) : ((Array.isArray(existing.deposits) && existing.deposits.length > 0) ? existing.deposits : (item.deposits || []))),
+                            : (preferIncoming
+                                ? (Number(item.depositTotal) || 0)
+                                : Math.max(Number(existing.depositTotal) || 0, Number(item.depositTotal) || 0)),
+                        deposits: (Array.isArray(existing.deposits) && existing.deposits.length > 0) ? existing.deposits : (item.deposits || []),
+                        items: bestItems,
                         address: mergedAddress,
-                        trackingNumbers: (Array.isArray(existing.trackingNumbers) && existing.trackingNumbers.length > 0) ? existing.trackingNumbers : (item.trackingNumbers || []),
-                        isConfirmed: Boolean(existing.isConfirmed || item.isConfirmed)
+                        trackingNumbers: Array.from(new Set([...(existing.trackingNumbers || []), ...(item.trackingNumbers || [])]))
                     };
-
+                    if (mergedKey !== finalBName) map.delete(matchedKey);
                     map.set(finalBName, mergedCard);
                 }
             });
             return Array.from(map.values());
         };
 
+        // 만약 실제 주문 내역이 1건이라도 있으면 '최근 주문 내역 없음(빈 카드)' 더미 항목은 자동으로 숨김
+        const removeDummyEmptyOrdersIfRealExists = (list) => {
+            if (!Array.isArray(list)) return [];
+            const realOrders = list.filter(item =>
+                item &&
+                item.broadcastName !== '최근 주문 내역 없음' &&
+                item.sheetTabName !== '메인주문_빈카드' &&
+                Array.isArray(item.items) &&
+                item.items.length > 0
+            );
+            return realOrders.length > 0 ? realOrders : list;
+        };
+
+        // 최신 방송 날짜가 무조건 가장 왼쪽(0번 인덱스)에 오도록 정렬하는 함수
         const sortHistoryByNewestDate = (list) => {
+            if (!Array.isArray(list)) return [];
             const deduped = deduplicateHistoryByBroadcastName(list);
             return deduped.sort((a, b) => {
-                const scoreA = extractBroadcastDateScore(a?.broadcastName || a?.sheetTabName || '', a?._isLiveSource);
-                const scoreB = extractBroadcastDateScore(b?.broadcastName || b?.sheetTabName || '', b?._isLiveSource);
+                const scoreA = extractBroadcastDateScore(a?.broadcastName || a?.sheetTabName, Boolean(a?._isLiveSource));
+                const scoreB = extractBroadcastDateScore(b?.broadcastName || b?.sheetTabName, Boolean(b?._isLiveSource));
                 if (scoreA !== scoreB) return scoreB - scoreA;
                 return 0;
             });
         };
 
-        const removeDummyEmptyOrdersIfRealExists = (list) => {
-            if (!Array.isArray(list) || list.length <= 1) return list || [];
-            const realOrders = list.filter(item =>
-                item &&
-                item.broadcastName !== '최근 주문 내역 없음' &&
-                item.sheetTabName !== '메인주문_빈카드' &&
-                Array.isArray(item.items) && item.items.length > 0
-            );
-            return realOrders.length > 0 ? realOrders : [list[0]];
-        };
-
-        const hasRealOrderItems = (list) => {
-            if (!Array.isArray(list) || list.length === 0) return false;
-            return list.some(item =>
-                item &&
-                item.broadcastName !== '최근 주문 내역 없음' &&
-                item.sheetTabName !== '메인주문_빈카드' &&
-                Array.isArray(item.items) && item.items.length > 0
-            );
-        };
-
-        const filterVerifiedHistoryList = (rawList, rawNickInput, cleanPinInput, lockedFullNick = "") => {
+        // 조회된 주문서 리스트에서 입력한 비밀번호(뒷4자리)와 다른 동명이인의 주문서가 절대 섞이지 않도록 2중 검증하는 함수
+        const filterVerifiedHistoryList = (rawList, rawNickInput, cleanPinInput, lockedFullNick = null) => {
             if (!Array.isArray(rawList) || rawList.length === 0) return [];
             const normInPin = normalizePin4(cleanPinInput);
 
-            // 0단계: 파이어베이스의 마스터 주소록(_portal_master_addrs, _portal_addresses, _portal_broadcast_addresses)에 저장된 닉네임별 비밀번호도 모두 수집하여,
-            // 시트에는 아직 비밀번호가 안 적혀 있어도 1풍선1 / 0풍선0 각각의 비밀번호를 100% 인식하도록 보강!
+            // 0단계: 사장님 마스터 시트 '찐고객사전'(masterDictRows) + 파이어베이스 주소록에 저장된 닉네임별 실제 전화번호 뒷 4자리와 주소를 모두 수집!
             const knownPinsMap = {};
-            const registerKnownPin = (nickStr, pinOrPhone) => {
+            const knownAddrObjMap = {};
+            const registerKnownPinAndAddr = (nickStr, phoneStr, realnameStr = "", addrStr = "", memoStr = "") => {
                 const nKey = normalizeNick(nickStr);
-                const p4 = normalizePin4(pinOrPhone ? String(pinOrPhone).slice(-4) : "");
-                if (!nKey || !p4) return;
-                if (!knownPinsMap[nKey]) knownPinsMap[nKey] = new Set();
-                knownPinsMap[nKey].add(p4);
+                const cleanPh = fixPhoneStr(phoneStr);
+                const p4 = normalizePin4(cleanPh.length >= 4 ? cleanPh.slice(-4) : "");
+                if (!nKey) return;
+                if (p4) {
+                    if (!knownPinsMap[nKey]) knownPinsMap[nKey] = new Set();
+                    knownPinsMap[nKey].add(p4);
+                }
+                const cleanA = String(addrStr || "").replace(/^\(\d{5}\)\s*/, "").trim();
+                if (cleanA && (!knownAddrObjMap[nKey] || p4 === normInPin)) {
+                    knownAddrObjMap[nKey] = {
+                        realname: String(realnameStr || "").trim(),
+                        phone: cleanPh,
+                        zipcode: "",
+                        baseAddress: cleanA,
+                        detailAddress: "",
+                        memo: String(memoStr || "").trim(),
+                        updatedAt: ""
+                    };
+                }
             };
+
+            if (Array.isArray(portalSheetCache.masterDictRows)) {
+                portalSheetCache.masterDictRows.forEach(r => {
+                    if (!r) return;
+                    const n = String(r['닉네임'] || r['nickname'] || r.col_0 || '').trim();
+                    const rName = String(r['수령인명'] || r['realname'] || r.col_1 || '').trim();
+                    const ph = String(r['연락처'] || r['phone'] || r.col_2 || '').trim();
+                    const addr = String(r['주소'] || r['address'] || r.col_3 || '').trim();
+                    const memo = String(r['배송메모'] || r['memo'] || r.col_4 || '').trim();
+                    if (n && n !== '닉네임' && n.toLowerCase() !== 'nickname') {
+                        registerKnownPinAndAddr(n, ph, rName, addr, memo);
+                    }
+                });
+            }
 
             const rootSnap = portalSheetCache.fbSnapshot || {};
             Object.values(rootSnap._portal_master_addrs || {}).forEach(a => {
-                if (a && a.nickname && a.phone) registerKnownPin(a.nickname, fixPhoneStr(a.phone));
+                if (a && a.nickname) registerKnownPinAndAddr(a.nickname, a.phone, a.realname, a.address || a.baseAddress, a.memo);
             });
             Object.values(rootSnap._portal_addresses || {}).forEach(a => {
-                if (a && a.nickname && a.phone) registerKnownPin(a.nickname, fixPhoneStr(a.phone));
+                if (a && a.nickname) registerKnownPinAndAddr(a.nickname, a.phone, a.realname, a.address || a.baseAddress, a.memo);
             });
             Object.values(rootSnap._portal_broadcast_addresses || {}).forEach(bMap => {
                 if (bMap && typeof bMap === 'object') {
                     Object.values(bMap).forEach(a => {
-                        if (a && a.nickname && a.phone) registerKnownPin(a.nickname, fixPhoneStr(a.phone));
+                        if (a && a.nickname) registerKnownPinAndAddr(a.nickname, a.phone, a.realname, a.address || a.baseAddress, a.memo);
                     });
                 }
             });
             rawList.forEach(item => {
                 if (!item || !item.nickname) return;
                 const p = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
-                if (p) registerKnownPin(item.nickname, p);
+                if (p) registerKnownPinAndAddr(item.nickname, p, item.address?.realname, item.address?.baseAddress, item.address?.memo);
             });
 
             // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 정확한 닉네임들을 먼저 찾음!
@@ -644,6 +686,15 @@
                     )
                 );
 
+                // ⚠️ 중요: 고객이 숫자를 포함해 '1풍선1'이라고 쳤는데 카드가 '0풍선0'이면 설령 비번이 같더라도 다른 닉네임이므로 매칭에서 제외!
+                const inCleanBase = String(rawNickInput).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                const dbCleanBase = String(item.nickname).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
+                const dbNums = (dbCleanBase.match(/\d+/g) || []).join('_');
+                if (inNums && dbNums && inNums !== dbNums) {
+                    return;
+                }
+
                 const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, isThisItemPinMatch);
                 if (sc <= 0) return;
 
@@ -657,6 +708,16 @@
             const step1 = rawList.filter(item => {
                 if (!item || !item.nickname) return false;
                 const exactKey = normalizeNick(item.nickname);
+
+                // ⚠️ 만약 고객이 숫자를 직접 입력('1풍선1')했는데 주문서 카드의 숫자('0풍선0')와 다르면 100% 다른 사람이므로 무조건 차단!
+                const inCleanBase = String(rawNickInput).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                const dbCleanBase = String(item.nickname).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
+                const dbNums = (dbCleanBase.match(/\d+/g) || []).join('_');
+                if (inNums && dbNums && inNums !== dbNums) {
+                    return false;
+                }
+
                 const directPin = normalizePin4(
                     item.phoneLast4 ||
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
@@ -670,45 +731,54 @@
                     )
                 );
 
-                // 1순위: 이 카드의 비밀번호(또는 다른 방송/사전에서 확인된 이 닉네임의 비밀번호)가 입력한 비번과 일치하면 무조건 통과!
+                // 비밀번호가 직접 적혀있거나 찐고객사전에 등록되어 있는데 입력한 비번과 다르면 무조건 탈락! (1풍선1과 0풍선0 완벽 분리!)
+                if (directPin && normInPin && directPin !== normInPin) return false;
+                if (!directPin && knownSet && knownSet.size > 0 && normInPin && !knownSet.has(normInPin)) return false;
+                if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
+
                 if (isThisItemPinMatch) {
                     const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, true);
                     const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick, true) : 0;
                     return sc > 0 || lockedSc > 0;
                 }
 
-                // 비밀번호가 있는데 입력한 번호와 다르면 무조건 다른 사람이므로 차단! (1풍선1과 0풍선0 완벽 분리!)
-                if (directPin && normInPin && directPin !== normInPin) return false;
-                if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
-
                 const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, false);
                 const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick, false) : 0;
                 if (sc <= 0 && lockedSc <= 0) return false;
 
-                // 아직 비밀번호가 전혀 등록되지 않은 신규 고객 카드인 경우:
-                // 만약 이미 비밀번호가 일치하는 다른 닉네임(예: 1풍선1)을 찾았다면, 비번 없는 다른 사람(예: 0풍선0)이 섞이지 않도록 차단!
-                if (!directPin) {
+                // 아직 시트에도, 찐고객사전에도 비밀번호가 전혀 없는 완전 신규 주문 카드인 경우:
+                // 만약 이미 비밀번호가 일치하는 정확한 주인(예: 1풍선1)을 찾았다면, 비번 없는 다른 동명이인(예: 0풍선0)은 절대 끼어들지 못하게 차단!
+                if (!directPin && (!knownSet || knownSet.size === 0)) {
                     if (pinVerifiedNicks.size > 0) {
-                        const itemHasHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(String(item.nickname).trim());
-                        if (itemHasHandle) return false;
-                        const cHandle = cleanHandle(item.nickname);
-                        const matchesVerifiedBase = Array.from(pinVerifiedNicks).some(vn => cleanHandle(vn) === cHandle);
-                        return matchesVerifiedBase;
+                        return pinVerifiedNicks.has(exactKey);
                     }
-                    // 아직 아무도 비번이 안 적힌 상태이고 고객이 본인의 정확한 닉네임('1풍선1' 또는 '0풍선0', 점수 3점 이상)을 입력했다면 통과!
+                    // 고객이 숫자를 빼고 '풍선'만 쳤을 때(sc === 2)는 비번이 검증되지 않으면 통과시키지 않고, 정확히 '1풍선1' 또는 '0풍선0'(sc >= 3)을 쳤을 때만 통과!
                     return sc >= 3;
                 }
                 return true;
+            }).map(item => {
+                // 만약 주문서 카드에 주소가 비어있는데 찐고객사전(knownAddrObjMap)에 이 닉네임의 주소가 있다면 자동으로 채워줌!
+                const exactKey = normalizeNick(item.nickname);
+                if ((!item.address || !item.address.baseAddress) && knownAddrObjMap[exactKey]) {
+                    return {
+                        ...item,
+                        phoneLast4: item.phoneLast4 || normalizePin4(knownAddrObjMap[exactKey].phone.slice(-4)),
+                        address: knownAddrObjMap[exactKey]
+                    };
+                }
+                return item;
             });
 
             if (step1.length === 0) return [];
 
             // 점수 및 비밀번호 일치 여부에 따라 정렬 (비번 직접 일치 카드 최우선)
             step1.sort((a, b) => {
+                const aKey = normalizeNick(a.nickname);
+                const bKey = normalizeNick(b.nickname);
                 const aPin = normalizePin4(a.phoneLast4 || (a.address?.phone ? String(a.address.phone).slice(-4) : ""));
                 const bPin = normalizePin4(b.phoneLast4 || (b.address?.phone ? String(b.address.phone).slice(-4) : ""));
-                const aDirectMatch = (aPin && normInPin && aPin === normInPin) ? 20 : (pinVerifiedNicks.has(normalizeNick(a.nickname)) ? 10 : 0);
-                const bDirectMatch = (bPin && normInPin && bPin === normInPin) ? 20 : (pinVerifiedNicks.has(normalizeNick(b.nickname)) ? 10 : 0);
+                const aDirectMatch = ((aPin && normInPin && aPin === normInPin) || (knownPinsMap[aKey] && knownPinsMap[aKey].has(normInPin))) ? 20 : (pinVerifiedNicks.has(aKey) ? 10 : 0);
+                const bDirectMatch = ((bPin && normInPin && bPin === normInPin) || (knownPinsMap[bKey] && knownPinsMap[bKey].has(normInPin))) ? 20 : (pinVerifiedNicks.has(bKey) ? 10 : 0);
                 if (aDirectMatch !== bDirectMatch) return bDirectMatch - aDirectMatch;
                 const scA = getNickMatchScore(a.nickname, a.address?.realname || "", lockedFullNick || rawNickInput, aDirectMatch > 0);
                 const scB = getNickMatchScore(b.nickname, b.address?.realname || "", lockedFullNick || rawNickInput, bDirectMatch > 0);
@@ -717,23 +787,26 @@
 
             const bestNick = lockedFullNick || step1[0].nickname;
             const bestNorm = normalizeNick(bestNick);
-            const bestHandle = cleanHandle(bestNick);
+            const bestCleanBase = String(bestNick).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+            const bestNums = (bestCleanBase.match(/\d+/g) || []).join('_');
 
-            // ✅ 최종 필터: 비밀번호(뒷 4자리)가 일치하는 본인 카드는 설령 예전 방송에서 '별'이었다가 '별1'로 바뀌었더라도 모두 보여주며, 비밀번호가 없거나 다른 동명이인 카드만 걸러냄!
+            // ✅ 최종 필터: 1순위 매칭된 주인(예: 1풍선1)과 숫자가 다른 동명이인(예: 0풍선0)은 절대 함께 섞이지 않도록 완벽 차단!
             return step1.filter(item => {
                 const itemNorm = normalizeNick(item.nickname);
-                const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
-
-                // 비밀번호가 입력한 번호와 똑같으면 100% 본인 주문서이므로 무조건 포함!
-                if (itemPin && normInPin && itemPin === normInPin) return true;
-
-                // 닉네임이 완전히 같고 비밀번호 충돌이 없는 경우 포함
                 if (itemNorm === bestNorm) return true;
 
-                // 핸들만 없는 동일 닉네임이고 비밀번호 충돌이 없는 경우 포함
-                if (bestHandle && cleanHandle(item.nickname) === bestHandle) {
-                    if (itemPin && normInPin && itemPin !== normInPin) return false;
-                    if (getNickMatchScore(item.nickname, "", bestNick, false) <= 0) return false;
+                const itemCleanBase = String(item.nickname).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                const itemNums = (itemCleanBase.match(/\d+/g) || []).join('_');
+                // 1풍선1(1_1)과 0풍선0(0_0)처럼 숫자가 다르면 절대 합치지 않음!
+                if (bestNums !== itemNums) {
+                    const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
+                    const itemKnownSet = knownPinsMap[itemNorm];
+                    const isSamePersonPin = Boolean(normInPin && ((itemPin && itemPin === normInPin) || (itemKnownSet && itemKnownSet.has(normInPin))));
+                    // 오직 진짜로 같은 전화번호를 쓰는 동일인물일 때만 허용하고, 전화번호가 다르거나 미등록이면 무조건 분리!
+                    if (!isSamePersonPin) return false;
+                }
+
+                if (cleanHandle(item.nickname) === cleanHandle(bestNick)) {
                     return true;
                 }
                 return false;
@@ -851,13 +924,12 @@
             let wrongPinDetected = false;
 
             Object.values(blocks).forEach(blk => {
-                if (blk.bName === '기본방송' || blk.bName === '오늘의방송' || blk.bName === '10/24 라이브') return;
                 Object.keys(blk.custMap).forEach(custNick => {
                     const entries = blk.custMap[custNick];
                     const firstR = entries[0].r;
                     const rReal = String(firstR['수령인명'] || firstR.col_7 || '').trim();
 
-                    // 먼저 이 줄들의 비밀번호/전화번호 뒷 4자리 + 파이어베이스 주소록의 비밀번호까지 확인하여 비번이 일치하는지 체크!
+                    // 먼저 이 줄들의 비밀번호/전화번호 뒷 4자리 + 찐고객사전(masterDictRows) + 파이어베이스 주소록의 비밀번호까지 확인하여 비번이 일치하는지 체크!
                     let previewPin = '';
                     entries.forEach(ent => {
                         const row = ent.r;
@@ -868,8 +940,15 @@
                         if (p && !previewPin) previewPin = p;
                         else if (ph.length >= 4 && !previewPin) previewPin = normalizePin4(ph.slice(-4));
                     });
+                    const cNorm = normalizeNick(custNick);
+                    if (!previewPin && Array.isArray(portalSheetCache.masterDictRows)) {
+                        const dictMatch = portalSheetCache.masterDictRows.find(r => r && normalizeNick(r['닉네임'] || r['nickname'] || r.col_0 || '') === cNorm);
+                        if (dictMatch) {
+                            const dPh = fixPhoneStr(dictMatch['연락처'] || dictMatch['phone'] || dictMatch.col_2 || '');
+                            if (dPh.length >= 4) previewPin = normalizePin4(dPh.slice(-4));
+                        }
+                    }
                     if (!previewPin && portalSheetCache.fbSnapshot) {
-                        const cNorm = normalizeNick(custNick);
                         const mAddrs = portalSheetCache.fbSnapshot._portal_master_addrs || {};
                         const gAddrs = portalSheetCache.fbSnapshot._portal_addresses || {};
                         const foundM = Object.values(mAddrs).find(a => a && normalizeNick(a.nickname) === cNorm && a.phone)
@@ -953,7 +1032,7 @@
                         }
                     });
 
-                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '');
+                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '') || previewPin;
                     if (effPin && normInPin && effPin !== normInPin) {
                         wrongPinDetected = true;
                         return;
@@ -1100,6 +1179,14 @@
                         if (p && !previewPin) previewPin = p;
                         else if (ph.length >= 4 && !previewPin) previewPin = normalizePin4(ph.slice(-4));
                     });
+                    const cNorm = normalizeNick(custNick);
+                    if (!previewPin && Array.isArray(portalSheetCache.masterDictRows)) {
+                        const dictMatch = portalSheetCache.masterDictRows.find(r => r && normalizeNick(r['닉네임'] || r['nickname'] || r.col_0 || '') === cNorm);
+                        if (dictMatch) {
+                            const dPh = fixPhoneStr(dictMatch['연락처'] || dictMatch['phone'] || dictMatch.col_2 || '');
+                            if (dPh.length >= 4) previewPin = normalizePin4(dPh.slice(-4));
+                        }
+                    }
                     const isPinMatchHere = Boolean(previewPin && normInPin && previewPin === normInPin);
 
                     const sc = getNickMatchScore(custNick, rReal, rawNick, isPinMatchHere);
@@ -1176,7 +1263,7 @@
 
                     if (itemsArr.length === 0) return;
 
-                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '');
+                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '') || previewPin;
                     if (effPin && normInPin && effPin !== normInPin) {
                         wrongPinDetected = true;
                         return;
@@ -1250,7 +1337,15 @@
 
                     node.customers.forEach(cust => {
                         if (!cust || !cust.nickname) return;
-                        const cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
+                        const cNorm = normalizeNick(cust.nickname);
+                        let cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
+                        if (!cPin && Array.isArray(portalSheetCache.masterDictRows)) {
+                            const dictMatch = portalSheetCache.masterDictRows.find(r => r && normalizeNick(r['닉네임'] || r['nickname'] || r.col_0 || '') === cNorm);
+                            if (dictMatch) {
+                                const dPh = fixPhoneStr(dictMatch['연락처'] || dictMatch['phone'] || dictMatch.col_2 || '');
+                                if (dPh.length >= 4) cPin = normalizePin4(dPh.slice(-4));
+                            }
+                        }
                         const isPinMatchHere = Boolean(cPin && normInPin && cPin === normInPin);
                         const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick, isPinMatchHere);
                         if (sc <= 0) return;
@@ -1748,10 +1843,9 @@
                             });
                         });
                     }
-
-                    const combinedInstantList = deduplicateHistoryByBroadcastName(rawCombinedList);
-
-                    if (hasRealOrderItems(combinedInstantList) && applyAndMergeOrders(combinedInstantList)) {
+                    // ⚠️ 핵심 버그 수정: deduplicateHistoryByBroadcastName을 먼저 실행하면 같은 방송에 있는 '1풍선1'과 '0풍선0' 두 명의 카드가 하나로 덮어써져서 합쳐져 버립니다!
+                    // 반드시 filterVerifiedHistoryList(비밀번호 및 정확한 닉네임 검증)를 먼저 거친 뒤에 같은 방송 중복을 제거하도록 순서를 바로잡았습니다!
+                    if (rawCombinedList.length > 0 && applyAndMergeOrders(rawCombinedList)) {
                         return;
                     }
 
@@ -1762,12 +1856,9 @@
                         return;
                     }
 
-                    const matchedFullNickFromStep1 = combinedInstantList[0]?.nickname || rawNick;
+                    const verifiedForCs = filterVerifiedHistoryList(rawCombinedList, rawNick, cleanPin);
+                    const matchedFullNickFromStep1 = verifiedForCs[0]?.nickname || rawNick;
                     const csOnlyCheck = await lookupCustomerCsRecords([matchedFullNickFromStep1, rawNick], cleanPin).catch(() => []);
-
-                    if (combinedInstantList.length > 0 && applyAndMergeOrders(combinedInstantList)) {
-                        return;
-                    }
 
                     if (Array.isArray(csOnlyCheck) && csOnlyCheck.length > 0) {
                         const firstCs = csOnlyCheck[0];
