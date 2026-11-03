@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 351; // 351 => v3.51
+        const VERSION_STEP = 353; // 353 => v3.53
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.11.04";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
@@ -154,24 +154,56 @@
             staffOrderRows: null,
             bossLiveOrderRows: null,
             masterDictRows: null,
+            customerDbRows: null,
             staffCsRows: null,
             validSheetBroadcasts: null,
             isLiveActive: false,
             activeBroadcastName: '',
             lastFetchedAt: 0,
             fetchingPromise: null,
+            dictFetchingPromise: null,
             fbSnapshot: null
+        };
+
+        const ensureMasterDictLoaded = async (force = false) => {
+            if (!force && Array.isArray(portalSheetCache.masterDictRows) && portalSheetCache.masterDictRows.length > 0) {
+                return portalSheetCache.masterDictRows;
+            }
+            if (portalSheetCache.dictFetchingPromise) {
+                return portalSheetCache.dictFetchingPromise;
+            }
+            const now = Date.now();
+            portalSheetCache.dictFetchingPromise = (async () => {
+                try {
+                    const [gvizDict, gasAll] = await Promise.all([
+                        fetchSheetDirectGviz(DEFAULT_MASTER_SHEET_ID, '찐고객사전').catch(() => null),
+                        fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_all&masterId=${DEFAULT_MASTER_SHEET_ID}&skipHeavy=false&t=${now}`, {}, 1).catch(() => null)
+                    ]);
+                    if (gasAll && Array.isArray(gasAll.masterAddresses) && gasAll.masterAddresses.length > 0) {
+                        portalSheetCache.masterDictRows = gasAll.masterAddresses;
+                    } else if (Array.isArray(gvizDict) && gvizDict.length > 0) {
+                        portalSheetCache.masterDictRows = gvizDict;
+                    }
+                    if (gasAll && Array.isArray(gasAll.customerDb) && gasAll.customerDb.length > 0) {
+                        portalSheetCache.customerDbRows = gasAll.customerDb;
+                    }
+                } catch (e) {}
+                portalSheetCache.dictFetchingPromise = null;
+                return portalSheetCache.masterDictRows || [];
+            })();
+            return portalSheetCache.dictFetchingPromise;
         };
 
         const preloadPortalDataInBackground = (force = false) => {
             const now = Date.now();
+            ensureMasterDictLoaded(force);
             if (!force && portalSheetCache.staffOrderRows && (now - portalSheetCache.lastFetchedAt < 15000)) {
                 return Promise.resolve(portalSheetCache.staffOrderRows);
             }
             if (portalSheetCache.fetchingPromise) {
                 return portalSheetCache.fetchingPromise;
             }
-            // 1) 직원용 시트('메인주문') + 2) 사장님 실시간 생방송 시트('메인주문') + 3) 사장님 '찐고객사전'(1풍선1 / 0풍선0 등 전체 고객 고유 전화번호 사전) 동시 초고속 로드!
+            // 1) 직원용 시트('메인주문') + 2) 사장님 실시간 생방송 시트('메인주문') + 3) 사장님 '찐고객사전' & '고객상태관리' 동시 초고속 로드!
             const staffGvizPromise = fetchSheetDirectGviz(DEFAULT_STAFF_SHEET_ID, '메인주문').catch(() => null);
             const staffGasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_STAFF_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
                 .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
@@ -181,12 +213,6 @@
             const bossGasPromise = fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_orders&masterId=${DEFAULT_MASTER_SHEET_ID}&tabName=${encodeURIComponent('메인주문')}&t=${now}`, {}, 1)
                 .then(res => (res && Array.isArray(res.data) && res.data.length > 0) ? res.data : null)
                 .catch(() => null);
-
-            fetchSheetDirectGviz(DEFAULT_MASTER_SHEET_ID, '찐고객사전').then(dictRows => {
-                if (Array.isArray(dictRows) && dictRows.length > 0) {
-                    portalSheetCache.masterDictRows = dictRows;
-                }
-            }).catch(() => {});
 
             Promise.race([
                 bossGvizPromise.then(r => (Array.isArray(r) && r.length > 0) ? r : bossGasPromise),
@@ -564,7 +590,7 @@
                         address: mergedAddress,
                         trackingNumbers: Array.from(new Set([...(existing.trackingNumbers || []), ...(item.trackingNumbers || [])]))
                     };
-                    if (mergedKey !== finalBName) map.delete(matchedKey);
+                    if (matchedKey !== finalBName) map.delete(matchedKey);
                     map.set(finalBName, mergedCard);
                 }
             });
@@ -601,14 +627,15 @@
             if (!Array.isArray(rawList) || rawList.length === 0) return [];
             const normInPin = normalizePin4(cleanPinInput);
 
-            // 0단계: 사장님 마스터 시트 '찐고객사전'(masterDictRows) + 파이어베이스 주소록에 저장된 닉네임별 실제 전화번호 뒷 4자리와 주소를 모두 수집!
+            // 0단계: 1) 사장님 시트 '찐고객사전'(masterDictRows) + 2) 사장님 시트 '고객상태관리'(customerDbRows) + 3) 파이어베이스 주소록 + 4) 전체 주문서에서 닉네임별 실제 전화번호 뒷 4자리(비밀번호)와 주소를 모두 수집!
             const knownPinsMap = {};
             const knownAddrObjMap = {};
-            const registerKnownPinAndAddr = (nickStr, phoneStr, realnameStr = "", addrStr = "", memoStr = "") => {
+            const registerKnownPinAndAddr = (nickStr, phoneOrPinStr, realnameStr = "", addrStr = "", memoStr = "") => {
                 const nKey = normalizeNick(nickStr);
-                const cleanPh = fixPhoneStr(phoneStr);
-                const p4 = normalizePin4(cleanPh.length >= 4 ? cleanPh.slice(-4) : "");
                 if (!nKey) return;
+                const rawDigits = String(phoneOrPinStr || "").replace(/[^0-9]/g, "");
+                const cleanPh = rawDigits.length >= 9 ? fixPhoneStr(rawDigits) : "";
+                const p4 = rawDigits.length >= 4 ? normalizePin4(rawDigits.slice(-4)) : (rawDigits.length > 0 ? normalizePin4(rawDigits) : "");
                 if (p4) {
                     if (!knownPinsMap[nKey]) knownPinsMap[nKey] = new Set();
                     knownPinsMap[nKey].add(p4);
@@ -617,7 +644,7 @@
                 if (cleanA && (!knownAddrObjMap[nKey] || p4 === normInPin)) {
                     knownAddrObjMap[nKey] = {
                         realname: String(realnameStr || "").trim(),
-                        phone: cleanPh,
+                        phone: cleanPh || (knownAddrObjMap[nKey]?.phone || ""),
                         zipcode: "",
                         baseAddress: cleanA,
                         detailAddress: "",
@@ -630,13 +657,24 @@
             if (Array.isArray(portalSheetCache.masterDictRows)) {
                 portalSheetCache.masterDictRows.forEach(r => {
                     if (!r) return;
-                    const n = String(r['닉네임'] || r['nickname'] || r.col_0 || '').trim();
-                    const rName = String(r['수령인명'] || r['realname'] || r.col_1 || '').trim();
-                    const ph = String(r['연락처'] || r['phone'] || r.col_2 || '').trim();
-                    const addr = String(r['주소'] || r['address'] || r.col_3 || '').trim();
-                    const memo = String(r['배송메모'] || r['memo'] || r.col_4 || '').trim();
+                    const n = String(r['닉네임'] || r['nickname'] || r['주문자'] || r.col_0 || (Array.isArray(r) ? r[0] : '') || '').trim();
+                    const rName = String(r['수령인명'] || r['realname'] || r['이름'] || r.col_1 || (Array.isArray(r) ? r[1] : '') || '').trim();
+                    const ph = String(r['연락처'] || r['phone'] || r['전화번호'] || r.col_2 || (Array.isArray(r) ? r[2] : '') || '').trim();
+                    const addr = String(r['주소'] || r['address'] || r['배송지'] || r.col_3 || (Array.isArray(r) ? r[3] : '') || '').trim();
+                    const memo = String(r['배송메모'] || r['memo'] || r['요청사항'] || r.col_4 || (Array.isArray(r) ? r[4] : '') || '').trim();
                     if (n && n !== '닉네임' && n.toLowerCase() !== 'nickname') {
                         registerKnownPinAndAddr(n, ph, rName, addr, memo);
+                    }
+                });
+            }
+
+            if (Array.isArray(portalSheetCache.customerDbRows)) {
+                portalSheetCache.customerDbRows.forEach(c => {
+                    if (!c) return;
+                    const n = String(c['닉네임'] || c.col_0 || '').trim();
+                    const pinVal = String(c['비밀번호'] || c.col_2 || '').trim();
+                    if (n && n !== '닉네임' && n !== '___SYSTEM_YT_API_KEY___' && pinVal) {
+                        registerKnownPinAndAddr(n, pinVal);
                     }
                 });
             }
@@ -658,7 +696,7 @@
             rawList.forEach(item => {
                 if (!item || !item.nickname) return;
                 const p = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
-                if (p) registerKnownPinAndAddr(item.nickname, p, item.address?.realname, item.address?.baseAddress, item.address?.memo);
+                if (p) registerKnownPinAndAddr(item.nickname, item.address?.phone || p, item.address?.realname, item.address?.baseAddress, item.address?.memo);
             });
 
             // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 정확한 닉네임들을 먼저 찾음!
@@ -673,16 +711,17 @@
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
                 const knownSet = knownPinsMap[exactKey];
+                // 주문서 자체의 비번이나 찐고객사전의 비번 중 하나라도 입력한 비번과 일치하면 무조건 본인 확인 통과!
                 const isThisItemPinMatch = Boolean(
                     normInPin && (
                         (directPin && directPin === normInPin) ||
-                        (!directPin && knownSet && knownSet.has(normInPin))
+                        (knownSet && knownSet.has(normInPin))
                     )
                 );
                 const isThisItemPinWrong = Boolean(
-                    normInPin && (
-                        (directPin && directPin !== normInPin) ||
-                        (!directPin && knownSet && knownSet.size > 0 && !knownSet.has(normInPin))
+                    normInPin && !isThisItemPinMatch && (
+                        Boolean(directPin) ||
+                        Boolean(knownSet && knownSet.size > 0)
                     )
                 );
 
@@ -726,15 +765,17 @@
                 const isThisItemPinMatch = Boolean(
                     normInPin && (
                         (directPin && directPin === normInPin) ||
-                        (!directPin && knownSet && knownSet.has(normInPin)) ||
-                        (!directPin && pinVerifiedNicks.has(exactKey))
+                        (knownSet && knownSet.has(normInPin)) ||
+                        pinVerifiedNicks.has(exactKey)
                     )
                 );
 
-                // 비밀번호가 직접 적혀있거나 찐고객사전에 등록되어 있는데 입력한 비번과 다르면 무조건 탈락! (1풍선1과 0풍선0 완벽 분리!)
-                if (directPin && normInPin && directPin !== normInPin) return false;
-                if (!directPin && knownSet && knownSet.size > 0 && normInPin && !knownSet.has(normInPin)) return false;
-                if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
+                // 주문서나 찐고객사전 중 어느 한 곳이라도 입력한 비번과 일치하면 통과! 반대로 등록된 비번들이 모두 입력한 비번과 다르면 차단!
+                if (!isThisItemPinMatch) {
+                    if (directPin && normInPin && directPin !== normInPin) return false;
+                    if (!directPin && knownSet && knownSet.size > 0 && normInPin && !knownSet.has(normInPin)) return false;
+                    if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
+                }
 
                 if (isThisItemPinMatch) {
                     const sc = getNickMatchScore(item.nickname, item.address?.realname || "", rawNickInput, true);
@@ -752,7 +793,7 @@
                     if (pinVerifiedNicks.size > 0) {
                         return pinVerifiedNicks.has(exactKey);
                     }
-                    // 고객이 숫자를 빼고 '풍선'만 쳤을 때(sc === 2)는 비번이 검증되지 않으면 통과시키지 않고, 정확히 '1풍선1' 또는 '0풍선0'(sc >= 3)을 쳤을 때만 통과!
+                    // 고객이 정확히 본인 닉네임('1풍선1' 또는 '0풍선0', sc >= 3)을 쳤다면 첫 구매(비번 미등록)라도 열려서 주소를 입력할 수 있게 허용!
                     return sc >= 3;
                 }
                 return true;
@@ -941,24 +982,47 @@
                         else if (ph.length >= 4 && !previewPin) previewPin = normalizePin4(ph.slice(-4));
                     });
                     const cNorm = normalizeNick(custNick);
-                    if (!previewPin && Array.isArray(portalSheetCache.masterDictRows)) {
-                        const dictMatch = portalSheetCache.masterDictRows.find(r => r && normalizeNick(r['닉네임'] || r['nickname'] || r.col_0 || '') === cNorm);
-                        if (dictMatch) {
-                            const dPh = fixPhoneStr(dictMatch['연락처'] || dictMatch['phone'] || dictMatch.col_2 || '');
-                            if (dPh.length >= 4) previewPin = normalizePin4(dPh.slice(-4));
-                        }
+                    const knownPinSetForCust = new Set();
+                    entries.forEach(ent => {
+                        const row = ent.r;
+                        const col9Val = String(row.col_9 || '').trim();
+                        const shift = (/^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val)) ? 1 : 0;
+                        const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                        const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                        if (p) knownPinSetForCust.add(p);
+                        if (ph.length >= 4) knownPinSetForCust.add(normalizePin4(ph.slice(-4)));
+                    });
+                    if (Array.isArray(portalSheetCache.masterDictRows)) {
+                        portalSheetCache.masterDictRows.forEach(r => {
+                            if (!r) return;
+                            const dNick = String(r['닉네임'] || r['nickname'] || r['주문자'] || r.col_0 || (Array.isArray(r) ? r[0] : '') || '').trim();
+                            if (normalizeNick(dNick) === cNorm) {
+                                const dPh = fixPhoneStr(r['연락처'] || r['phone'] || r['전화번호'] || r.col_2 || (Array.isArray(r) ? r[2] : '') || '');
+                                if (dPh.length >= 4) knownPinSetForCust.add(normalizePin4(dPh.slice(-4)));
+                            }
+                        });
                     }
-                    if (!previewPin && portalSheetCache.fbSnapshot) {
+                    if (Array.isArray(portalSheetCache.customerDbRows)) {
+                        portalSheetCache.customerDbRows.forEach(c => {
+                            if (!c) return;
+                            const cNick = String(c['닉네임'] || c.col_0 || '').trim();
+                            if (normalizeNick(cNick) === cNorm) {
+                                const cPin = normalizePin4(c['비밀번호'] || c.col_2 || '');
+                                if (cPin) knownPinSetForCust.add(cPin);
+                            }
+                        });
+                    }
+                    if (portalSheetCache.fbSnapshot) {
                         const mAddrs = portalSheetCache.fbSnapshot._portal_master_addrs || {};
                         const gAddrs = portalSheetCache.fbSnapshot._portal_addresses || {};
-                        const foundM = Object.values(mAddrs).find(a => a && normalizeNick(a.nickname) === cNorm && a.phone)
-                            || Object.values(gAddrs).find(a => a && normalizeNick(a.nickname) === cNorm && a.phone);
-                        if (foundM && foundM.phone) {
-                            const fPh = fixPhoneStr(foundM.phone);
-                            if (fPh.length >= 4) previewPin = normalizePin4(fPh.slice(-4));
-                        }
+                        [...Object.values(mAddrs), ...Object.values(gAddrs)].forEach(a => {
+                            if (a && normalizeNick(a.nickname) === cNorm && a.phone) {
+                                const fPh = fixPhoneStr(a.phone);
+                                if (fPh.length >= 4) knownPinSetForCust.add(normalizePin4(fPh.slice(-4)));
+                            }
+                        });
                     }
-                    const isPinMatchHere = Boolean(previewPin && normInPin && previewPin === normInPin);
+                    const isPinMatchHere = Boolean(normInPin && knownPinSetForCust.has(normInPin));
 
                     const sc = getNickMatchScore(custNick, rReal, rawNick, isPinMatchHere);
                     if (sc <= 0) return;
@@ -1032,8 +1096,8 @@
                         }
                     });
 
-                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '') || previewPin;
-                    if (effPin && normInPin && effPin !== normInPin) {
+                    const effPin = isPinMatchHere ? normInPin : (sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '') || (knownPinSetForCust.size > 0 ? Array.from(knownPinSetForCust)[0] : ''));
+                    if (!isPinMatchHere && knownPinSetForCust.size > 0 && normInPin) {
                         wrongPinDetected = true;
                         return;
                     }
@@ -1180,14 +1244,37 @@
                         else if (ph.length >= 4 && !previewPin) previewPin = normalizePin4(ph.slice(-4));
                     });
                     const cNorm = normalizeNick(custNick);
-                    if (!previewPin && Array.isArray(portalSheetCache.masterDictRows)) {
-                        const dictMatch = portalSheetCache.masterDictRows.find(r => r && normalizeNick(r['닉네임'] || r['nickname'] || r.col_0 || '') === cNorm);
-                        if (dictMatch) {
-                            const dPh = fixPhoneStr(dictMatch['연락처'] || dictMatch['phone'] || dictMatch.col_2 || '');
-                            if (dPh.length >= 4) previewPin = normalizePin4(dPh.slice(-4));
-                        }
+                    const knownPinSetForBossCust = new Set();
+                    entries.forEach(ent => {
+                        const row = ent.r;
+                        const col9Val = String(row.col_9 || '').trim();
+                        const shift = (/^\(\d{5}\)$/.test(col9Val) || /^\d{5}$/.test(col9Val)) ? 1 : 0;
+                        const p = normalizePin4(row['비밀번호'] || row[`col_${14 + shift}`]);
+                        const ph = fixPhoneStr(row['연락처'] || row.col_8);
+                        if (p) knownPinSetForBossCust.add(p);
+                        if (ph.length >= 4) knownPinSetForBossCust.add(normalizePin4(ph.slice(-4)));
+                    });
+                    if (Array.isArray(portalSheetCache.masterDictRows)) {
+                        portalSheetCache.masterDictRows.forEach(r => {
+                            if (!r) return;
+                            const dNick = String(r['닉네임'] || r['nickname'] || r['주문자'] || r.col_0 || (Array.isArray(r) ? r[0] : '') || '').trim();
+                            if (normalizeNick(dNick) === cNorm) {
+                                const dPh = fixPhoneStr(r['연락처'] || r['phone'] || r['전화번호'] || r.col_2 || (Array.isArray(r) ? r[2] : '') || '');
+                                if (dPh.length >= 4) knownPinSetForBossCust.add(normalizePin4(dPh.slice(-4)));
+                            }
+                        });
                     }
-                    const isPinMatchHere = Boolean(previewPin && normInPin && previewPin === normInPin);
+                    if (Array.isArray(portalSheetCache.customerDbRows)) {
+                        portalSheetCache.customerDbRows.forEach(c => {
+                            if (!c) return;
+                            const cNick = String(c['닉네임'] || c.col_0 || '').trim();
+                            if (normalizeNick(cNick) === cNorm) {
+                                const cPin = normalizePin4(c['비밀번호'] || c.col_2 || '');
+                                if (cPin) knownPinSetForBossCust.add(cPin);
+                            }
+                        });
+                    }
+                    const isPinMatchHere = Boolean(normInPin && knownPinSetForBossCust.has(normInPin));
 
                     const sc = getNickMatchScore(custNick, rReal, rawNick, isPinMatchHere);
                     if (sc <= 0) return;
@@ -1263,8 +1350,8 @@
 
                     if (itemsArr.length === 0) return;
 
-                    const effPin = sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '') || previewPin;
-                    if (effPin && normInPin && effPin !== normInPin) {
+                    const effPin = isPinMatchHere ? normInPin : (sheetPin || (sheetPhone.length >= 4 ? normalizePin4(sheetPhone.slice(-4)) : '') || (knownPinSetForBossCust.size > 0 ? Array.from(knownPinSetForBossCust)[0] : ''));
+                    if (!isPinMatchHere && knownPinSetForBossCust.size > 0 && normInPin) {
                         wrongPinDetected = true;
                         return;
                     }
@@ -1338,31 +1425,49 @@
                     node.customers.forEach(cust => {
                         if (!cust || !cust.nickname) return;
                         const cNorm = normalizeNick(cust.nickname);
-                        let cPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
-                        if (!cPin && Array.isArray(portalSheetCache.masterDictRows)) {
-                            const dictMatch = portalSheetCache.masterDictRows.find(r => r && normalizeNick(r['닉네임'] || r['nickname'] || r.col_0 || '') === cNorm);
-                            if (dictMatch) {
-                                const dPh = fixPhoneStr(dictMatch['연락처'] || dictMatch['phone'] || dictMatch.col_2 || '');
-                                if (dPh.length >= 4) cPin = normalizePin4(dPh.slice(-4));
-                            }
+                        const fbPinSet = new Set();
+                        const directFbPin = normalizePin4(cust.phoneLast4 || (cust.address?.phone ? String(cust.address.phone).slice(-4) : ''));
+                        if (directFbPin) fbPinSet.add(directFbPin);
+
+                        if (Array.isArray(portalSheetCache.masterDictRows)) {
+                            portalSheetCache.masterDictRows.forEach(r => {
+                                if (!r) return;
+                                const dNick = String(r['닉네임'] || r['nickname'] || r['주문자'] || r.col_0 || (Array.isArray(r) ? r[0] : '') || '').trim();
+                                if (normalizeNick(dNick) === cNorm) {
+                                    const dPh = fixPhoneStr(r['연락처'] || r['phone'] || r['전화번호'] || r.col_2 || (Array.isArray(r) ? r[2] : '') || '');
+                                    if (dPh.length >= 4) fbPinSet.add(normalizePin4(dPh.slice(-4)));
+                                }
+                            });
                         }
-                        const isPinMatchHere = Boolean(cPin && normInPin && cPin === normInPin);
+                        if (Array.isArray(portalSheetCache.customerDbRows)) {
+                            portalSheetCache.customerDbRows.forEach(c => {
+                                if (!c) return;
+                                const cNick = String(c['닉네임'] || c.col_0 || '').trim();
+                                if (normalizeNick(cNick) === cNorm) {
+                                    const cPin = normalizePin4(c['비밀번호'] || c.col_2 || '');
+                                    if (cPin) fbPinSet.add(cPin);
+                                }
+                            });
+                        }
+
+                        const isPinMatchHere = Boolean(normInPin && fbPinSet.has(normInPin));
                         const sc = getNickMatchScore(cust.nickname, cust.address?.realname || '', rawNick, isPinMatchHere);
                         if (sc <= 0) return;
 
-                        if (cPin && normInPin && cPin !== normInPin) {
+                        if (!isPinMatchHere && fbPinSet.size > 0 && normInPin) {
                             wrongPinDetected = true;
                             return;
                         }
+                        const cPin = isPinMatchHere ? normInPin : (directFbPin || (fbPinSet.size > 0 ? Array.from(fbPinSet)[0] : ''));
 
-                        const safeNickKey = String(cust.nickname).replace(/[.#$\[\]\/]/g, '_');
-                        // ⚠️ 핵심: 해당 방송(safeBKey) 전용으로 입력한 주소만 가져오고, 다른 방송에서 바꾼 전체 주소(_portal_addresses)는 이전 방송에 절대 덮어씌우지 않음!
+                        const safeNickKey = String(cust.nickname || '').replace(/[.#$\[\]\/]/g, '_');
                         const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
-                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
-                        const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname));
+                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === cNorm);
+                        const credEntry = credVal[safeNickKey]
+                            || Object.values(credVal || {}).find(x => x && normalizeNick(x.nickname) === cNorm);
                         const isBcastConf = Boolean(
                             bcastConfVal[safeBKey]?.[safeNickKey] ||
-                            Object.values(bcastConfVal[safeBKey] || {}).some(x => x && normalizeNick(x.nickname) === normalizeNick(cust.nickname))
+                            Object.values(bcastConfVal[safeBKey] || {}).some(x => x && normalizeNick(x.nickname) === cNorm)
                         );
                         const isGlobalConf = Boolean(
                             confVal[safeNickKey] &&
@@ -1711,19 +1816,28 @@
                 };
 
                 try {
-                    // ⚡ [새로고침] 버튼을 직접 누른 경우에만 서버 강제 재요청을 하고, 첫 로그인 시에는 백그라운드에 미리 준비된 캐시로 0.1초 만에 즉시 오픈!
+                    // ⚡ 1단계: 백그라운드에서 찐고객사전 로드를 걸어두되, 최대 1.8초만 기다려서 서버가 바쁠 때도 절대 멈추지 않고 즉시 열리도록 처리!
                     if (isRefreshCall) {
                         portalSheetCache.bossLiveOrderRows = null;
-                        await Promise.all([
-                            preloadPortalDataInBackground(true),
-                            portalFbDb ? portalFbDb.ref('ember_live_data').once('value').then(s => { portalSheetCache.fbSnapshot = s.val() || {}; }).catch(() => {}) : Promise.resolve()
+                        await Promise.race([
+                            Promise.all([
+                                ensureMasterDictLoaded(true),
+                                preloadPortalDataInBackground(true),
+                                portalFbDb ? portalFbDb.ref('ember_live_data').once('value').then(s => { portalSheetCache.fbSnapshot = s.val() || {}; }).catch(() => {}) : Promise.resolve()
+                            ]),
+                            new Promise(r => setTimeout(r, 2500))
+                        ]);
+                    } else {
+                        await Promise.race([
+                            ensureMasterDictLoaded(false),
+                            new Promise(r => setTimeout(r, 1500))
                         ]);
                     }
 
                     const [staffDirectData, bossLiveSheetData, fbInstantData] = await Promise.all([
-                        lookupOrderFromStaffSheetDirect(rawNick, cleanPin, false),
-                        lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin, isRefreshCall),
-                        lookupOrderFromFirebase(rawNick, cleanPin)
+                        lookupOrderFromStaffSheetDirect(rawNick, cleanPin, false).catch(() => ({ status: 'not_found', historyList: [] })),
+                        lookupOrderFromBossLiveSheetDirect(rawNick, cleanPin, isRefreshCall).catch(() => ({ status: 'not_found', historyList: [] })),
+                        lookupOrderFromFirebase(rawNick, cleanPin).catch(() => ({ status: 'not_found', historyList: [] }))
                     ]);
 
                     const rootFb = portalSheetCache.fbSnapshot || {};
@@ -1737,11 +1851,10 @@
                     const confVal = rootFb._portal_confirmed || {};
                     const bcastConfVal = rootFb._portal_broadcast_confirmed || {};
                     const credVal = rootFb._portal_credits || {};
-                    const validSheetSet = new Set(Array.isArray(staffDirectData?.validSheetBroadcasts) ? staffDirectData.validSheetBroadcasts : []);
 
                     const rawCombinedList = [];
 
-                    // 1순위: 직원용 시스템에서 실시간으로 동기화한 클라우드 데이터(_portal_orders) 및 직원용 구글 시트(staffDirectData) 모두 가져오기!
+                    // 1순위: 파이어베이스 클라우드(_portal_orders)에 올라와 있는 모든 방송 주문 내역 (제한 없이 전부 포함!)
                     if (fbInstantData && fbInstantData.status === "success" && Array.isArray(fbInstantData.historyList)) {
                         fbInstantData.historyList.forEach(fbItem => {
                             const fbBName = cleanBroadcastKey(fbItem.broadcastName || fbItem.sheetTabName || '');
@@ -1749,7 +1862,6 @@
                             if (hasDummyItem) return;
 
                             if (fbItem._isLiveSource) {
-                                // 현재 사장님 주문서가 진짜 생방송 중일 때만 __MAIN_LIVE__ 표시
                                 if (isLiveNow) {
                                     const displayLiveTitle = (!fbBName || fbBName === '오늘의방송' || fbBName === '기본방송') ? '오늘의 라이브' : fbBName;
                                     rawCombinedList.push({
@@ -1759,14 +1871,11 @@
                                     });
                                 }
                             } else if (fbBName && fbBName !== '오늘의방송' && fbBName !== '기본방송' && fbBName !== '10/24 라이브') {
-                                // 직원용 시스템에 있는 모든 마감 방송 데이터 반영 (시트가 로드된 경우 시트에 존재하는 방송이거나 방금 마감된 방송 모두 포함)
-                                if (validSheetSet.size === 0 || validSheetSet.has(fbBName) || fbItem._fromStaffRealtime) {
-                                    rawCombinedList.push({
-                                        ...fbItem,
-                                        broadcastName: fbBName,
-                                        _isLiveSource: false
-                                    });
-                                }
+                                rawCombinedList.push({
+                                    ...fbItem,
+                                    broadcastName: fbBName,
+                                    _isLiveSource: false
+                                });
                             }
                         });
                     }
@@ -1812,10 +1921,11 @@
                         });
                     }
 
-                    // 3순위: 사장님 주문서가 현재 실시간 생방송 중(isBossLiveNow === true)일 때만 사장님 마스터 시트의 '메인주문'을 추가로 병합! (직원용 라이브 중이거나 마감 상태일 때는 사장님 시트의 옛날 잔여 데이터가 섞이지 않도록 차단)
-                    if (isBossLiveNow && bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
+                    // 3순위: 사장님 마스터 시트의 '메인주문' 병합 (생방송 중이거나 아직 직원 시트로 넘어가기 전의 주문도 조회되도록 지원)
+                    if (bossLiveSheetData && bossLiveSheetData.status === "success" && Array.isArray(bossLiveSheetData.historyList)) {
                         bossLiveSheetData.historyList.forEach(liveCard => {
                             const bName = cleanBroadcastKey(liveCard.broadcastName || activeLiveBName || '오늘의 라이브');
+                            if (!isBossLiveNow && (bName === '오늘의 라이브' || bName === '오늘의방송' || bName === '기본방송')) return;
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
                             const safeNickKey = String(liveCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
                             const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey] || bcastAddrsVal['오늘의방송']?.[safeNickKey];
@@ -1839,15 +1949,32 @@
                                 } : liveCard.address,
                                 isConfirmed: isConf,
                                 _hasBcastCustomAddr: Boolean(bAddr),
-                                _isLiveSource: true
+                                _isLiveSource: isBossLiveNow
                             });
                         });
                     }
-                    // ⚠️ 핵심 버그 수정: deduplicateHistoryByBroadcastName을 먼저 실행하면 같은 방송에 있는 '1풍선1'과 '0풍선0' 두 명의 카드가 하나로 덮어써져서 합쳐져 버립니다!
-                    // 반드시 filterVerifiedHistoryList(비밀번호 및 정확한 닉네임 검증)를 먼저 거친 뒤에 같은 방송 중복을 제거하도록 순서를 바로잡았습니다!
+
                     if (rawCombinedList.length > 0 && applyAndMergeOrders(rawCombinedList)) {
                         return;
                     }
+
+                    // 4순위 안전망: 만약 로컬 캐시나 파이어베이스에서 못 찾았다면 구글 앱스 스크립트(get_customer_order)로 직원 시트와 사장님 시트를 직접 조회!
+                    try {
+                        const [gasStaffRes, gasMasterRes] = await Promise.all([
+                            fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_STAFF_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`, {}, 1).catch(() => null),
+                            fetchGasWithRetry(`${DEFAULT_GAS_URL}?action=get_customer_order&masterId=${DEFAULT_MASTER_SHEET_ID}&nickname=${encodeURIComponent(rawNick)}&pin=${encodeURIComponent(cleanPin)}&t=${Date.now()}`, {}, 1).catch(() => null)
+                        ]);
+                        const fallbackCards = [];
+                        if (gasStaffRes && gasStaffRes.status === 'success' && Array.isArray(gasStaffRes.historyList)) {
+                            fallbackCards.push(...gasStaffRes.historyList);
+                        }
+                        if (gasMasterRes && gasMasterRes.status === 'success' && Array.isArray(gasMasterRes.historyList)) {
+                            fallbackCards.push(...gasMasterRes.historyList);
+                        }
+                        if (fallbackCards.length > 0 && applyAndMergeOrders(fallbackCards)) {
+                            return;
+                        }
+                    } catch (fallbackErr) {}
 
                     if ((staffDirectData && staffDirectData.errorType === "WRONG_PIN") || (bossLiveSheetData && bossLiveSheetData.errorType === "WRONG_PIN") || (fbInstantData && fbInstantData.errorType === "WRONG_PIN")) {
                         setIsLoading(false);
