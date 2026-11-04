@@ -95,7 +95,7 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 353; // 353 => v3.53
+        const VERSION_STEP = 356; // 356 => v3.56 (동명이인 주소 섞임 및 오배송 원천 차단 패치)
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
         const PORTAL_UPDATED_DATE = "2026.11.04";
         const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
@@ -261,9 +261,22 @@
         const cleanHandle = (str) => {
             if (!str) return "";
             let s = String(str).trim();
+            // 닉네임 뒤에 붙은 다중배송 별칭 예: 홍길동(엄마), 홍길동(동생), 홍길동(사무실) 제거 후 기본 닉네임 추출
+            s = s.replace(/\((?:집|우리집|자택|사무실|직장|회사|엄마|어머니|부모님|본가|시댁|처가|동생|언니|오빠|누나|형|선물|지인|딸|아들|배송지\d+|[^)]*댁|[^)]*집)\)$/i, "");
             // 실제 유튜브 핸들(-영문포함 3~10자)만 제거하고 '별1', '별3' 등의 숫자는 절대 지우지 않음!
             s = s.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, "");
             return s.replace(/[\s\(\)\[\]\{\}\-\_\.\,\/]/g, "").toLowerCase();
+        };
+
+        // 닉네임에서 다중배송 별칭(예: '깔로(엄마)' -> '엄마')만 추출하는 함수
+        const extractRecipientTagFromNick = (nickStr) => {
+            const m = String(nickStr || "").trim().match(/\(([^)]+)\)$/);
+            return m ? m[1].trim() : "";
+        };
+
+        // 다중배송 별칭을 뺀 순수 기본 닉네임(예: '깔로(엄마)' -> '깔로') 반환
+        const stripRecipientTagFromNick = (nickStr) => {
+            return String(nickStr || "").trim().replace(/\s*\([^)]+\)$/, "").trim();
         };
 
         const extractKorean = (str) => {
@@ -306,12 +319,12 @@
             // 1순위: 전체 닉네임 100% 완전 일치 (점수 4점)
             if (nDb === nIn) return 4;
 
-            // ⚠️ 만약 사용자가 직접 핸들(-3k4)을 붙여서 입력했는데 DB 닉네임과 다르다면, 비밀번호가 같지 않은 이상 0점 차단
+            // ⚠️ 사용자가 직접 핸들(-3k4)을 붙여서 입력했는데 DB 닉네임과 다르다면, 비밀번호가 같지 않은 이상 0점 차단
             const inHasHandle = /-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/.test(rawIn);
             if (inHasHandle && nDb !== nIn && !isPinAlreadyMatched) return 0;
 
-            const inCleanBase = rawIn.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
-            const dbCleanBase = rawDb.replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+            const inCleanBase = stripRecipientTagFromNick(rawIn).replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+            const dbCleanBase = stripRecipientTagFromNick(rawDb).replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
             const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
             const dbNums = (dbCleanBase.match(/\d+/g) || []).join('_');
 
@@ -497,7 +510,8 @@
             return 0;
         };
 
-        // 방송 이름(broadcastName) 기준으로만 정확히 중복을 제거하여, 같은 날짜의 서로 다른 방송('10/26 스카프' vs '10/26 사무실악세', '10/20 악세사리' vs '10/20 모이사')이 절대 합쳐지거나 누락되지 않도록 보호하는 함수!
+        // 방송 이름(broadcastName) + 다중배송 수령지(nickname) 기준으로 중복을 제거하여,
+        // 같은 방송 안에서도 '깔로(본인)', '깔로(엄마)', '깔로(동생)' 주문서가 절대 하나로 합쳐지지 않고 각각 독립된 탭으로 표시되도록 보호!
         const deduplicateHistoryByBroadcastName = (list) => {
             if (!Array.isArray(list)) return [];
             const map = new Map();
@@ -514,22 +528,26 @@
                 let bKey = cleanBroadcastKey(item.broadcastName || item.sheetTabName || '주문내역');
                 if (!bKey) return;
 
+                const recipientTag = extractRecipientTagFromNick(item.nickname);
+                const cardUniqueKey = recipientTag ? `${bKey}___TAG_${normalizeNick(recipientTag)}` : bKey;
+
                 // 🔴 현재 생방송 중인 주문서(_isLiveSource)가 만약 이전 마감 방송과 같은 이름이면 절대 옛날 방송에 먹히지 않도록 구분!
-                if (item._isLiveSource && map.has(bKey) && !map.get(bKey)._isLiveSource) {
+                let finalMapKey = cardUniqueKey;
+                if (item._isLiveSource && map.has(cardUniqueKey) && !map.get(cardUniqueKey)._isLiveSource) {
                     bKey = `${bKey} (실시간 라이브)`;
+                    finalMapKey = recipientTag ? `${bKey}___TAG_${normalizeNick(recipientTag)}` : bKey;
                 }
 
-                // 오직 방송 이름(bKey)이 100% 똑같고 생방송 여부가 같을 때만 병합! (같은 날짜라도 '10/26 스카프'와 '10/26 사무실악세'는 절대 합치지 않음!)
                 let matchedKey = null;
-                if (map.has(bKey)) {
-                    const ex = map.get(bKey);
+                if (map.has(finalMapKey)) {
+                    const ex = map.get(finalMapKey);
                     if (Boolean(ex._isLiveSource) === Boolean(item._isLiveSource)) {
-                        matchedKey = bKey;
+                        matchedKey = finalMapKey;
                     }
                 }
 
                 if (!matchedKey) {
-                    map.set(bKey, {
+                    map.set(finalMapKey, {
                         ...item,
                         broadcastName: bKey,
                         sheetTabName: item._isLiveSource ? '메인주문' : ('주문_' + bKey)
@@ -590,8 +608,7 @@
                         address: mergedAddress,
                         trackingNumbers: Array.from(new Set([...(existing.trackingNumbers || []), ...(item.trackingNumbers || [])]))
                     };
-                    if (matchedKey !== finalBName) map.delete(matchedKey);
-                    map.set(finalBName, mergedCard);
+                    map.set(matchedKey, mergedCard);
                 }
             });
             return Array.from(map.values());
@@ -627,9 +644,10 @@
             if (!Array.isArray(rawList) || rawList.length === 0) return [];
             const normInPin = normalizePin4(cleanPinInput);
 
-            // 0단계: 1) 사장님 시트 '찐고객사전'(masterDictRows) + 2) 사장님 시트 '고객상태관리'(customerDbRows) + 3) 파이어베이스 주소록 + 4) 전체 주문서에서 닉네임별 실제 전화번호 뒷 4자리(비밀번호)와 주소를 모두 수집!
+            // 🛡️ 핵심 보안 패치: 주소록(knownAddrObjMap)은 오직 [닉네임 + 입력한 비밀번호(전화번호 뒷4자리)]가 100% 동시에 일치하는 주소만 저장합니다!
+            // 비밀번호가 다른 동명이인의 주소는 절대 knownAddrObjMap에 넣지 않아서 타인의 주소가 내 주문서에 뜨는 오배송 사고를 원천 차단합니다!
             const knownPinsMap = {};
-            const knownAddrObjMap = {};
+            const knownAddrByNickAndPinMap = {};
             const registerKnownPinAndAddr = (nickStr, phoneOrPinStr, realnameStr = "", addrStr = "", memoStr = "") => {
                 const nKey = normalizeNick(nickStr);
                 if (!nKey) return;
@@ -641,10 +659,12 @@
                     knownPinsMap[nKey].add(p4);
                 }
                 const cleanA = String(addrStr || "").replace(/^\(\d{5}\)\s*/, "").trim();
-                if (cleanA && (!knownAddrObjMap[nKey] || p4 === normInPin)) {
-                    knownAddrObjMap[nKey] = {
+                // ⚠️ 반드시 전화번호 뒷 4자리(p4)가 존재하고, 현재 로그인한 사람의 비밀번호(normInPin)와 정확히 일치할 때만 주소 후보로 등록!
+                if (cleanA && p4 && normInPin && p4 === normInPin) {
+                    const pinKey = `${nKey}___${p4}`;
+                    knownAddrByNickAndPinMap[pinKey] = {
                         realname: String(realnameStr || "").trim(),
-                        phone: cleanPh || (knownAddrObjMap[nKey]?.phone || ""),
+                        phone: cleanPh || (knownAddrByNickAndPinMap[pinKey]?.phone || ""),
                         zipcode: "",
                         baseAddress: cleanA,
                         detailAddress: "",
@@ -699,7 +719,7 @@
                 if (p) registerKnownPinAndAddr(item.nickname, item.address?.phone || p, item.address?.realname, item.address?.baseAddress, item.address?.memo);
             });
 
-            // 1단계: 조회된 전체 카드 중 비밀번호(뒷 4자리)가 일치하는 정확한 닉네임들을 먼저 찾음!
+            // 1단계: 조회된 전체 카드 중 이 카드 자체의 비밀번호(directPin)가 일치하는 정확한 닉네임들을 먼저 찾음!
             const pinVerifiedNicks = new Set();
             const pinMismatchedNicks = new Set();
 
@@ -711,21 +731,22 @@
                     (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
                 );
                 const knownSet = knownPinsMap[exactKey];
-                // 주문서 자체의 비번이나 찐고객사전의 비번 중 하나라도 입력한 비번과 일치하면 무조건 본인 확인 통과!
+                // ⚠️ 중요: 만약 이 주문서 카드 자체에 이미 연락처/비밀번호(directPin)가 찍혀 있다면, 반드시 그 directPin이 입력한 비번(normInPin)과 일치해야만 본인 카드로 인정!
+                // (시트에 1111 고객의 주소와 번호가 찍혀 있는데 2222 고객이 들어왔을 때 1111의 주문서가 열리는 것을 100% 차단!)
                 const isThisItemPinMatch = Boolean(
                     normInPin && (
-                        (directPin && directPin === normInPin) ||
-                        (knownSet && knownSet.has(normInPin))
+                        directPin
+                            ? (directPin === normInPin)
+                            : (knownSet && knownSet.has(normInPin))
                     )
                 );
                 const isThisItemPinWrong = Boolean(
                     normInPin && !isThisItemPinMatch && (
-                        Boolean(directPin) ||
-                        Boolean(knownSet && knownSet.size > 0)
+                        Boolean(directPin && directPin !== normInPin) ||
+                        Boolean(!directPin && knownSet && knownSet.size > 0 && !knownSet.has(normInPin))
                     )
                 );
 
-                // ⚠️ 중요: 고객이 숫자를 포함해 '1풍선1'이라고 쳤는데 카드가 '0풍선0'이면 설령 비번이 같더라도 다른 닉네임이므로 매칭에서 제외!
                 const inCleanBase = String(rawNickInput).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
                 const dbCleanBase = String(item.nickname).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
                 const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
@@ -748,7 +769,6 @@
                 if (!item || !item.nickname) return false;
                 const exactKey = normalizeNick(item.nickname);
 
-                // ⚠️ 만약 고객이 숫자를 직접 입력('1풍선1')했는데 주문서 카드의 숫자('0풍선0')와 다르면 100% 다른 사람이므로 무조건 차단!
                 const inCleanBase = String(rawNickInput).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
                 const dbCleanBase = String(item.nickname).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
                 const inNums = (inCleanBase.match(/\d+/g) || []).join('_');
@@ -757,23 +777,34 @@
                     return false;
                 }
 
-                const directPin = normalizePin4(
-                    item.phoneLast4 ||
-                    (item.address && item.address.phone ? String(item.address.phone).slice(-4) : "")
-                );
+                const addrPhonePin = (item.address && item.address.phone) ? normalizePin4(String(item.address.phone).slice(-4)) : "";
+                const directPin = normalizePin4(item.phoneLast4 || addrPhonePin);
+
+                // 🛡️ 철통 방어 1: 주문서 카드 자체에 이미 전화번호나 비밀번호(directPin 또는 addrPhonePin)가 들어있는데,
+                // 내가 입력한 비밀번호(normInPin)와 다르다면 100% 동명이인(남의 주문서)이므로 절대 열리지 않게 즉시 차단!
+                if (directPin && normInPin && directPin !== normInPin) {
+                    return false;
+                }
+                if (addrPhonePin && normInPin && addrPhonePin !== normInPin) {
+                    return false;
+                }
+
                 const knownSet = knownPinsMap[exactKey];
                 const isThisItemPinMatch = Boolean(
                     normInPin && (
-                        (directPin && directPin === normInPin) ||
-                        (knownSet && knownSet.has(normInPin)) ||
-                        pinVerifiedNicks.has(exactKey)
+                        directPin
+                            ? (directPin === normInPin)
+                            : (knownSet && knownSet.has(normInPin))
                     )
                 );
 
-                // 주문서나 찐고객사전 중 어느 한 곳이라도 입력한 비번과 일치하면 통과! 반대로 등록된 비번들이 모두 입력한 비번과 다르면 차단!
                 if (!isThisItemPinMatch) {
-                    if (directPin && normInPin && directPin !== normInPin) return false;
-                    if (!directPin && knownSet && knownSet.size > 0 && normInPin && !knownSet.has(normInPin)) return false;
+                    // 주문서에는 아직 번호가 안 적혀있는데(directPin === ''), 찐고객사전(knownSet)에 같은 닉네임의 다른 번호가 등록되어 있는 경우:
+                    // 만약 찐고객사전에 내 번호가 없다면(동명이인 신규 고객), 기존 단골의 다른 방송 주문서가 열리지 않도록 차단하되,
+                    // 현재 주소가 아예 비어있는 신규 주문 카드에 한해서만(첫 구매 고객이 주소를 입력할 수 있도록) 엄격히 구분!
+                    if (knownSet && knownSet.size > 0 && normInPin && !knownSet.has(normInPin)) {
+                        return false;
+                    }
                     if (pinMismatchedNicks.has(exactKey) && !pinVerifiedNicks.has(exactKey)) return false;
                 }
 
@@ -787,27 +818,34 @@
                 const lockedSc = lockedFullNick ? getNickMatchScore(item.nickname, "", lockedFullNick, false) : 0;
                 if (sc <= 0 && lockedSc <= 0) return false;
 
-                // 아직 시트에도, 찐고객사전에도 비밀번호가 전혀 없는 완전 신규 주문 카드인 경우:
-                // 만약 이미 비밀번호가 일치하는 정확한 주인(예: 1풍선1)을 찾았다면, 비번 없는 다른 동명이인(예: 0풍선0)은 절대 끼어들지 못하게 차단!
                 if (!directPin && (!knownSet || knownSet.size === 0)) {
                     if (pinVerifiedNicks.size > 0) {
                         return pinVerifiedNicks.has(exactKey);
                     }
-                    // 고객이 정확히 본인 닉네임('1풍선1' 또는 '0풍선0', sc >= 3)을 쳤다면 첫 구매(비번 미등록)라도 열려서 주소를 입력할 수 있게 허용!
                     return sc >= 3;
                 }
                 return true;
             }).map(item => {
-                // 만약 주문서 카드에 주소가 비어있는데 찐고객사전(knownAddrObjMap)에 이 닉네임의 주소가 있다면 자동으로 채워줌!
+                // 🛡️ 철통 방어 2: 카드에 붙어있는 주소의 연락처 뒷 4자리가 내 비밀번호(normInPin)와 다르면 그 주소는 동명이인의 주소이므로 즉시 제거!
                 const exactKey = normalizeNick(item.nickname);
-                if ((!item.address || !item.address.baseAddress) && knownAddrObjMap[exactKey]) {
+                const itemAddrPin = item.address?.phone ? normalizePin4(String(item.address.phone).slice(-4)) : "";
+                let safeAddress = item.address;
+                if (safeAddress && itemAddrPin && normInPin && itemAddrPin !== normInPin) {
+                    safeAddress = null;
+                }
+                // 오직 [내 닉네임 + 내 비밀번호(normInPin)]가 둘 다 일치하는 주소록(knownAddrByNickAndPinMap)만 자동 연결!
+                const myVerifiedAddr = knownAddrByNickAndPinMap[`${exactKey}___${normInPin}`];
+                if ((!safeAddress || !safeAddress.baseAddress) && myVerifiedAddr) {
                     return {
                         ...item,
-                        phoneLast4: item.phoneLast4 || normalizePin4(knownAddrObjMap[exactKey].phone.slice(-4)),
-                        address: knownAddrObjMap[exactKey]
+                        phoneLast4: normInPin,
+                        address: myVerifiedAddr
                     };
                 }
-                return item;
+                return {
+                    ...item,
+                    address: safeAddress
+                };
             });
 
             if (step1.length === 0) return [];
@@ -828,26 +866,20 @@
 
             const bestNick = lockedFullNick || step1[0].nickname;
             const bestNorm = normalizeNick(bestNick);
-            const bestCleanBase = String(bestNick).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
-            const bestNums = (bestCleanBase.match(/\d+/g) || []).join('_');
 
-            // ✅ 최종 필터: 1순위 매칭된 주인(예: 1풍선1)과 숫자가 다른 동명이인(예: 0풍선0)은 절대 함께 섞이지 않도록 완벽 차단!
+            // 🛡️ 철통 방어 3: 핸들이 다른 동명이인(예: 민들레-a1b vs 민들레-x9z)은 비밀번호가 둘 다 normInPin으로 직접 확인된 경우가 아니면 절대 합치지 않음!
             return step1.filter(item => {
                 const itemNorm = normalizeNick(item.nickname);
                 if (itemNorm === bestNorm) return true;
 
-                const itemCleanBase = String(item.nickname).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
-                const itemNums = (itemCleanBase.match(/\d+/g) || []).join('_');
-                // 1풍선1(1_1)과 0풍선0(0_0)처럼 숫자가 다르면 절대 합치지 않음!
-                if (bestNums !== itemNums) {
-                    const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
-                    const itemKnownSet = knownPinsMap[itemNorm];
-                    const isSamePersonPin = Boolean(normInPin && ((itemPin && itemPin === normInPin) || (itemKnownSet && itemKnownSet.has(normInPin))));
-                    // 오직 진짜로 같은 전화번호를 쓰는 동일인물일 때만 허용하고, 전화번호가 다르거나 미등록이면 무조건 분리!
-                    if (!isSamePersonPin) return false;
-                }
+                // 다중배송 별칭(예: 깔로 vs 깔로(엄마))은 기본 닉네임이 같으면 함께 표시
+                const baseBest = normalizeNick(stripRecipientTagFromNick(bestNick));
+                const baseItem = normalizeNick(stripRecipientTagFromNick(item.nickname));
+                if (baseBest === baseItem) return true;
 
-                if (cleanHandle(item.nickname) === cleanHandle(bestNick)) {
+                const itemPin = normalizePin4(item.phoneLast4 || (item.address?.phone ? String(item.address.phone).slice(-4) : ""));
+                const isSameVerifiedPin = Boolean(normInPin && itemPin && itemPin === normInPin);
+                if (isSameVerifiedPin && cleanHandle(item.nickname) === cleanHandle(bestNick)) {
                     return true;
                 }
                 return false;
@@ -1461,11 +1493,22 @@
                         const cPin = isPinMatchHere ? normInPin : (directFbPin || (fbPinSet.size > 0 ? Array.from(fbPinSet)[0] : ''));
 
                         const safeNickKey = String(cust.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-                        const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
-                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === cNorm);
+                        const safeNickPinKey = normInPin ? `${safeNickKey}___${normInPin}` : safeNickKey;
+                        // 🛡️ 동명이인 주소 덮어쓰기 방지: 클라우드 주소록(bcastAddrsVal)에서 주소를 가져올 때도 반드시 전화번호 뒷 4자리(normInPin)가 일치하는 주소만 가져옴!
+                        const rawBAddr = bcastAddrsVal[safeBKey]?.[safeNickPinKey]
+                            || bcastAddrsVal[safeBKey]?.[safeNickKey]
+                            || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => {
+                                if (!x || normalizeNick(x.nickname) !== cNorm) return false;
+                                const xPin = x.phone ? normalizePin4(fixPhoneStr(x.phone).slice(-4)) : '';
+                                return !xPin || !normInPin || xPin === normInPin;
+                            });
+                        const bAddrPin = rawBAddr?.phone ? normalizePin4(fixPhoneStr(rawBAddr.phone).slice(-4)) : '';
+                        const bAddr = (rawBAddr && (!bAddrPin || !normInPin || bAddrPin === normInPin)) ? rawBAddr : null;
+
                         const credEntry = credVal[safeNickKey]
                             || Object.values(credVal || {}).find(x => x && normalizeNick(x.nickname) === cNorm);
                         const isBcastConf = Boolean(
+                            bcastConfVal[safeBKey]?.[safeNickPinKey] ||
                             bcastConfVal[safeBKey]?.[safeNickKey] ||
                             Object.values(bcastConfVal[safeBKey] || {}).some(x => x && normalizeNick(x.nickname) === cNorm)
                         );
@@ -1559,6 +1602,7 @@
             const [orderHistoryList, setOrderHistoryList] = useState([]);
             const [selectedBroadcastIdx, setSelectedBroadcastIdx] = useState(0);
             const [currentUser, setCurrentUser] = useState(null);
+            const [savedAddressBook, setSavedAddressBook] = useState([]); // 🏠 일반 쇼핑몰처럼 본인이 그동안 사용했던 배송지 목록
             const [customerCsList, setCustomerCsList] = useState([]);
             const [editingCsAccountMap, setEditingCsAccountMap] = useState({});
 
@@ -1566,7 +1610,9 @@
             const [isSavingAddress, setIsSavingAddress] = useState(false);
             const [isPostcodeModalOpen, setIsPostcodeModalOpen] = useState(false);
             const postcodeContainerRef = useRef(null);
-            const [addrForm, setAddrForm] = useState({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
+            const [addrForm, setAddrForm] = useState({ label: "우리집", realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
+            const [splitMode, setSplitMode] = useState("all"); // "all": 이 주문서 전체 적용 | "split": 선택한 품목만 다른 배송지로 분리
+            const [selectedSplitItemIds, setSelectedSplitItemIds] = useState({});
             const [agreePrivacy, setAgreePrivacy] = useState(false);
             const [agreeThirdParty, setAgreeThirdParty] = useState(false);
 
@@ -1686,9 +1732,118 @@
                 document.body.removeChild(ta);
             };
 
-            const initAddressState = (userObj) => {
+            // 🏠 로그인한 고객이 그동안 사용했던 모든 배송지(찐고객사전 + 이전 방송 배송지 + 클라우드 배송지)를 중복 없이 모아주는 함수
+            const collectCustomerSavedAddresses = (targetNick, cleanPin, historyCards = []) => {
+                const normTarget = normalizeNick(targetNick);
+                const handleTarget = cleanHandle(targetNick);
+                const normPin = normalizePin4(cleanPin);
+                if (!normTarget || !normPin) return [];
+
+                const targetCleanBase = String(targetNick).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                const targetNums = (targetCleanBase.match(/\d+/g) || []).join('_');
+
+                // 🛡️ 철통 보안: 오직 전화번호 뒷 4자리(p4)가 명확히 존재하고, 로그인한 비밀번호(normPin)와 100% 일치하는 주소만 내 주소록으로 가져옵니다!
+                // 전화번호가 없거나 뒷 4자리가 다른 동명이인의 주소는 절대 가져오지 않습니다!
+                const isSameUserNickAndPin = (candNick, candPhone) => {
+                    if (!candNick) return false;
+                    const phDigits = fixPhoneStr(candPhone || '');
+                    const p4 = phDigits.length >= 4 ? normalizePin4(phDigits.slice(-4)) : '';
+                    if (!p4 || p4 !== normPin) return false;
+
+                    const cNorm = normalizeNick(candNick);
+                    const cCleanBase = String(candNick).trim().replace(/-(?=[a-zA-Z0-9_]*[a-zA-Z])[a-zA-Z0-9_]{3,10}$/, '');
+                    const cNums = (cCleanBase.match(/\d+/g) || []).join('_');
+                    if (targetNums !== cNums) return false;
+
+                    if (cNorm === normTarget) return true;
+                    if (normalizeNick(stripRecipientTagFromNick(candNick)) === normalizeNick(stripRecipientTagFromNick(targetNick))) return true;
+                    if (handleTarget && cleanHandle(candNick) === handleTarget) return true;
+                    return false;
+                };
+
+                const addrMap = new Map();
+                const addCandidate = (realname, phone, baseAddr, memo, labelStr = '') => {
+                    const cleanA = String(baseAddr || '').replace(/^\(\d{5}\)\s*/, '').trim();
+                    const cleanP = fixPhoneStr(phone || '');
+                    const cleanR = String(realname || '').trim();
+                    const cleanM = String(memo || '').trim();
+                    if (!cleanA) return;
+                    const key = `${normalizeNick(cleanR)}|${cleanP}|${normalizeNick(cleanA)}`;
+                    if (!addrMap.has(key)) {
+                        addrMap.set(key, {
+                            realname: cleanR,
+                            phone: cleanP,
+                            baseAddress: cleanA,
+                            detailAddress: '',
+                            memo: cleanM,
+                            label: labelStr || '이전 사용 배송지'
+                        });
+                    }
+                };
+
+                // 1) 본인 주문 히스토리 카드들에 들어있는 배송지 (최신순 + 별칭 자동 추출)
+                (historyCards || []).forEach(card => {
+                    if (card && card.address && card.address.baseAddress) {
+                        const tag = extractRecipientTagFromNick(card.nickname);
+                        const cardLabel = tag ? `🏷️ ${tag}` : (card.broadcastName ? `[${cleanBroadcastKey(card.broadcastName)}] 배송지` : '최근 주문 배송지');
+                        addCandidate(
+                            card.address.realname || stripRecipientTagFromNick(card.nickname),
+                            card.address.phone,
+                            card.address.baseAddress,
+                            card.address.memo,
+                            cardLabel
+                        );
+                    }
+                });
+
+                // 2) 파이어베이스 방송별/마스터 배송지 기록
+                const rootSnap = portalSheetCache.fbSnapshot || {};
+                Object.entries(rootSnap._portal_broadcast_addresses || {}).forEach(([bKey, bMap]) => {
+                    if (bMap && typeof bMap === 'object') {
+                        Object.values(bMap).forEach(a => {
+                            if (a && isSameUserNickAndPin(a.nickname, a.phone)) {
+                                const tag = a.addressLabel || extractRecipientTagFromNick(a.nickname);
+                                addCandidate(a.realname || stripRecipientTagFromNick(a.nickname), a.phone, a.address || a.baseAddress, a.memo, tag ? `🏷️ ${tag}` : (a.broadcastName ? `[${cleanBroadcastKey(a.broadcastName)}] 배송지` : '최근 입력 배송지'));
+                            }
+                        });
+                    }
+                });
+                Object.values(rootSnap._portal_master_addrs || {}).forEach(a => {
+                    if (a && isSameUserNickAndPin(a.nickname, a.phone)) {
+                        addCandidate(a.realname || a.nickname, a.phone, a.address || a.baseAddress, a.memo, '기본 등록 배송지');
+                    }
+                });
+                Object.values(rootSnap._portal_addresses || {}).forEach(a => {
+                    if (a && isSameUserNickAndPin(a.nickname, a.phone)) {
+                        addCandidate(a.realname || a.nickname, a.phone, a.address || a.baseAddress, a.memo, '최근 저장 배송지');
+                    }
+                });
+
+                // 3) 사장님 시트 '찐고객사전'에 등록된 배송지
+                if (Array.isArray(portalSheetCache.masterDictRows)) {
+                    portalSheetCache.masterDictRows.forEach(r => {
+                        if (!r) return;
+                        const n = String(r['닉네임'] || r['nickname'] || r['주문자'] || r.col_0 || (Array.isArray(r) ? r[0] : '') || '').trim();
+                        const rName = String(r['수령인명'] || r['realname'] || r['이름'] || r.col_1 || (Array.isArray(r) ? r[1] : '') || '').trim();
+                        const ph = String(r['연락처'] || r['phone'] || r['전화번호'] || r.col_2 || (Array.isArray(r) ? r[2] : '') || '').trim();
+                        const addr = String(r['주소'] || r['address'] || r['배송지'] || r.col_3 || (Array.isArray(r) ? r[3] : '') || '').trim();
+                        const memo = String(r['배송메모'] || r['memo'] || r['요청사항'] || r.col_4 || (Array.isArray(r) ? r[4] : '') || '').trim();
+                        if (isSameUserNickAndPin(n, ph)) {
+                            addCandidate(rName || n, ph, addr, memo, '찐고객사전 등록 배송지');
+                        }
+                    });
+                }
+
+                return Array.from(addrMap.values());
+            };
+
+            const initAddressState = (userObj, fallbackBook = []) => {
+                const existingTag = extractRecipientTagFromNick(userObj?.nickname) || userObj?.address?.addressLabel || "우리집";
+                setSplitMode("all");
+                setSelectedSplitItemIds({});
                 if (userObj && userObj.address && userObj.address.baseAddress) {
                     setAddrForm({
+                        label: existingTag,
                         realname: userObj.address.realname || "",
                         phone: fixPhoneStr(userObj.address.phone || ""),
                         zipcode: userObj.address.zipcode || "",
@@ -1697,8 +1852,23 @@
                         memo: userObj.address.memo || ""
                     });
                     setIsEditingAddress(false);
+                } else if (Array.isArray(fallbackBook) && fallbackBook.length > 0) {
+                    // 이번 방송에 아직 주소가 안 적혀 있어도, 고객님이 이전에 썼던 배송지가 있으면 1순위 주소를 입력폼에 미리 자동으로 채워둠!
+                    const latest = fallbackBook[0];
+                    setAddrForm({
+                        label: existingTag,
+                        realname: latest.realname || "",
+                        phone: fixPhoneStr(latest.phone || ""),
+                        zipcode: "",
+                        baseAddress: latest.baseAddress || "",
+                        detailAddress: "",
+                        memo: latest.memo || ""
+                    });
+                    setAgreePrivacy(true);
+                    setAgreeThirdParty(true);
+                    setIsEditingAddress(true);
                 } else {
-                    setAddrForm({ realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
+                    setAddrForm({ label: existingTag, realname: "", phone: "", zipcode: "", baseAddress: "", detailAddress: "", memo: "" });
                     setIsEditingAddress(true);
                 }
             };
@@ -1707,7 +1877,7 @@
                 if (idx < 0 || idx >= orderHistoryList.length) return;
                 setSelectedBroadcastIdx(idx);
                 setCurrentUser(orderHistoryList[idx]);
-                initAddressState(orderHistoryList[idx]);
+                initAddressState(orderHistoryList[idx], savedAddressBook);
             };
 
             const fetchInlineTracking = async (cleanDigits, force = false) => {
@@ -1795,18 +1965,40 @@
                     const sorted = sortHistoryByNewestDate(cleaned);
                     if (sorted.length === 0) return false;
 
+                    const primaryNick = sorted[0].nickname || rawNick;
+                    const myAddrBook = collectCustomerSavedAddresses(primaryNick, cleanPin, sorted);
+                    setSavedAddressBook(myAddrBook);
+
+                    // 만약 주문서 카드에 아직 주소가 비어있는데 본인의 이전 배송지(myAddrBook)가 있다면 자동으로 연결해 보여줌!
+                    const enrichedSorted = sorted.map(card => {
+                        if ((!card.address || !card.address.baseAddress) && myAddrBook.length > 0) {
+                            return {
+                                ...card,
+                                address: {
+                                    realname: myAddrBook[0].realname || card.nickname,
+                                    phone: myAddrBook[0].phone || '',
+                                    zipcode: '',
+                                    baseAddress: myAddrBook[0].baseAddress,
+                                    detailAddress: '',
+                                    memo: myAddrBook[0].memo || '',
+                                    updatedAt: ''
+                                }
+                            };
+                        }
+                        return card;
+                    });
+
                     // 노쇼된 방송이 있더라도 다른 정상 주문 방송이 있으면 정상 주문 방송 탭을 제일 먼저 열어서 보여줌! (모든 방송 탭은 상단에 전부 표시됨)
-                    const firstNormalIdx = sorted.findIndex(item => !item.isNoShow);
+                    const firstNormalIdx = enrichedSorted.findIndex(item => !item.isNoShow);
                     const initialIdx = firstNormalIdx !== -1 ? firstNormalIdx : 0;
 
-                    setOrderHistoryList(sorted);
+                    setOrderHistoryList(enrichedSorted);
                     setSelectedBroadcastIdx(initialIdx);
-                    setCurrentUser(sorted[initialIdx]);
-                    initAddressState(sorted[initialIdx]);
+                    setCurrentUser(enrichedSorted[initialIdx]);
+                    initAddressState(enrichedSorted[initialIdx], myAddrBook);
                     setIsLoading(false);
                     setIsRefreshing(false);
 
-                    const primaryNick = sorted[initialIdx].nickname || rawNick;
                     lookupCustomerCsRecords([primaryNick, rawNick], cleanPin)
                         .then(csList => {
                             if (Array.isArray(csList)) setCustomerCsList(csList);
@@ -1887,10 +2079,20 @@
                             if (!bName || bName === '오늘의방송' || bName === '기본방송') return;
                             const safeBKey = bName.replace(/[.#$\[\]\/]/g, '_');
                             const safeNickKey = String(sheetCard.nickname || '').replace(/[.#$\[\]\/]/g, '_');
-                            const bAddr = bcastAddrsVal[safeBKey]?.[safeNickKey]
-                                || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
+                            const normPin = normalizePin4(cleanPin);
+                            const safeNickPinKey = normPin ? `${safeNickKey}___${normPin}` : safeNickKey;
+                            const rawBAddr = bcastAddrsVal[safeBKey]?.[safeNickPinKey]
+                                || bcastAddrsVal[safeBKey]?.[safeNickKey]
+                                || Object.values(bcastAddrsVal[safeBKey] || {}).find(x => {
+                                    if (!x || normalizeNick(x.nickname) !== normalizeNick(sheetCard.nickname)) return false;
+                                    const xPin = x.phone ? normalizePin4(fixPhoneStr(x.phone).slice(-4)) : '';
+                                    return !xPin || !normPin || xPin === normPin;
+                                });
+                            const bAddrPin = rawBAddr?.phone ? normalizePin4(fixPhoneStr(rawBAddr.phone).slice(-4)) : '';
+                            const bAddr = (rawBAddr && (!bAddrPin || !normPin || bAddrPin === normPin)) ? rawBAddr : null;
                             const credEntry = credVal[safeNickKey] || Object.values(credVal).find(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname));
                             const isBcastConf = Boolean(
+                                bcastConfVal[safeBKey]?.[safeNickPinKey] ||
                                 bcastConfVal[safeBKey]?.[safeNickKey] ||
                                 Object.values(bcastConfVal[safeBKey] || {}).some(x => x && normalizeNick(x.nickname) === normalizeNick(sheetCard.nickname))
                             );
@@ -2084,6 +2286,7 @@
                 const cleanBase = String(addrForm.baseAddress || "").replace(/^\(\d{5}\)\s*/, "").trim();
                 const cleanDetail = String(addrForm.detailAddress || "").trim();
                 const cleanMemo = String(addrForm.memo || "").trim();
+                const cleanLabel = String(addrForm.label || "우리집").trim() || "우리집";
 
                 if (!cleanRealname) {
                     showToast("수령인 성함을 입력해 주세요.");
@@ -2102,14 +2305,173 @@
                     return false;
                 }
 
+                // 🔀 다중배송(일부 상품만 엄마/동생/사무실 등으로 분리 발송) 모드 처리!
+                const allCurrentItems = Array.isArray(currentUser.items) ? currentUser.items : [];
+                const activeNormalItems = allCurrentItems.filter(it => !it.isWaitlist);
+                const selectedIds = Object.keys(selectedSplitItemIds).filter(k => selectedSplitItemIds[k]);
+
+                if (splitMode === "split") {
+                    if (selectedIds.length === 0) {
+                        showToast("따로 보내실 상품을 1개 이상 체크해 주세요!");
+                        return false;
+                    }
+                    if (selectedIds.length >= activeNormalItems.length && activeNormalItems.length > 0) {
+                        showToast("전체 상품을 다 선택하셨습니다. 위에서 [이 주문서 전체 적용]을 선택해 저장해 주세요.");
+                        return false;
+                    }
+                }
+
                 const fullCombinedAddress = `${cleanBase} ${cleanDetail}`.trim();
-                const newLast4 = cleanPhone.slice(-4);
+                const newLast4 = (currentUser.phoneLast4 && String(currentUser.phoneLast4).length === 4) ? String(currentUser.phoneLast4) : cleanPhone.slice(-4);
                 const nowStr = getKstNowString();
                 const cleanTargetBName = cleanBroadcastKey(currentUser.broadcastName || '');
                 const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
+
+                // 만약 일부 품목 분리 발송(splitMode === 'split')인 경우:
+                // 원래 주문서에서는 선택한 품목을 빼고, 새로운 `기본닉네임(별칭)`(예: `깔로(엄마)`) 주문 카드를 생성하여 클라우드와 시트에 즉시 반영!
+                if (splitMode === "split" && selectedIds.length > 0) {
+                    const basePureNick = stripRecipientTagFromNick(currentUser.nickname);
+                    const splitTag = (cleanLabel && cleanLabel !== "우리집" && cleanLabel !== "기본") ? cleanLabel : cleanRealname;
+                    const newSplitNick = `${basePureNick}(${splitTag})`;
+                    const safeNewNickKey = String(newSplitNick).replace(/[.#$\[\]\/]/g, '_');
+
+                    const splitItems = [];
+                    const remainItems = [];
+                    allCurrentItems.forEach((it, idx) => {
+                        const itemKey = String(it.id ?? idx);
+                        if (selectedSplitItemIds[itemKey]) {
+                            splitItems.push({ ...it, id: splitItems.length + 1 });
+                        } else {
+                            remainItems.push({ ...it, id: remainItems.length + 1 });
+                        }
+                    });
+
+                    const fThresh = Number(currentUser.freeShippingThreshold ?? 70000);
+                    const isVipCust = Boolean(currentUser.isVip);
+                    const calcShipForItems = (itemsArr, addrStr) => {
+                        if (isVipCust) return 0;
+                        const act = itemsArr.filter(x => !x.isWaitlist);
+                        const pSum = act.reduce((s, x) => s + (Number(x.price) > 0 ? Number(x.price) : 0), 0);
+                        if (act.length === 0 || pSum <= 0) return 0;
+                        const isJeju = Boolean(addrStr && addrStr.includes('제주'));
+                        const isFree = fThresh > 0 && pSum >= fThresh;
+                        return (isFree ? 0 : 4000) + (isJeju ? 3000 : 0);
+                    };
+
+                    const remainShip = calcShipForItems(remainItems, currentUser.address?.baseAddress || '');
+                    const splitShip = calcShipForItems(splitItems, fullCombinedAddress);
+
+                    const splitAddrObj = {
+                        addressLabel: splitTag,
+                        realname: cleanRealname,
+                        phone: cleanPhone,
+                        zipcode: "",
+                        baseAddress: fullCombinedAddress,
+                        detailAddress: "",
+                        memo: cleanMemo,
+                        updatedAt: nowStr
+                    };
+
+                    const newSplitCard = {
+                        ...currentUser,
+                        nickname: newSplitNick,
+                        phoneLast4: newLast4,
+                        shipping: splitShip,
+                        depositTotal: 0,
+                        deposits: [],
+                        items: splitItems,
+                        address: splitAddrObj,
+                        trackingNumbers: [],
+                        isConfirmed: false,
+                        _hasBcastCustomAddr: true
+                    };
+
+                    const updatedOriginCard = {
+                        ...currentUser,
+                        shipping: remainShip,
+                        items: remainItems
+                    };
+
+                    setIsSavingAddress(true);
+                    try {
+                        if (portalFbDb && safeBKey) {
+                            const splitAddrRecord = {
+                                nickname: newSplitNick,
+                                addressLabel: splitTag,
+                                realname: cleanRealname,
+                                phone: cleanPhone,
+                                address: fullCombinedAddress,
+                                baseAddress: fullCombinedAddress,
+                                memo: cleanMemo,
+                                broadcastName: cleanTargetBName,
+                                updatedAt: nowStr
+                            };
+                            await portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNewNickKey}`).set(splitAddrRecord);
+
+                            const targetOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey];
+                            if (targetOrderNode && Array.isArray(targetOrderNode.customers)) {
+                                const nextCusts = [];
+                                targetOrderNode.customers.forEach(c => {
+                                    if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
+                                        nextCusts.push({ ...c, items: remainItems, shipping: remainShip });
+                                        nextCusts.push({
+                                            sheetTabName: c.sheetTabName || ('주문_' + cleanTargetBName),
+                                            nickname: newSplitNick,
+                                            phoneLast4: newLast4,
+                                            broadcastName: cleanTargetBName,
+                                            isVip: isVipCust,
+                                            isNoShow: false,
+                                            credit: 0,
+                                            freeShippingThreshold: fThresh,
+                                            cardFeeRate: Number(c.cardFeeRate) || 10,
+                                            isCard: '',
+                                            cashReceipt: 'none',
+                                            shipping: splitShip,
+                                            depositTotal: 0,
+                                            deposits: [],
+                                            items: splitItems,
+                                            address: splitAddrObj,
+                                            trackingNumbers: [],
+                                            isConfirmed: false
+                                        });
+                                    } else if (c) {
+                                        nextCusts.push(c);
+                                    }
+                                });
+                                targetOrderNode.customers = nextCusts;
+                                await portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}`).update({
+                                    customers: nextCusts,
+                                    updatedAt: Date.now(),
+                                    updatedBy: 'staff'
+                                });
+                            }
+                        }
+
+                        const nextHistory = [...orderHistoryList];
+                        nextHistory.splice(selectedBroadcastIdx, 1, updatedOriginCard, newSplitCard);
+                        setOrderHistoryList(nextHistory);
+                        setSelectedBroadcastIdx(selectedBroadcastIdx + 1);
+                        setCurrentUser(newSplitCard);
+                        setSavedAddressBook(prev => [
+                            { realname: cleanRealname, phone: cleanPhone, baseAddress: fullCombinedAddress, detailAddress: "", memo: cleanMemo, label: `🏷️ ${splitTag}` },
+                            ...(prev || []).filter(a => normalizeNick(a.baseAddress) !== normalizeNick(fullCombinedAddress))
+                        ]);
+                        setSplitMode("all");
+                        setSelectedSplitItemIds({});
+                        setIsEditingAddress(false);
+                        showToast(`✅ 선택한 ${splitItems.length}개 상품이 [${newSplitNick}] 배송지로 분리되었습니다!`);
+                        return true;
+                    } finally {
+                        setIsSavingAddress(false);
+                    }
+                }
+
                 const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                // 🛡️ 핵심: 파이어베이스 주소록 키에 반드시 전화번호 뒷 4자리(newLast4)를 포함하여 동명이인의 주소가 서로 덮어씌워지는 현상을 100% 원천 차단!
+                const safeNickPinKey = newLast4 ? `${safeNickKey}___${newLast4}` : safeNickKey;
 
                 const updatedAddr = {
+                    addressLabel: cleanLabel,
                     realname: cleanRealname,
                     phone: cleanPhone,
                     zipcode: "",
@@ -2121,6 +2483,8 @@
 
                 const addrRecord = {
                     nickname: currentUser.nickname,
+                    phoneLast4: newLast4,
+                    addressLabel: cleanLabel,
                     realname: cleanRealname,
                     phone: cleanPhone,
                     address: fullCombinedAddress,
@@ -2132,16 +2496,18 @@
 
                 setIsSavingAddress(true);
                 try {
-                    // 1) 파이어베이스 실시간 DB에 즉시 기록 (1차: 직원용 시스템의 해당 방송 주문서 + 2차: 사장님 찐고객사전 마스터 주소록 동시 갱신!)
+                    // 1) 파이어베이스 실시간 DB에 즉시 기록 (동명이인 보호를 위해 safeNickPinKey 사용 & 주문서 내부 업데이트 시에도 기존 번호와 충돌하지 않을 때만 업데이트!)
                     if (portalFbDb) {
                         const fbPromises = [];
                         if (safeBKey) {
-                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickKey}`).set(addrRecord));
-                            // ✨ 1차: 직원용 시스템이 바라보는 _portal_orders/${safeBKey}/customers 안의 해당 고객 주소 직접 즉시 업데이트!
+                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNickPinKey}`).set(addrRecord));
                             const targetOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey];
                             if (targetOrderNode && Array.isArray(targetOrderNode.customers)) {
                                 const updatedCustomers = targetOrderNode.customers.map(c => {
                                     if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
+                                        const cPin = normalizePin4(c.phoneLast4 || (c.address?.phone ? fixPhoneStr(c.address.phone).slice(-4) : ''));
+                                        // 만약 다른 전화번호 뒷 4자리를 가진 동명이인의 주문 카드라면 절대 덮어쓰지 않음!
+                                        if (cPin && newLast4 && cPin !== newLast4) return c;
                                         return {
                                             ...c,
                                             phoneLast4: newLast4 || c.phoneLast4,
@@ -2164,11 +2530,13 @@
                             }
                         }
                         if (currentUser._isLiveSource) {
-                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/__MAIN_LIVE__/${safeNickKey}`).set(addrRecord));
+                            fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/__MAIN_LIVE__/${safeNickPinKey}`).set(addrRecord));
                             const liveOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.__MAIN_LIVE__;
                             if (liveOrderNode && Array.isArray(liveOrderNode.customers)) {
                                 const updatedLiveCustomers = liveOrderNode.customers.map(c => {
                                     if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
+                                        const cPin = normalizePin4(c.phoneLast4 || (c.address?.phone ? fixPhoneStr(c.address.phone).slice(-4) : ''));
+                                        if (cPin && newLast4 && cPin !== newLast4) return c;
                                         return {
                                             ...c,
                                             phoneLast4: newLast4 || c.phoneLast4,
@@ -2189,8 +2557,8 @@
                                 fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/__MAIN_LIVE__/customers`).set(updatedLiveCustomers));
                             }
                         }
-                        fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickKey}`).set(addrRecord));
-                        fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_master_addrs/${safeNickKey}`).set(addrRecord));
+                        fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNickPinKey}`).set(addrRecord));
+                        fbPromises.push(portalFbDb.ref(`ember_live_data/_portal_master_addrs/${safeNickPinKey}`).set(addrRecord));
                         Promise.all(fbPromises).catch(() => {});
                     }
 
@@ -2199,10 +2567,10 @@
                     if (safeBKey) {
                         if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses) portalSheetCache.fbSnapshot._portal_broadcast_addresses = {};
                         if (!portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey]) portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey] = {};
-                        portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey][safeNickKey] = addrRecord;
+                        portalSheetCache.fbSnapshot._portal_broadcast_addresses[safeBKey][safeNickPinKey] = addrRecord;
                     }
                     if (!portalSheetCache.fbSnapshot._portal_addresses) portalSheetCache.fbSnapshot._portal_addresses = {};
-                    portalSheetCache.fbSnapshot._portal_addresses[safeNickKey] = addrRecord;
+                    portalSheetCache.fbSnapshot._portal_addresses[safeNickPinKey] = addrRecord;
 
                     // 2) 화면 상태 먼저 즉시 업데이트 (0.01초 즉시 반영!)
                     setCurrentUser(prev => ({
@@ -2216,12 +2584,24 @@
                             ? { ...item, phoneLast4: newLast4, address: updatedAddr, _hasBcastCustomAddr: true }
                             : item
                     ));
+                    setSavedAddressBook(prev => {
+                        const newEntry = {
+                            realname: cleanRealname,
+                            phone: cleanPhone,
+                            baseAddress: fullCombinedAddress,
+                            detailAddress: "",
+                            memo: cleanMemo,
+                            label: `🏷️ ${cleanLabel} ([${cleanTargetBName || '방금 저장'}])`
+                        };
+                        const filtered = (prev || []).filter(a => normalizeNick(a.baseAddress) !== normalizeNick(fullCombinedAddress));
+                        return [newEntry, ...filtered];
+                    });
                     setPinInput(newLast4);
                     setIsEditingAddress(false);
                     showToast(`✅ 배송지가 정상적으로 저장되었습니다!`);
 
-                    // 3) 구글 앱스 스크립트 Lock 충돌 방지를 위해 순차(Sequential) 전송!
-                    // [1단계] 사장님 마스터 시트('찐고객사전' 최신 1건 변경/신규등록 + 서버 내부에서 직원용 시트 해당 방송 블록까지 동시 업데이트!)
+                    // 3) 구글 앱스 스크립트 전송 (🛡️ forceOverwrite: false로 설정하여 찐고객사전에 다른 전화번호를 쓰는 동명이인이 있을 때 절대 덮어쓰지 않고 별도 행으로 보존!)
+                    const prevUserPhone = fixPhoneStr(currentUser?.address?.phone || '');
                     const baseAddrData = {
                         nickname: currentUser.nickname,
                         '닉네임': currentUser.nickname,
@@ -2229,6 +2609,7 @@
                         '수령인명': updatedAddr.realname,
                         phone: cleanPhone ? "'" + cleanPhone : '',
                         '연락처': cleanPhone ? "'" + cleanPhone : '',
+                        prevPhone: prevUserPhone,
                         address: fullCombinedAddress,
                         '주소': fullCombinedAddress,
                         memo: updatedAddr.memo,
@@ -2236,7 +2617,7 @@
                         '요청사항': updatedAddr.memo,
                         broadcastName: cleanTargetBName,
                         sheetTabName: currentUser.sheetTabName || ('주문_' + cleanTargetBName),
-                        forceOverwrite: true,
+                        forceOverwrite: false,
                         updatedByPortalAt: Date.now()
                     };
 
@@ -2784,7 +3165,7 @@
                                             <span>{isRefreshing ? "갱신중..." : "새로고침"}</span>
                                         </button>
                                         <button 
-                                            onClick={() => { setCurrentUser(null); setOrderHistoryList([]); setCustomerCsList([]); setSelectedBroadcastIdx(0); setNickInput(""); setPinInput(""); }}
+                                            onClick={() => { setCurrentUser(null); setOrderHistoryList([]); setSavedAddressBook([]); setCustomerCsList([]); setSelectedBroadcastIdx(0); setNickInput(""); setPinInput(""); }}
                                             className="text-[12px] font-bold bg-gray-50 hover:bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg border border-gray-200 transition-colors"
                                         >
                                             닫기
@@ -2814,9 +3195,10 @@
                                             {orderHistoryList.map((hist, idx) => {
                                                 const isSelected = idx === selectedBroadcastIdx;
                                                 const cleanTitle = cleanBroadcastKey(hist.broadcastName || `주문서 ${idx + 1}`);
+                                                const recipientTag = extractRecipientTagFromNick(hist.nickname);
                                                 return (
                                                     <button
-                                                        key={cleanTitle + '_' + idx}
+                                                        key={cleanTitle + '_' + (hist.nickname || '') + '_' + idx}
                                                         type="button"
                                                         onClick={() => handleSelectBroadcast(idx)}
                                                         className={`px-3 py-2 rounded-lg text-[13px] font-extrabold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 border ${
@@ -2826,12 +3208,17 @@
                                                         }`}
                                                     >
                                                         <span>{cleanTitle}</span>
+                                                        {recipientTag && (
+                                                            <span className={`text-[11px] px-1.5 py-0.5 rounded font-black ${isSelected ? 'bg-amber-300 text-gray-900' : 'bg-purple-100 text-purple-800 border border-purple-300'}`}>
+                                                                🏠 {recipientTag}
+                                                            </span>
+                                                        )}
                                                         {hist.isNoShow && (
                                                             <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${isSelected ? 'bg-white text-red-700' : 'bg-red-600 text-white'}`}>
                                                                 노쇼
                                                             </span>
                                                         )}
-                                                        {idx === 0 && !hist.isNoShow && (
+                                                        {idx === 0 && !hist.isNoShow && !recipientTag && (
                                                             <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${isSelected ? 'bg-white text-blue-700' : 'bg-blue-100 text-blue-700'}`}>
                                                                 최신
                                                             </span>
@@ -3156,6 +3543,7 @@
                                                 <button 
                                                     onClick={() => {
                                                         setAddrForm({
+                                                            label: extractRecipientTagFromNick(currentUser.nickname) || currentUser.address?.addressLabel || "우리집",
                                                             realname: currentUser.address?.realname || "",
                                                             phone: fixPhoneStr(currentUser.address?.phone || ""),
                                                             zipcode: currentUser.address?.zipcode || "",
@@ -3163,13 +3551,15 @@
                                                             detailAddress: currentUser.address?.detailAddress || "",
                                                             memo: currentUser.address?.memo || ""
                                                         });
+                                                        setSplitMode("all");
+                                                        setSelectedSplitItemIds({});
                                                         setAgreePrivacy(true);
                                                         setAgreeThirdParty(true);
                                                         setIsEditingAddress(true);
                                                     }}
-                                                    className="text-[12.5px] font-bold text-gray-800 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded border border-gray-300 shrink-0"
+                                                    className="text-[12px] font-extrabold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 shrink-0"
                                                 >
-                                                    변경
+                                                    {activeItems.length > 1 ? '배송지 변경 / 주소나누기(엄마·동생 등)' : (savedAddressBook.length > 1 ? `배송지 변경 / 이전주소(${savedAddressBook.length})` : '변경')}
                                                 </button>
                                             )
                                         )}
@@ -3177,7 +3567,12 @@
 
                                     {(!isEditingAddress || isAddressLockedByTracking) && currentUser.address ? (
                                         <div className="text-[14px] space-y-1.5 bg-gray-50 p-3 rounded border border-gray-200">
-                                            <div className="flex items-center gap-2 font-extrabold text-gray-900 text-[15px]">
+                                            <div className="flex items-center gap-2 font-extrabold text-gray-900 text-[15px] flex-wrap">
+                                                {(extractRecipientTagFromNick(currentUser.nickname) || currentUser.address.addressLabel) && (
+                                                    <span className="text-[11.5px] font-black bg-purple-100 text-purple-800 border border-purple-300 px-2 py-0.5 rounded">
+                                                        🏷️ {extractRecipientTagFromNick(currentUser.nickname) || currentUser.address.addressLabel}
+                                                    </span>
+                                                )}
                                                 <span>{maskName(currentUser.address.realname)}</span>
                                                 <span className="text-gray-300">·</span>
                                                 <span>{maskPhone(currentUser.address.phone)}</span>
@@ -3203,6 +3598,164 @@
                                                     <span>등록된 배송지가 없습니다. 배송지를 입력해주세요.</span>
                                                 </div>
                                             )}
+
+                                            {/* 🔀 한 방송에서 2개 이상 주문했을 때: 일부 상품만 엄마/동생/사무실 등 다른 주소로 나눠 보내기 선택 */}
+                                            {activeItems.length > 1 && (
+                                                <div className="bg-purple-50/80 border border-purple-200 rounded-xl p-3 space-y-2">
+                                                    <div className="text-[12.5px] font-extrabold text-purple-900 flex items-center gap-1">
+                                                        <Icon name="git-branch" weight="bold" size={15} className="text-purple-600" />
+                                                        <span>한 방송 상품을 여러 곳(엄마·동생·사무실)으로 나눠 보내시나요?</span>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSplitMode("all")}
+                                                            className={`py-2 px-2 rounded-lg text-[12px] font-extrabold border transition ${
+                                                                splitMode === "all"
+                                                                    ? 'bg-purple-700 text-white border-purple-800 shadow-sm'
+                                                                    : 'bg-white text-gray-700 border-purple-200 hover:bg-purple-100/50'
+                                                            }`}
+                                                        >
+                                                            📦 전체 상품 한 곳으로
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSplitMode("split")}
+                                                            className={`py-2 px-2 rounded-lg text-[12px] font-extrabold border transition ${
+                                                                splitMode === "split"
+                                                                    ? 'bg-purple-700 text-white border-purple-800 shadow-sm'
+                                                                    : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-100/50'
+                                                            }`}
+                                                        >
+                                                            ✂️ 일부 상품만 다른 주소로!
+                                                        </button>
+                                                    </div>
+
+                                                    {splitMode === "split" && (
+                                                        <div className="bg-white rounded-lg p-2.5 border border-purple-200 space-y-1.5">
+                                                            <div className="text-[11.5px] font-extrabold text-purple-800 mb-1">
+                                                                👇 아래에서 <b>다른 주소(엄마·동생·사무실 등)로 따로 보낼 상품</b>을 체크해 주세요:
+                                                            </div>
+                                                            {activeItems.map((it, idx) => {
+                                                                const itemKey = String(it.id ?? idx);
+                                                                const isChecked = Boolean(selectedSplitItemIds[itemKey]);
+                                                                return (
+                                                                    <label
+                                                                        key={itemKey}
+                                                                        className={`flex items-center justify-between gap-2 p-2 rounded-lg border cursor-pointer text-[13px] transition ${
+                                                                            isChecked ? 'bg-purple-100/80 border-purple-400 font-extrabold text-purple-950' : 'bg-gray-50 border-gray-200 text-gray-700'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isChecked}
+                                                                                onChange={(e) => setSelectedSplitItemIds(prev => ({ ...prev, [itemKey]: e.target.checked }))}
+                                                                                className="w-4 h-4 accent-purple-600 rounded shrink-0"
+                                                                            />
+                                                                            <span className="truncate">{it.product}</span>
+                                                                        </div>
+                                                                        <span className="shrink-0 font-bold text-[12px]">{it.qty}개 · {Number(it.price).toLocaleString()}원</span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                            <div className="text-[11px] text-purple-700 font-bold pt-1">
+                                                                💡 체크하지 않은 나머지 상품은 현재 주소에 그대로 유지되며, 체크한 상품만 새 배송지 탭으로 분리됩니다!
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* 🏠 일반 쇼핑몰처럼 내가 그동안 사용했던 배송지 목록에서 원클릭으로 선택하는 영역 */}
+                                            {savedAddressBook.length > 0 && (
+                                                <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[12.5px] font-extrabold text-blue-900 flex items-center gap-1">
+                                                            <Icon name="clock-counter-clockwise" weight="bold" size={15} className="text-blue-600" />
+                                                            <span>내가 사용했던 배송지 선택 ({savedAddressBook.length}건)</span>
+                                                        </span>
+                                                        <span className="text-[11px] font-bold text-blue-600">터치 시 자동입력</span>
+                                                    </div>
+                                                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                                                        {savedAddressBook.map((item, idx) => {
+                                                            const isCurrentlySelected = normalizeNick(addrForm.baseAddress) === normalizeNick(item.baseAddress) && fixPhoneStr(addrForm.phone) === fixPhoneStr(item.phone);
+                                                            return (
+                                                                <button
+                                                                    key={idx}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const cleanSavedLabel = String(item.label || '').replace(/^🏷️\s*/, '').replace(/\s*\(\[.*?\]\)$/, '').trim();
+                                                                        setAddrForm(prev => ({
+                                                                            ...prev,
+                                                                            label: (cleanSavedLabel && !cleanSavedLabel.includes('배송지')) ? cleanSavedLabel : prev.label,
+                                                                            realname: item.realname || stripRecipientTagFromNick(currentUser.nickname) || "",
+                                                                            phone: fixPhoneStr(item.phone || ""),
+                                                                            zipcode: "",
+                                                                            baseAddress: item.baseAddress || "",
+                                                                            detailAddress: "",
+                                                                            memo: item.memo || ""
+                                                                        }));
+                                                                        setAgreePrivacy(true);
+                                                                        setAgreeThirdParty(true);
+                                                                        showToast("📦 선택한 이전 배송지가 자동으로 입력되었습니다! 아래 [배송지 저장]을 눌러주세요.");
+                                                                    }}
+                                                                    className={`w-full text-left p-2.5 rounded-lg border transition-all flex flex-col gap-0.5 ${
+                                                                        isCurrentlySelected
+                                                                            ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                                                                            : 'bg-white hover:bg-blue-100/60 text-gray-900 border-blue-200'
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center justify-between gap-1">
+                                                                        <span className={`text-[12.5px] font-extrabold ${isCurrentlySelected ? 'text-white' : 'text-gray-900'}`}>
+                                                                            {maskName(item.realname || currentUser.nickname)} · {maskPhone(item.phone)}
+                                                                        </span>
+                                                                        <span className={`text-[10.5px] font-extrabold px-1.5 py-0.5 rounded shrink-0 ${
+                                                                            isCurrentlySelected ? 'bg-white text-blue-700' : 'bg-blue-100 text-blue-700'
+                                                                        }`}>
+                                                                            {isCurrentlySelected ? '✓ 선택됨' : item.label}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className={`text-[12px] font-medium truncate ${isCurrentlySelected ? 'text-blue-100' : 'text-gray-600'}`}>
+                                                                        {maskAddress(item.baseAddress, '', '')}
+                                                                    </div>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 🏷️ 배송지 별칭(우리집 / 사무실 / 엄마 / 동생 등) 선택 바 */}
+                                            <div>
+                                                <label className="block text-[12px] font-bold text-gray-700 mb-1">
+                                                    🏷️ 배송지 별칭 (다음에 고르기 쉽게 이름을 붙여주세요)
+                                                </label>
+                                                <div className="flex items-center gap-1 flex-wrap mb-1.5">
+                                                    {["우리집", "사무실", "엄마", "동생", "선물"].map(preset => (
+                                                        <button
+                                                            key={preset}
+                                                            type="button"
+                                                            onClick={() => setAddrForm(prev => ({ ...prev, label: preset }))}
+                                                            className={`px-2.5 py-1 rounded-lg text-[11.5px] font-extrabold border transition ${
+                                                                addrForm.label === preset
+                                                                    ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
+                                                                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                                                            }`}
+                                                        >
+                                                            {preset === "우리집" ? "🏠 우리집" : preset === "사무실" ? "🏢 사무실" : preset === "엄마" ? "💝 엄마" : preset === "동생" ? "🎁 동생" : "🎀 선물"}
+                                                        </button>
+                                                    ))}
+                                                    <input
+                                                        type="text"
+                                                        value={addrForm.label}
+                                                        onChange={(e) => setAddrForm({ ...addrForm, label: e.target.value })}
+                                                        placeholder="직접입력 (예: 언니네)"
+                                                        className="w-28 px-2.5 py-1 bg-gray-50 border border-gray-300 rounded-lg text-[12px] font-extrabold text-gray-900 outline-none focus:border-blue-600 focus:bg-white"
+                                                    />
+                                                </div>
+                                            </div>
+
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div>
                                                     <label className="block text-[12px] font-bold text-gray-700 mb-1">수령인 성함 *</label>
