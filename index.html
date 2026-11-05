@@ -95,10 +95,10 @@
         }
 
         // 버전 관리 규칙: 소수점 뒷자리가 99를 넘으면 앞자리가 +1 증가 (예: v2.99 -> v3.00)
-        const VERSION_STEP = 356; // 356 => v3.56 (동명이인 주소 섞임 및 오배송 원천 차단 패치)
+        const VERSION_STEP = 358; // 358 => v3.58 (2026.11.05 최신 스크립트 URL 반영)
         const PORTAL_VERSION = `v${Math.floor(VERSION_STEP / 100)}.${String(VERSION_STEP % 100).padStart(2, '0')}`;
-        const PORTAL_UPDATED_DATE = "2026.11.04";
-        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbzP4BvhxNoi0GbKZi1NTkrIxiqbZnL61MjjHIQi2NnyChrPF8Uk0An9XewdCoIJmSy7/exec";
+        const PORTAL_UPDATED_DATE = "2026.11.05";
+        const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyxSODU9tlyw1RaB-jVTlon7m-5W19FEeiAxVda40CV9uVoJA07LlgR7DqwP7XAXTBq/exec";
         const DEFAULT_STAFF_SHEET_ID = "1sM5bkDqEjD6Kpxu2yoJe2aiMuqpcWLMAIGpY3iL5_x8";
         const DEFAULT_MASTER_SHEET_ID = "1B8SBMX18_Px1CpRHuDTxqodqudiTrf6NfVoptjHtnGQ";
         const KAKAO_CHANNEL_URL = "http://pf.kakao.com/_IuqtG/chat";
@@ -364,10 +364,6 @@
             return 0;
         };
 
-        const isFlexibleNickMatch = (rowNick, inputNick, rowRealname = "") => {
-            return getNickMatchScore(rowNick, rowRealname, inputNick) > 0;
-        };
-
         const fixPhoneStr = (p) => {
             if (!p) return "";
             let c = String(p).replace(/[^0-9]/g, "");
@@ -459,30 +455,6 @@
                 .replace(/\s*주문\s*목록\s*/g, '')
                 .replace(/\s+/g, ' ')
                 .trim();
-        };
-
-        // 방송 제목에서 월/일 날짜 키(예: "10/20", "10/18")만 추출하는 헬퍼 함수
-        const extractMonthDayKey = (titleOrTab) => {
-            const s = cleanBroadcastKey(titleOrTab);
-            if (!s) return '';
-            const fullMatch = s.match(/(?:20)?(\d{2})[./\-\s년]+(\d{1,2})[./\-\s월]+(\d{1,2})/);
-            if (fullMatch) {
-                return `${parseInt(fullMatch[2], 10)}/${parseInt(fullMatch[3], 10)}`;
-            }
-            const mdMatch = s.match(/(?:^|[^\d])(1[0-2]|0?[1-9])[./\-\s월]+([0-2]?\d|3[01])(?:일|\b|\s|[^0-9])/);
-            if (mdMatch) {
-                return `${parseInt(mdMatch[1], 10)}/${parseInt(mdMatch[2], 10)}`;
-            }
-            return '';
-        };
-
-        // 주문 품목 구성이 동일한지 판별하기 위한 품목 시그니처 생성 함수
-        const getOrderItemsSignature = (itemObj) => {
-            if (!itemObj || !Array.isArray(itemObj.items) || itemObj.items.length === 0) return '';
-            return itemObj.items
-                .map(it => `${normalizeNick(it.product || '')}:${Number(it.qty) || 1}:${Number(it.price) || 0}`)
-                .sort()
-                .join('|');
         };
 
         const extractBroadcastDateScore = (titleOrTab, isLiveItem = false) => {
@@ -1819,7 +1791,7 @@
                     }
                 });
 
-                // 3) 사장님 시트 '찐고객사전'에 등록된 배송지
+                // 3) 사장님 시트 '찐고객사전'에 등록된 배송지 (닉네임 뒤에 붙은 '깔로(엄마)', '깔로(사무실)' 별칭도 자동 인식!)
                 if (Array.isArray(portalSheetCache.masterDictRows)) {
                     portalSheetCache.masterDictRows.forEach(r => {
                         if (!r) return;
@@ -1829,7 +1801,9 @@
                         const addr = String(r['주소'] || r['address'] || r['배송지'] || r.col_3 || (Array.isArray(r) ? r[3] : '') || '').trim();
                         const memo = String(r['배송메모'] || r['memo'] || r['요청사항'] || r.col_4 || (Array.isArray(r) ? r[4] : '') || '').trim();
                         if (isSameUserNickAndPin(n, ph)) {
-                            addCandidate(rName || n, ph, addr, memo, '찐고객사전 등록 배송지');
+                            const tagInDictNick = extractRecipientTagFromNick(n);
+                            const labelDisplay = tagInDictNick ? `🏷️ ${tagInDictNick}` : '🏠 기본 배송지';
+                            addCandidate(rName || stripRecipientTagFromNick(n), ph, addr, memo, labelDisplay);
                         }
                     });
                 }
@@ -1970,20 +1944,28 @@
                     setSavedAddressBook(myAddrBook);
 
                     // 만약 주문서 카드에 아직 주소가 비어있는데 본인의 이전 배송지(myAddrBook)가 있다면 자동으로 연결해 보여줌!
+                    // (단, '깔로(엄마)'처럼 다중배송 별칭이 붙은 카드에는 해당 별칭 주소가 있을 때만 연결하고 본가 주소를 억지로 덮어씌우지 않음)
                     const enrichedSorted = sorted.map(card => {
                         if ((!card.address || !card.address.baseAddress) && myAddrBook.length > 0) {
-                            return {
-                                ...card,
-                                address: {
-                                    realname: myAddrBook[0].realname || card.nickname,
-                                    phone: myAddrBook[0].phone || '',
-                                    zipcode: '',
-                                    baseAddress: myAddrBook[0].baseAddress,
-                                    detailAddress: '',
-                                    memo: myAddrBook[0].memo || '',
-                                    updatedAt: ''
-                                }
-                            };
+                            const cardTag = extractRecipientTagFromNick(card.nickname);
+                            const matchedSavedAddr = cardTag
+                                ? myAddrBook.find(a => String(a.label || '').includes(cardTag))
+                                : myAddrBook[0];
+                            if (matchedSavedAddr) {
+                                return {
+                                    ...card,
+                                    address: {
+                                        addressLabel: cardTag || '우리집',
+                                        realname: matchedSavedAddr.realname || stripRecipientTagFromNick(card.nickname),
+                                        phone: matchedSavedAddr.phone || '',
+                                        zipcode: '',
+                                        baseAddress: matchedSavedAddr.baseAddress,
+                                        detailAddress: '',
+                                        memo: matchedSavedAddr.memo || '',
+                                        updatedAt: ''
+                                    }
+                                };
+                            }
                         }
                         return card;
                     });
@@ -2394,58 +2376,115 @@
 
                     setIsSavingAddress(true);
                     try {
-                        if (portalFbDb && safeBKey) {
-                            const splitAddrRecord = {
-                                nickname: newSplitNick,
-                                addressLabel: splitTag,
-                                realname: cleanRealname,
-                                phone: cleanPhone,
-                                address: fullCombinedAddress,
-                                baseAddress: fullCombinedAddress,
-                                memo: cleanMemo,
-                                broadcastName: cleanTargetBName,
-                                updatedAt: nowStr
-                            };
-                            await portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNewNickKey}`).set(splitAddrRecord);
+                        const safeNewNickPinKey = newLast4 ? `${safeNewNickKey}___${newLast4}` : safeNewNickKey;
+                        const splitAddrRecord = {
+                            nickname: newSplitNick,
+                            phoneLast4: newLast4,
+                            addressLabel: splitTag,
+                            realname: cleanRealname,
+                            phone: cleanPhone,
+                            address: fullCombinedAddress,
+                            baseAddress: fullCombinedAddress,
+                            memo: cleanMemo,
+                            broadcastName: cleanTargetBName,
+                            updatedAt: nowStr
+                        };
 
-                            const targetOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey];
-                            if (targetOrderNode && Array.isArray(targetOrderNode.customers)) {
-                                const nextCusts = [];
-                                targetOrderNode.customers.forEach(c => {
-                                    if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
-                                        nextCusts.push({ ...c, items: remainItems, shipping: remainShip });
-                                        nextCusts.push({
-                                            sheetTabName: c.sheetTabName || ('주문_' + cleanTargetBName),
-                                            nickname: newSplitNick,
-                                            phoneLast4: newLast4,
-                                            broadcastName: cleanTargetBName,
-                                            isVip: isVipCust,
-                                            isNoShow: false,
-                                            credit: 0,
-                                            freeShippingThreshold: fThresh,
-                                            cardFeeRate: Number(c.cardFeeRate) || 10,
-                                            isCard: '',
-                                            cashReceipt: 'none',
-                                            shipping: splitShip,
-                                            depositTotal: 0,
-                                            deposits: [],
-                                            items: splitItems,
-                                            address: splitAddrObj,
-                                            trackingNumbers: [],
-                                            isConfirmed: false
-                                        });
-                                    } else if (c) {
-                                        nextCusts.push(c);
-                                    }
-                                });
-                                targetOrderNode.customers = nextCusts;
-                                await portalFbDb.ref(`ember_live_data/_portal_orders/${safeBKey}`).update({
-                                    customers: nextCusts,
-                                    updatedAt: Date.now(),
-                                    updatedBy: 'staff'
-                                });
+                        if (portalFbDb) {
+                            const fbSplitPromises = [];
+                            if (safeBKey) {
+                                fbSplitPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/${safeBKey}/${safeNewNickPinKey}`).set(splitAddrRecord));
                             }
+                            if (currentUser._isLiveSource) {
+                                fbSplitPromises.push(portalFbDb.ref(`ember_live_data/_portal_broadcast_addresses/__MAIN_LIVE__/${safeNewNickPinKey}`).set(splitAddrRecord));
+                            }
+                            fbSplitPromises.push(portalFbDb.ref(`ember_live_data/_portal_addresses/${safeNewNickPinKey}`).set(splitAddrRecord));
+
+                            // 사장님 주문서(webapp1) 및 직원용 시스템(webapp4)에 즉시 분리 이벤트를 전달하는 실시간 큐
+                            const splitEventId = `split_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+                            fbSplitPromises.push(portalFbDb.ref(`ember_live_data/_portal_splits/${splitEventId}`).set({
+                                id: splitEventId,
+                                broadcastName: cleanTargetBName,
+                                isLiveSource: Boolean(currentUser._isLiveSource),
+                                originalNickname: currentUser.nickname,
+                                splitNickname: newSplitNick,
+                                phoneLast4: newLast4,
+                                splitItems: splitItems,
+                                remainItems: remainItems,
+                                remainShipping: remainShip,
+                                splitShipping: splitShip,
+                                address: splitAddrObj,
+                                createdAt: Date.now()
+                            }));
+
+                            const updateOrderNodeWithSplit = (nodeKey) => {
+                                const targetOrderNode = portalSheetCache.fbSnapshot?._portal_orders?.[nodeKey];
+                                if (targetOrderNode && Array.isArray(targetOrderNode.customers)) {
+                                    const nextCusts = [];
+                                    targetOrderNode.customers.forEach(c => {
+                                        if (c && normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)) {
+                                            nextCusts.push({ ...c, items: remainItems, shipping: remainShip });
+                                            nextCusts.push({
+                                                sheetTabName: c.sheetTabName || ('주문_' + cleanTargetBName),
+                                                nickname: newSplitNick,
+                                                phoneLast4: newLast4,
+                                                broadcastName: cleanTargetBName,
+                                                isVip: isVipCust,
+                                                isNoShow: false,
+                                                credit: 0,
+                                                freeShippingThreshold: fThresh,
+                                                cardFeeRate: Number(c.cardFeeRate) || 10,
+                                                isCard: '',
+                                                cashReceipt: 'none',
+                                                shipping: splitShip,
+                                                depositTotal: 0,
+                                                deposits: [],
+                                                items: splitItems,
+                                                address: splitAddrObj,
+                                                trackingNumbers: [],
+                                                isConfirmed: true
+                                            });
+                                        } else if (c) {
+                                            nextCusts.push(c);
+                                        }
+                                    });
+                                    targetOrderNode.customers = nextCusts;
+                                    fbSplitPromises.push(portalFbDb.ref(`ember_live_data/_portal_orders/${nodeKey}`).update({
+                                        customers: nextCusts,
+                                        updatedAt: Date.now(),
+                                        updatedBy: 'staff'
+                                    }));
+                                }
+                            };
+
+                            if (safeBKey) updateOrderNodeWithSplit(safeBKey);
+                            if (currentUser._isLiveSource) updateOrderNodeWithSplit('__MAIN_LIVE__');
+                            await Promise.all(fbSplitPromises);
                         }
+
+                        // 백그라운드로 사장님 마스터 시트 및 직원용 시트 원본에도 품목 분리 즉시 반영
+                        const splitPayload = {
+                            originalNickname: currentUser.nickname,
+                            splitNickname: newSplitNick,
+                            broadcastName: cleanTargetBName,
+                            splitItems: splitItems,
+                            remainShipping: remainShip,
+                            splitShipping: splitShip,
+                            realname: cleanRealname,
+                            phone: cleanPhone,
+                            address: fullCombinedAddress,
+                            memo: cleanMemo,
+                            pin4: newLast4
+                        };
+                        fetchGasWithRetry(DEFAULT_GAS_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            body: JSON.stringify({
+                                action: 'split_customer_order',
+                                masterId: DEFAULT_MASTER_SHEET_ID,
+                                data: splitPayload
+                            })
+                        }, 1).catch(() => {});
 
                         const nextHistory = [...orderHistoryList];
                         nextHistory.splice(selectedBroadcastIdx, 1, updatedOriginCard, newSplitCard);
@@ -2599,12 +2638,12 @@
                     setPinInput(newLast4);
                     setIsEditingAddress(false);
                     showToast(`✅ 배송지가 정상적으로 저장되었습니다!`);
-
-                    // 3) 구글 앱스 스크립트 전송 (🛡️ forceOverwrite: false로 설정하여 찐고객사전에 다른 전화번호를 쓰는 동명이인이 있을 때 절대 덮어쓰지 않고 별도 행으로 보존!)
+                    // 3) 구글 앱스 스크립트 전송 (배송지 별칭 addressLabel까지 함께 보내어 찐고객사전 시트에 '닉네임(별칭)'으로 구분 저장!)
                     const prevUserPhone = fixPhoneStr(currentUser?.address?.phone || '');
                     const baseAddrData = {
                         nickname: currentUser.nickname,
                         '닉네임': currentUser.nickname,
+                        addressLabel: cleanLabel,
                         realname: updatedAddr.realname,
                         '수령인명': updatedAddr.realname,
                         phone: cleanPhone ? "'" + cleanPhone : '',
@@ -2685,6 +2724,8 @@
                 const cleanTargetBName = cleanBroadcastKey(currentUser.broadcastName || '');
                 const safeBKey = cleanTargetBName.replace(/[.#$\[\]\/]/g, '_');
                 const safeNickKey = String(currentUser.nickname || '').replace(/[.#$\[\]\/]/g, '_');
+                const pin4Key = normalizePin4(currentUser.phoneLast4 || pinInput || (currentUser.address?.phone ? fixPhoneStr(currentUser.address.phone).slice(-4) : ''));
+                const safeNickPinKey = pin4Key ? `${safeNickKey}___${pin4Key}` : safeNickKey;
 
                 // 1) 화면 상태부터 0.01초 만에 즉시 [주문 및 배송지 확정 완료]로 전환! (네트워크 지연으로 인한 오류/멈춤 ZERO!)
                 setCurrentUser(prev => ({
@@ -2700,33 +2741,30 @@
                 showToast("✅ 주문 및 배송지 확정이 완료되었습니다!");
 
                 // 로컬 캐시 스냅샷에도 즉시 기록하여 새로고침 시 절대 풀리지 않게 보장
-                if (!portalSheetCache.fbSnapshot) portalSheetCache.fbSnapshot = {};
-                if (!portalSheetCache.fbSnapshot._portal_confirmed) portalSheetCache.fbSnapshot._portal_confirmed = {};
-                portalSheetCache.fbSnapshot._portal_confirmed[safeNickKey] = {
+                const confPayload = {
                     nickname: currentUser.nickname,
+                    phoneLast4: pin4Key,
                     broadcastName: cleanTargetBName,
                     confirmedAt: nowStr
                 };
+                if (!portalSheetCache.fbSnapshot) portalSheetCache.fbSnapshot = {};
+                if (!portalSheetCache.fbSnapshot._portal_confirmed) portalSheetCache.fbSnapshot._portal_confirmed = {};
+                portalSheetCache.fbSnapshot._portal_confirmed[safeNickKey] = confPayload;
+                portalSheetCache.fbSnapshot._portal_confirmed[safeNickPinKey] = confPayload;
                 if (safeBKey) {
                     if (!portalSheetCache.fbSnapshot._portal_broadcast_confirmed) portalSheetCache.fbSnapshot._portal_broadcast_confirmed = {};
                     if (!portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey]) portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey] = {};
-                    portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey][safeNickKey] = {
-                        nickname: currentUser.nickname,
-                        broadcastName: cleanTargetBName,
-                        confirmedAt: nowStr
-                    };
+                    portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey][safeNickKey] = confPayload;
+                    portalSheetCache.fbSnapshot._portal_broadcast_confirmed[safeBKey][safeNickPinKey] = confPayload;
                 }
 
                 // 2) 파이어베이스 실시간 클라우드에 즉시 확정 상태 전송 (사장님 주문서 + 직원용 시스템 실시간 연동)
                 if (portalFbDb) {
-                    const confPayload = {
-                        nickname: currentUser.nickname,
-                        broadcastName: cleanTargetBName,
-                        confirmedAt: nowStr
-                    };
                     portalFbDb.ref(`ember_live_data/_portal_confirmed/${safeNickKey}`).set(confPayload).catch(() => {});
+                    portalFbDb.ref(`ember_live_data/_portal_confirmed/${safeNickPinKey}`).set(confPayload).catch(() => {});
                     if (safeBKey) {
                         portalFbDb.ref(`ember_live_data/_portal_broadcast_confirmed/${safeBKey}/${safeNickKey}`).set(confPayload).catch(() => {});
+                        portalFbDb.ref(`ember_live_data/_portal_broadcast_confirmed/${safeBKey}/${safeNickPinKey}`).set(confPayload).catch(() => {});
                         if (portalSheetCache.fbSnapshot?._portal_orders?.[safeBKey]?.customers) {
                             const updatedCusts = portalSheetCache.fbSnapshot._portal_orders[safeBKey].customers.map(c =>
                                 normalizeNick(c.nickname) === normalizeNick(currentUser.nickname)
@@ -4010,8 +4048,6 @@
                                                 const hasReturnItem = (cs.items || []).some(it => it.csTag === '반품');
                                                 const showRefundSection = Number(cs.refundAmount) > 0 || Boolean(cs.refundAccount) || hasReturnItem;
                                                 const isEditingAcc = editingCsAccountMap[cs.id] !== undefined;
-                                                const csTrackDigits = String(cs.csTracking || '').replace(/[^0-9]/g, '');
-                                                const csTrkInfo = csTrackDigits ? (trackingMap[csTrackDigits] || { loading: true, steps: [] }) : null;
 
                                                 return (
                                                     <div key={cs.id || cIdx} className="rounded-xl border border-gray-200 overflow-hidden bg-gray-50/60">
